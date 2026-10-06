@@ -1,4 +1,5 @@
 import { Application } from 'pixi.js';
+import { preloadAssets } from './game/assets.ts';
 import { Game } from './game/Game.ts';
 import { Hud } from './ui/hud.ts';
 
@@ -17,7 +18,9 @@ async function start() {
     preference: 'webgl',
   });
   stage.appendChild(app.canvas);
-  hud.hideSplash(0.7);
+  hud.hideSplash(0.6);
+  await preloadAssets();
+  hud.hideSplash(0.8);
   const game = new Game(app, hud);
   // Exposed for automated play-testing in the browser.
   (window as unknown as { colorMaze: Game }).colorMaze = game;

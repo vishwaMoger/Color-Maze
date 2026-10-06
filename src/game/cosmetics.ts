@@ -3,10 +3,13 @@
 export interface BallSkin {
   id: string;
   name: string;
-  /** Highlight, body and shade colours of the sphere. */
-  colors: [string, string, string];
-  shine: string;
   unlock: number;
+  /** Lit sphere colours: highlight, body, shade. Used when there is no image. */
+  colors?: [string, string, string];
+  /** Extra-sharp specular for metal. */
+  metal?: boolean;
+  /** Textured 3D ball art (see assets.ts). */
+  image?: string;
 }
 
 export interface PaintColor {
@@ -20,12 +23,18 @@ export interface PaintColor {
 }
 
 export const BALLS: BallSkin[] = [
-  { id: 'sunny', name: 'Sunny', colors: ['#fff36a', '#ffcf2e', '#ff8f14'], shine: 'rgba(255,255,170,0.95)', unlock: 1 },
-  { id: 'pearl', name: 'Pearl', colors: ['#ffffff', '#eae6ff', '#9a8fd6'], shine: 'rgba(255,255,255,0.95)', unlock: 4 },
-  { id: 'ruby', name: 'Ruby', colors: ['#ffc2cf', '#ff3f6c', '#a3123a'], shine: 'rgba(255,220,230,0.9)', unlock: 9 },
-  { id: 'mint', name: 'Mint', colors: ['#e6fff2', '#5fe3a8', '#13906a'], shine: 'rgba(235,255,245,0.9)', unlock: 16 },
-  { id: 'grape', name: 'Grape', colors: ['#f0d9ff', '#a35cff', '#5a1fb0'], shine: 'rgba(245,230,255,0.9)', unlock: 24 },
-  { id: 'gold', name: 'Gold', colors: ['#fff8d6', '#f5c542', '#a86a00'], shine: 'rgba(255,255,235,1)', unlock: 35 },
+  { id: 'sunny', name: 'Sunny', unlock: 1, colors: ['#fff7b0', '#ffd23a', '#e98a10'] },
+  { id: 'pearl', name: 'Pearl', unlock: 3, colors: ['#ffffff', '#ece8ff', '#a79cd8'] },
+  { id: 'earth', name: 'Earth', unlock: 6, image: 'earth' },
+  { id: 'ruby', name: 'Ruby', unlock: 9, colors: ['#ffb3c4', '#f2295a', '#8e0f30'] },
+  { id: 'softball', name: 'Softball', unlock: 12, image: 'softball' },
+  { id: 'volley', name: 'Volley', unlock: 16, image: 'volley' },
+  { id: 'mint', name: 'Mint', unlock: 20, colors: ['#e6fff3', '#4fdca0', '#0f8a62'] },
+  { id: 'basket', name: 'Hoops', unlock: 24, image: 'basket' },
+  { id: 'soccer', name: 'Soccer', unlock: 30, image: 'soccer' },
+  { id: 'moon', name: 'Moon', unlock: 36, image: 'moon' },
+  { id: 'eight', name: '8-Ball', unlock: 44, image: 'eight' },
+  { id: 'gold', name: 'Gold', unlock: 55, colors: ['#fffbe0', '#f2c230', '#9a5e00'], metal: true },
 ];
 
 export const PAINTS: PaintColor[] = [
