@@ -1,4 +1,4 @@
-import { analyze, DIR_LIST, DIRS, solve, type Grid, type Level, type Point } from './core.ts';
+import { analyze, DIR_LIST, DIRS, solve, STOPPER, type Grid, type Level, type Point } from './core.ts';
 
 // Seeded PRNG so level N is the same maze for every player.
 export function mulberry32(seed: number): () => number {
@@ -76,7 +76,7 @@ export function crop(grid: Grid, start: Point): { grid: Grid; start: Point } {
   let maxY = -1;
   grid.forEach((row, y) =>
     row.forEach((c, x) => {
-      if (c !== 0) return;
+      if (c === 1) return;
       minX = Math.min(minX, x);
       maxX = Math.max(maxX, x);
       minY = Math.min(minY, y);
@@ -89,8 +89,52 @@ export function crop(grid: Grid, start: Point): { grid: Grid; start: Point } {
   };
 }
 
+/**
+ * Open room with stopper tiles: without stoppers the ball could only run
+ * along the edges, so their placement is the puzzle.
+ */
+function room(rng: () => number, n: number): Level | null {
+  const w = 6 + Math.floor(rng() * 4);
+  const h = 4 + Math.floor(rng() * 3);
+  const target = 9 + Math.min(8, Math.floor(n / 15));
+  for (let attempt = 0; attempt < 300; attempt++) {
+    const grid: Grid = Array.from({ length: h + 2 }, (_, y) =>
+      Array.from({ length: w + 2 }, (_, x) => (x === 0 || y === 0 || x === w + 1 || y === h + 1 ? 1 : 0)),
+    );
+    // A pillar or two sometimes, then stoppers, often mirrored for a tidy look.
+    if (rng() < 0.4) grid[2 + Math.floor(rng() * (h - 2))][2 + Math.floor(rng() * (w - 2))] = 1;
+    const k = 3 + Math.floor(rng() * 4);
+    const mirror = rng() < 0.6;
+    for (let i = 0; i < k; i++) {
+      const x = 1 + Math.floor(rng() * w);
+      const y = 1 + Math.floor(rng() * h);
+      if (grid[y][x] === 0) grid[y][x] = STOPPER;
+      if (mirror && grid[y][w + 1 - x] === 0) grid[y][w + 1 - x] = STOPPER;
+    }
+    const corners = [
+      { x: 1, y: 1 },
+      { x: w, y: 1 },
+      { x: 1, y: h },
+      { x: w, y: h },
+    ];
+    const start = corners[Math.floor(rng() * 4)];
+    if (grid[start.y][start.x] !== 0) continue;
+    const a = analyze(grid, start);
+    if (a.covered !== a.floor || (n < 40 && !a.neverStuck)) continue;
+    const sol = solve(grid, start, undefined, 80000);
+    if (!sol || sol.length < target - 3 || sol.length > target + 6) continue;
+    return { grid, start, par: sol.length, name: 'Room' };
+  }
+  return null;
+}
+
 /** Generate level `n` (1-based). Deterministic. */
 export function generateLevel(n: number, bonus = false): Level {
+  // Every fourth regular level from 12 on is an open room with stoppers.
+  if (!bonus && n >= 12 && n % 4 === 0) {
+    const r = room(mulberry32(n * 4409 + 77), n);
+    if (r) return r;
+  }
   const spec = specFor(n, bonus);
   const rng = mulberry32(n * 7919 + (bonus ? 104729 : 1013));
   let best: { level: Level; score: number } | null = null;

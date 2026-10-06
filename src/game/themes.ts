@@ -24,6 +24,7 @@ export interface Theme {
   /** Speed cone behind the moving ball. */
   cone: number;
   ball: [string, string, string];
+  ballShine: string;
   ambient: Ambient;
   ambientColor: number;
   caustics?: boolean;
@@ -35,6 +36,8 @@ export interface Theme {
   swatch: { slab: string; side: string; floor: string; paint: string };
   /** Root note (Hz) of the theme's musical scale. */
   root: number;
+  /** Level at which this board unlocks in the shop. */
+  unlock: number;
 }
 
 export const THEMES: Theme[] = [
@@ -50,18 +53,20 @@ export const THEMES: Theme[] = [
     wallLip: 'rgba(205, 200, 245, 0.7)',
     wallShadow: 'rgba(38, 24, 72, 0.55)',
     floor: '#5c4b81',
-    gridLine: 'rgba(30, 16, 62, 0.42)',
-    paintSeam: 'rgba(120, 0, 50, 0.16)',
+    gridLine: 'rgba(42, 26, 88, 0.3)',
+    paintSeam: 'rgba(150, 0, 60, 0.12)',
     paint: 0xff2d8b,
     paintDark: 0xb40c5c,
     paintLight: 0xff8cc0,
     cone: 0xffc3a0,
-    ball: ['#fff6c2', '#ffc21a', '#f08a00'],
+    ball: ['#fff36a', '#ffcf2e', '#ff8f14'],
+    ballShine: 'rgba(255,255,170,0.95)',
     ambient: 'bokeh',
     ambientColor: 0xffffff,
     ui: { ink: '#5b3fd0', deep: '#3d2490', p1: '#9d7fff', p2: '#7650ef', p3: '#5534c4', panelEdge: '#cbbff7' },
     swatch: { slab: '#dedafc', side: '#77739f', floor: '#5c4b81', paint: '#ff2d8b' },
     root: 261.63,
+    unlock: 1,
   },
   {
     id: 'ocean',
@@ -75,19 +80,21 @@ export const THEMES: Theme[] = [
     wallLip: 'rgba(190, 250, 255, 0.7)',
     wallShadow: 'rgba(0, 28, 48, 0.55)',
     floor: '#125776',
-    gridLine: 'rgba(0, 20, 40, 0.42)',
+    gridLine: 'rgba(0, 28, 52, 0.3)',
     paintSeam: 'rgba(120, 40, 0, 0.16)',
     paint: 0xffa23a,
     paintDark: 0xc55a10,
     paintLight: 0xffd08a,
     cone: 0xfff2d8,
-    ball: ['#ffffff', '#d8efff', '#4f8fb8'],
+    ball: ['#ffffff', '#cdeaff', '#3f86b6'],
+    ballShine: 'rgba(255,255,255,0.95)',
     ambient: 'bubbles',
     ambientColor: 0xffffff,
     caustics: true,
     ui: { ink: '#0d6b86', deep: '#08485c', p1: '#4fd0e6', p2: '#1aa3c4', p3: '#0b7392', panelEdge: '#a6e6ef' },
     swatch: { slab: '#98e8ef', side: '#3c98ad', floor: '#125776', paint: '#ffa23a' },
     root: 293.66,
+    unlock: 10,
   },
   {
     id: 'neon',
@@ -107,12 +114,14 @@ export const THEMES: Theme[] = [
     paintDark: 0x0f8fc0,
     paintLight: 0xb6fbff,
     cone: 0xffb6f0,
-    ball: ['#ffffff', '#ffd6fb', '#ff4fd8'],
+    ball: ['#ffe9fb', '#ff8de6', '#d4249f'],
+    ballShine: 'rgba(255,240,252,0.95)',
     ambient: 'stars',
     ambientColor: 0xc8d8ff,
     neon: { edge: 0xff4fd8 },
     ui: { ink: '#f1e8ff', deep: '#120a33', p1: '#ff7ae3', p2: '#e03cc2', p3: '#9a1f86', panelEdge: '#5a3fb0' },
     swatch: { slab: '#211a4d', side: '#3a2d84', floor: '#0d0b26', paint: '#2ff3ff' },
     root: 220,
+    unlock: 18,
   },
 ];

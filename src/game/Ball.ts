@@ -11,55 +11,35 @@ function sphereTexture(radius: number, res: number, colors: [string, string, str
   ctx.arc(r, r, r - 0.5, 0, Math.PI * 2);
   ctx.save();
   ctx.clip();
-  // Body: light from the upper left.
-  const g = ctx.createRadialGradient(r * 0.68, r * 0.55, r * 0.08, r * 0.95, r * 0.95, r * 1.05);
+  // Soft, warm body: light from the upper left, deepening to the lower right.
+  const g = ctx.createRadialGradient(r * 0.78, r * 0.62, r * 0.05, r * 1.05, r * 1.1, r * 1.25);
   g.addColorStop(0, colors[0]);
-  g.addColorStop(0.38, colors[1]);
+  g.addColorStop(0.45, colors[1]);
   g.addColorStop(1, colors[2]);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
-  // Core shadow toward the lower right.
-  const core = ctx.createRadialGradient(r * 1.35, r * 1.45, r * 0.2, r * 1.2, r * 1.3, r * 1.1);
-  core.addColorStop(0, 'rgba(60,20,0,0.28)');
-  core.addColorStop(1, 'rgba(60,20,0,0)');
-  ctx.fillStyle = core;
-  ctx.fillRect(0, 0, size, size);
-  // Bounce light along the bottom edge.
-  const bounce = ctx.createRadialGradient(r, r * 1.9, r * 0.1, r, r * 1.6, r * 0.9);
-  bounce.addColorStop(0, 'rgba(255,255,255,0.45)');
-  bounce.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = bounce;
-  ctx.fillRect(0, 0, size, size);
-  // Fresnel rim.
-  const rim = ctx.createRadialGradient(r, r, r * 0.78, r, r, r);
-  rim.addColorStop(0, 'rgba(255,255,255,0)');
-  rim.addColorStop(1, 'rgba(255,255,255,0.3)');
+  // Gentle rim darkening for roundness.
+  const rim = ctx.createRadialGradient(r * 0.85, r * 0.8, r * 0.6, r, r, r * 1.02);
+  rim.addColorStop(0, 'rgba(160,60,0,0)');
+  rim.addColorStop(1, 'rgba(160,60,0,0.22)');
   ctx.fillStyle = rim;
   ctx.fillRect(0, 0, size, size);
   ctx.restore();
   return Texture.from(c);
 }
 
-/** Sharp specular highlight with a soft halo. */
-function specular(radius: number, res: number): Texture {
+/** Soft highlight blob, no hard plastic glare. */
+function specular(radius: number, res: number, color: string): Texture {
   const size = Math.ceil(radius * 2 * res);
   const c = makeCanvas(size, size);
   const ctx = c.getContext('2d')!;
   const r = size / 2;
-  const halo = ctx.createRadialGradient(r, r, 0, r, r, r);
-  halo.addColorStop(0, 'rgba(255,255,255,0.55)');
-  halo.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = halo;
+  const g = ctx.createRadialGradient(r, r, 0, r, r, r);
+  g.addColorStop(0, color);
+  g.addColorStop(0.45, color.replace(/[\d.]+\)$/, '0.75)'));
+  g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)'));
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
-  ctx.save();
-  ctx.translate(r, r);
-  ctx.rotate(-0.6);
-  ctx.scale(1, 0.62);
-  ctx.beginPath();
-  ctx.arc(0, 0, r * 0.42, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.95)';
-  ctx.fill();
-  ctx.restore();
   return Texture.from(c);
 }
 
@@ -97,10 +77,10 @@ export class Ball extends Container {
     trailLayer: Container,
   ) {
     super();
-    this.radius = cell * 0.4;
+    this.radius = cell * 0.44;
     const bodyTex = sphereTexture(this.radius, res, theme.ball);
-    const shineTex = specular(this.radius * 0.42, res);
-    const shadowTex = softDot(this.radius * 1.25, res, 'rgba(20,0,40,A)', 0.42);
+    const shineTex = specular(this.radius * 0.5, res, theme.ballShine);
+    const shadowTex = softDot(this.radius * 1.1, res, 'rgba(60,0,30,A)', 0.38);
     this.textures.push(bodyTex, shineTex, shadowTex);
     this.shadow = new Sprite(shadowTex);
     this.body = new Sprite(bodyTex);
@@ -109,17 +89,17 @@ export class Ball extends Container {
       s.anchor.set(0.5);
       s.scale.set(1 / res);
     }
-    this.shadow.position.set(cell * 0.06, cell * 0.16);
+    this.shadow.position.set(cell * 0.05, cell * 0.08);
     this.shadowBase = 1 / res;
     this.shadow.scale.set(this.shadowBase, this.shadowBase * 0.8);
-    this.shine.position.set(-this.radius * 0.33, -this.radius * 0.38);
+    this.shine.position.set(-this.radius * 0.28, -this.radius * 0.32);
     this.addChild(this.shadow, this.body, this.shine);
     trailLayer.addChild(this.trail);
   }
 
   /** Called on wall impact; `dir` is the travel direction. */
   impact(speed: number) {
-    this.squashV -= 9 * Math.min(1.4, speed);
+    this.squashV -= 5.5 * Math.min(1.3, speed);
   }
 
   update(dtMs: number, time: number, moving: boolean, dir: { x: number; y: number } | null, speed: number) {
@@ -141,8 +121,8 @@ export class Ball extends Container {
     const base = this.body.texture.width ? (this.radius * 2) / this.body.texture.width : 1;
     this.body.scale.set(base * along, base * across);
     // The highlight stays on the upper left, drifting slightly when idle.
-    const drift = moving ? 0 : Math.sin(time * 0.0011) * this.radius * 0.06;
-    this.shine.position.set(-this.radius * 0.33 + drift, -this.radius * 0.38 - drift * 0.5);
+    const drift = moving ? 0 : Math.sin(time * 0.0011) * this.radius * 0.04;
+    this.shine.position.set(-this.radius * 0.28 + drift, -this.radius * 0.32 - drift * 0.5);
     this.shine.alpha = Math.max(0, 0.9 - this.stretch * 0.9);
 
     this.trail.clear();
@@ -156,7 +136,7 @@ export class Ball extends Container {
     this.shine.alpha = 0.85;
     this.alpha = Math.min(1, p * 3);
     this.shadow.scale.set(this.shadowBase * (1 - fall * 0.5), this.shadowBase * 0.8 * (1 - fall * 0.5));
-    this.shine.y = -this.radius * 0.38 - fall * this.radius * 6;
+    this.shine.y = -this.radius * 0.32 - fall * this.radius * 6;
   }
 
   override destroy() {

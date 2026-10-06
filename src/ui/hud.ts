@@ -1,6 +1,16 @@
-// DOM overlay for buttons, labels, panels and the level-complete card.
-// The board itself is drawn by Pixi underneath.
-import type { Theme } from '../game/themes.ts';
+// DOM overlay: HUD, panels (shop, settings, league, chest) and the
+// level-complete moments. The board itself is drawn by Pixi underneath.
+
+export type ShopTab = 'ball' | 'paint' | 'board';
+
+export interface ShopItem {
+  id: string;
+  name: string;
+  unlock: number;
+  /** CSS for the preview swatch. */
+  preview: string;
+  kind: 'ball' | 'paint' | 'board';
+}
 
 export interface HudActions {
   restart: () => void;
@@ -8,8 +18,12 @@ export interface HudActions {
   hint: () => void;
   bomb: () => void;
   next: () => void;
-  selectTheme: (id: string) => void;
+  equip: (tab: ShopTab, id: string) => void;
   toggle: (what: 'sfx' | 'music' | 'vibe') => void;
+  openShop: () => void;
+  openLeague: () => void;
+  openChest: () => void;
+  collectChest: () => void;
   anyInput: () => void;
   click: () => void;
 }
@@ -22,8 +36,16 @@ export interface ResultInfo {
   coins: number;
   totalCoins: number;
   bonus: boolean;
+  key: boolean;
   onStar: (i: number) => void;
   onCoin: () => void;
+}
+
+export interface LeagueRow {
+  name: string;
+  stars: number;
+  you: boolean;
+  avatar: string;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -41,11 +63,17 @@ export class Hud {
   private readonly tip = $('tip');
   private readonly toastEl = $('toast');
   private readonly result = $('result');
-  private readonly settings = $('settings');
   private toastTimer = 0;
   private coinTimer = 0;
   private shownCoins = 0;
   private actions!: HudActions;
+  private shopTab: ShopTab = 'ball';
+  private shopData: Record<ShopTab, { items: ShopItem[]; equipped: string }> = {
+    ball: { items: [], equipped: '' },
+    paint: { items: [], equipped: '' },
+    board: { items: [], equipped: '' },
+  };
+  private unlockedTo = 1;
 
   bind(a: HudActions) {
     this.actions = a;
@@ -60,22 +88,45 @@ export class Hud {
     on('btn-undo', a.undo, true);
     on('btn-hint', a.hint, true);
     on('btn-bomb', a.bomb, true);
-    on('btn-theme', () => this.openSettings());
-    on('btn-settings', () => this.openSettings());
-    on('btn-close-settings', () => this.closeSettings());
+    on('btn-shop', () => {
+      a.openShop();
+      this.open('shop');
+    });
+    on('btn-settings', () => this.open('settings'));
+    on('btn-league', () => {
+      a.openLeague();
+      this.open('league');
+    });
+    on('btn-streak', () => this.toast('Finish levels without restarting to grow your streak!'));
     on('btn-next', a.next, true);
     on('tg-sfx', () => a.toggle('sfx'));
     on('tg-music', () => a.toggle('music'));
     on('tg-vibe', () => a.toggle('vibe'));
-    this.settings.addEventListener('click', (e) => {
-      if (e.target === this.settings) this.closeSettings();
-    });
+    on('chest-box', a.openChest, true);
+    on('btn-chest-ok', a.collectChest);
+    for (const b of document.querySelectorAll<HTMLElement>('[data-close]'))
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        a.click();
+        this.close(b.dataset.close!);
+      });
+    for (const id of ['shop', 'settings', 'league'])
+      $(id).addEventListener('click', (e) => {
+        if (e.target === $(id)) this.close(id);
+      });
+    for (const t of document.querySelectorAll<HTMLElement>('.tab'))
+      t.addEventListener('click', (e) => {
+        e.stopPropagation();
+        a.click();
+        this.shopTab = t.dataset.tab as ShopTab;
+        this.renderShop();
+      });
     this.result.addEventListener('click', () => {
       a.anyInput();
       a.next();
     });
-    // Buttons feel physical: press state also on touch.
-    for (const b of document.querySelectorAll<HTMLElement>('.gbtn')) {
+    // Physical press state for touch as well as mouse.
+    for (const b of document.querySelectorAll<HTMLElement>('.gbtn, .league, .streak')) {
       b.addEventListener('pointerdown', () => b.classList.add('pressed'));
       for (const ev of ['pointerup', 'pointerleave', 'pointercancel'])
         b.addEventListener(ev, () => b.classList.remove('pressed'));
@@ -83,7 +134,19 @@ export class Hud {
   }
 
   get modalOpen() {
-    return !this.settings.hidden;
+    return ['shop', 'settings', 'league', 'chest'].some((id) => !$(id).hidden);
+  }
+
+  open(id: string) {
+    const m = $(id);
+    m.hidden = false;
+    requestAnimationFrame(() => m.classList.add('show'));
+  }
+
+  close(id: string) {
+    const m = $(id);
+    m.classList.remove('show');
+    window.setTimeout(() => (m.hidden = true), 220);
   }
 
   hideSplash(progress: number) {
@@ -99,6 +162,8 @@ export class Hud {
   bottomInset() {
     return window.innerHeight - this.bottom.getBoundingClientRect().top;
   }
+
+  // ------------------------------------------------------------ HUD values
 
   setLevel(n: number, bonus: boolean, par?: number) {
     this.levelLabel.textContent = bonus ? `Bonus Level ${n}` : `Level ${n}`;
@@ -116,12 +181,48 @@ export class Hud {
 
   setMoves(n: number) {
     const par = this.movesLabel.dataset.par;
-    this.movesLabel.innerHTML = `<span class="k">Moves</span><b>${n}</b>${par ? `<span class="goal">★ ${par}</span>` : ''}`;
+    this.movesLabel.innerHTML = par
+      ? `<b class="${n > Number(par) ? 'over' : ''}">${n}</b><span class="of">/ ${par}</span><span class="gold">★★★</span>`
+      : `<b>${n}</b> moves`;
   }
 
   setCoins(n: number) {
     this.shownCoins = n;
     this.coinsLabel.textContent = String(n);
+  }
+
+  setKeys(n: number, popLast = false) {
+    const keys = document.querySelectorAll<SVGElement>('#keys .key');
+    keys.forEach((k, i) => {
+      k.classList.toggle('have', i < n);
+      k.classList.toggle('pop', popLast && i === n - 1);
+    });
+  }
+
+  setStreak(n: number, bump = false) {
+    $('streak-count').textContent = String(n);
+    const b = $('btn-streak');
+    b.classList.toggle('hot', n >= 5);
+    if (bump) {
+      b.classList.remove('bump');
+      void b.offsetWidth;
+      b.classList.add('bump');
+    }
+  }
+
+  setPrices(p: { hint: string; bomb: string }) {
+    $('hint-price').innerHTML = p.hint;
+    $('bomb-price').innerHTML = p.bomb;
+  }
+
+  setLeague(rank: number, timeLeft: string) {
+    $('league-rank').textContent = String(rank);
+    $('league-time').textContent = timeLeft;
+    $('league-left').textContent = timeLeft;
+  }
+
+  setShopDot(on: boolean) {
+    $('shop-dot').hidden = !on;
   }
 
   setToggles(t: { sfx: boolean; music: boolean; vibe: boolean }) {
@@ -130,41 +231,88 @@ export class Hud {
     $('tg-vibe').setAttribute('aria-pressed', String(t.vibe));
   }
 
-  setBombLabel(text: string) {
-    $('bomb-price').textContent = text;
+  // ------------------------------------------------------------ shop
+
+  setShop(tab: ShopTab, items: ShopItem[], equipped: string, unlockedTo: number) {
+    this.shopData[tab] = { items, equipped };
+    this.unlockedTo = unlockedTo;
+    this.renderShop();
   }
 
-  renderBoards(themes: Theme[], current: string) {
-    const list = $('board-list');
-    list.innerHTML = '';
-    for (const t of themes) {
+  private renderShop() {
+    for (const t of document.querySelectorAll<HTMLElement>('.tab'))
+      t.setAttribute('aria-selected', String(t.dataset.tab === this.shopTab));
+    const grid = $('shop-grid');
+    grid.innerHTML = '';
+    const { items, equipped } = this.shopData[this.shopTab];
+    for (const it of items) {
+      const locked = this.unlockedTo < it.unlock;
       const b = document.createElement('button');
-      b.className = 'board-card';
-      b.setAttribute('aria-pressed', String(t.id === current));
-      b.style.setProperty('--slab', t.swatch.slab);
-      b.style.setProperty('--side', t.swatch.side);
-      b.style.setProperty('--floor', t.swatch.floor);
-      b.style.setProperty('--paint', t.swatch.paint);
-      b.innerHTML = `<span class="swatch"><i></i></span><span>${t.name}</span><span class="check"></span>`;
+      b.className = `item ${it.kind}${locked ? ' locked' : ''}`;
+      b.setAttribute('aria-pressed', String(it.id === equipped));
+      b.innerHTML = `<span class="swatch" style="${it.preview}"></span><span class="name">${it.name}</span>${
+        locked
+          ? `<span class="tag lock">Level ${it.unlock}</span>`
+          : it.id === equipped
+            ? '<span class="tag on">In use</span>'
+            : '<span class="tag use">Use</span>'
+      }`;
       b.addEventListener('click', (e) => {
         e.stopPropagation();
         this.actions.anyInput();
-        this.actions.selectTheme(t.id);
-        for (const el of list.children) el.setAttribute('aria-pressed', String(el === b));
+        if (locked) {
+          this.toast(`Unlocks at level ${it.unlock}`);
+          return;
+        }
+        this.actions.click();
+        this.actions.equip(this.shopTab, it.id);
+        this.shopData[this.shopTab].equipped = it.id;
+        this.renderShop();
       });
-      list.appendChild(b);
+      grid.appendChild(b);
     }
   }
 
-  openSettings() {
-    this.settings.hidden = false;
-    requestAnimationFrame(() => this.settings.classList.add('show'));
+  // ------------------------------------------------------------ league
+
+  renderLeague(rows: LeagueRow[]) {
+    const list = $('league-list');
+    list.innerHTML = '';
+    rows.forEach((r, i) => {
+      const li = document.createElement('li');
+      li.className = `${r.you ? 'you' : ''}${i < 3 ? ` top top${i + 1}` : ''}`;
+      li.innerHTML = `<span class="pos">${i + 1}</span><span class="avatar" style="background:${r.avatar}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
+      list.appendChild(li);
+    });
+    window.setTimeout(() => {
+      const me = list.querySelector<HTMLElement>('.you');
+      if (me) list.scrollTop = me.offsetTop - list.clientHeight / 2 + me.offsetHeight / 2;
+    }, 60);
   }
 
-  closeSettings() {
-    this.settings.classList.remove('show');
-    window.setTimeout(() => (this.settings.hidden = true), 220);
+  // ------------------------------------------------------------ chest
+
+  showChest() {
+    $('chest-box').classList.remove('open');
+    $('chest-text').textContent = 'You collected 3 keys! Tap the chest.';
+    $('chest-reward').hidden = true;
+    $('btn-chest-ok').hidden = true;
+    this.open('chest');
   }
+
+  openChest(coins: number) {
+    $('chest-box').classList.add('open');
+    $('chest-text').textContent = 'Treasure!';
+    $('chest-coins').textContent = `+${coins}`;
+    $('chest-reward').hidden = false;
+    $('btn-chest-ok').hidden = false;
+  }
+
+  closeChest() {
+    this.close('chest');
+  }
+
+  // ------------------------------------------------------------ messages
 
   showTip(text: string | null) {
     this.tip.hidden = !text;
@@ -175,13 +323,98 @@ export class Hud {
     this.toastEl.textContent = text;
     this.toastEl.classList.add('show');
     window.clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), 1800);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), 1900);
   }
 
   /** Where the booster button sits, in page pixels (for the paint-bomb throw). */
   bombOrigin(): { x: number; y: number } {
     const r = $('btn-bomb').getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  // ------------------------------------------------------------ level complete
+
+  private flyTo(
+    target: Element,
+    from: { x: number; y: number },
+    n: number,
+    cls: string,
+    onLand: (i: number) => void,
+    startDelay = 380,
+  ) {
+    const t = target.getBoundingClientRect();
+    for (let i = 0; i < n; i++) {
+      const c = document.createElement('span');
+      c.className = cls;
+      const sx = from.x + (Math.random() - 0.5) * 70;
+      const sy = from.y + (Math.random() - 0.5) * 70;
+      c.style.left = `${sx}px`;
+      c.style.top = `${sy}px`;
+      document.body.appendChild(c);
+      const dx = t.left + t.width / 2 - sx;
+      const dy = t.top + t.height / 2 - sy;
+      c.animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(0.2)', opacity: 0 },
+          {
+            transform: `translate(calc(-50% + ${(Math.random() - 0.5) * 90}px), calc(-50% - 60px)) scale(1.3)`,
+            opacity: 1,
+            offset: 0.3,
+          },
+          { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.9)`, opacity: 1 },
+        ],
+        { duration: 680, delay: startDelay + i * 55, easing: 'cubic-bezier(0.4, 0, 0.6, 1)', fill: 'both' },
+      ).onfinish = () => {
+        c.remove();
+        onLand(i);
+      };
+    }
+  }
+
+  private bumpCoins(value: number) {
+    this.shownCoins = value;
+    this.coinsLabel.textContent = String(value);
+    const pill = this.coinsLabel.parentElement!;
+    pill.classList.remove('bump');
+    void pill.offsetWidth;
+    pill.classList.add('bump');
+  }
+
+  /**
+   * In-place celebration for normal levels: stars pop over the board, coins
+   * (and sometimes a key) fly to the HUD. The game moves on by itself.
+   */
+  celebrate(r: ResultInfo, from: { x: number; y: number }, boardTop: number, onKey: () => void) {
+    const box = $('celebrate');
+    box.style.top = `${Math.max(this.topInset() + 6, boardTop - 112)}px`;
+    const stars = box.querySelectorAll<HTMLElement>('.star');
+    stars.forEach((s) => s.classList.remove('lit'));
+    box.hidden = false;
+    requestAnimationFrame(() => box.classList.add('show'));
+    for (let i = 0; i < r.stars; i++)
+      window.setTimeout(() => {
+        stars[i].classList.add('lit');
+        r.onStar(i);
+      }, 120 + i * 200);
+    const n = Math.min(10, 4 + Math.round(r.coins / 6));
+    const base = r.totalCoins - r.coins;
+    let landed = 0;
+    this.flyTo(this.coinsLabel.parentElement!.querySelector('.coin')!, from, n, 'coin flyer', () => {
+      landed++;
+      this.bumpCoins(landed === n ? r.totalCoins : Math.round(base + (r.coins / n) * landed));
+      r.onCoin();
+    });
+    if (r.key) {
+      const have = document.querySelectorAll('#keys .key.have').length;
+      const slot = document.querySelectorAll('#keys .key')[Math.min(2, have)];
+      this.flyTo(slot, from, 1, 'key-flyer', onKey, 700);
+    }
+  }
+
+  endCelebrate() {
+    const box = $('celebrate');
+    box.classList.remove('show');
+    box.hidden = true;
   }
 
   showResult(r: ResultInfo) {
@@ -198,7 +431,6 @@ export class Hud {
         r.onStar(i);
       }, 380 + i * 240);
     }
-    // Roll the coin counter up once the stars have landed.
     const from = this.shownCoins;
     const to = r.totalCoins;
     const startAt = performance.now() + 1100;
@@ -208,76 +440,11 @@ export class Hud {
       if (p < 0) return;
       const v = Math.round(from + (to - from) * p);
       if (v !== this.shownCoins) {
-        this.shownCoins = v;
-        this.coinsLabel.textContent = String(v);
-        const pill = this.coinsLabel.parentElement!;
-        pill.classList.remove('bump');
-        void pill.offsetWidth;
-        pill.classList.add('bump');
+        this.bumpCoins(v);
         if (v % 3 === 0) r.onCoin();
       }
       if (p >= 1) window.clearInterval(this.coinTimer);
     }, 30);
-  }
-
-  /**
-   * In-place celebration for normal levels: stars pop over the board and
-   * coins fly from the ball to the coin counter. The game moves on by itself.
-   */
-  celebrate(r: ResultInfo, from: { x: number; y: number }, boardTop: number) {
-    const box = $('celebrate');
-    // Sit just above the board when there is room, otherwise below the HUD.
-    box.style.top = `${Math.max(this.topInset() + 6, boardTop - 112)}px`;
-    const stars = box.querySelectorAll<HTMLElement>('.star');
-    stars.forEach((s) => s.classList.remove('lit'));
-    box.hidden = false;
-    requestAnimationFrame(() => box.classList.add('show'));
-    for (let i = 0; i < r.stars; i++)
-      window.setTimeout(() => {
-        stars[i].classList.add('lit');
-        r.onStar(i);
-      }, 120 + i * 200);
-    const target = this.coinsLabel.parentElement!.querySelector('.coin')!.getBoundingClientRect();
-    const n = Math.min(10, 4 + Math.round(r.coins / 6));
-    const per = r.coins / n;
-    let landed = 0;
-    for (let i = 0; i < n; i++) {
-      const c = document.createElement('span');
-      c.className = 'coin flyer';
-      const sx = from.x + (Math.random() - 0.5) * 70;
-      const sy = from.y + (Math.random() - 0.5) * 70;
-      c.style.left = `${sx}px`;
-      c.style.top = `${sy}px`;
-      document.body.appendChild(c);
-      const dx = target.left + target.width / 2 - sx;
-      const dy = target.top + target.height / 2 - sy;
-      const delay = 380 + i * 55;
-      c.animate(
-        [
-          { transform: 'translate(-50%, -50%) scale(0.2)', opacity: 0 },
-          { transform: `translate(calc(-50% + ${(Math.random() - 0.5) * 80}px), calc(-50% - 50px)) scale(1.25)`, opacity: 1, offset: 0.3 },
-          { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.9)`, opacity: 1 },
-        ],
-        { duration: 650, delay, easing: 'cubic-bezier(0.4, 0, 0.6, 1)', fill: 'both' },
-      ).onfinish = () => {
-        c.remove();
-        landed++;
-        this.shownCoins = Math.round(r.totalCoins - r.coins + per * landed);
-        if (landed === n) this.shownCoins = r.totalCoins;
-        this.coinsLabel.textContent = String(this.shownCoins);
-        const pill = this.coinsLabel.parentElement!;
-        pill.classList.remove('bump');
-        void pill.offsetWidth;
-        pill.classList.add('bump');
-        r.onCoin();
-      };
-    }
-  }
-
-  endCelebrate() {
-    const box = $('celebrate');
-    box.classList.remove('show');
-    box.hidden = true;
   }
 
   hideResult() {
