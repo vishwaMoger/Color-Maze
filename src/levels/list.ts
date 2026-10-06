@@ -1,4 +1,4 @@
-import { parseLevel, type Level } from './core.ts';
+import { parseLevel, solve, type Level } from './core.ts';
 import { crop, generateLevel } from './generator.ts';
 
 // Hand-picked opening levels. '#' wall, '.' floor, 'o' start.
@@ -83,6 +83,7 @@ export function getLevel(n: number): Level {
   if (n <= HANDMADE.length) {
     const h = HANDMADE[n - 1];
     level = { ...h, ...crop(h.grid, h.start), bonus: h.bonus ?? n % 5 === 0 };
+    level.par = solve(level.grid, level.start, undefined, 2_000_000)?.length;
   } else {
     level = generateLevel(n, n % 5 === 0);
   }
