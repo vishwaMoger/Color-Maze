@@ -1,8 +1,10 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import { Sound } from '../audio/sound.ts';
-import { DIRS, slide, solve, type Dir, type Level, type Point } from '../levels/core.ts';
+import { DIRS, isFloor, slide, solve, WALL, type Dir, type Level, type Point } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
-import type { Hud } from '../ui/hud.ts';
+import type { Hud, ShopItem, ShopTab } from '../ui/hud.ts';
+import { BALLS, hexCss, PAINTS } from './cosmetics.ts';
+import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball } from './Ball.ts';
 import { Board, type PaintStroke } from './Board.ts';
 import { Fx } from './fx.ts';
@@ -32,27 +34,7 @@ interface Tween {
   done?: () => void;
 }
 
-interface Save {
-  level: number;
-  theme: string;
-  sound: boolean;
-  music: boolean;
-  vibe: boolean;
-  coins: number;
-}
-
-const SAVE_KEY = 'colormaze.v1';
 const easeOutBack = (p: number) => 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2;
-
-function loadSave(): Save {
-  const fallback: Save = { level: 1, theme: 'lavender', sound: true, music: true, vibe: true, coins: 0 };
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    return raw ? { ...fallback, ...JSON.parse(raw) } : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 /** Floating background particles that set each theme's mood. */
 class Ambient {
@@ -112,6 +94,7 @@ export class Game {
   private splats: PaintStroke['splats'] = [];
   private introAt = 0;
   private sparkQueue: { x: number; y: number; at: number }[] = [];
+  private shimmer: { k: number; t: number }[] = [];
   private cone: { from: Point; to: { x: number; y: number }; endedAt: number | null } | null = null;
   private moves = 0;
   private history: Snapshot[] = [];
@@ -136,6 +119,7 @@ export class Game {
   ) {
     this.save = loadSave();
     this.theme = THEMES.find((t) => t.id === this.save.theme) ?? THEMES[0];
+    this.look = this.makeLook();
     this.levelNo = Math.max(1, this.save.level);
     this.sound.setEnabled(this.save.sound);
     this.sound.setMusic(this.save.music);
@@ -150,14 +134,23 @@ export class Game {
       hint: () => this.showHint(),
       bomb: () => this.paintBomb(),
       next: () => this.nextLevel(),
-      selectTheme: (id) => this.selectTheme(id),
+      equip: (tab, id) => this.equip(tab, id),
       toggle: (what) => this.toggle(what),
+      openShop: () => this.refreshShop(),
+      openLeague: () => this.refreshLeague(true),
+      openChest: () => this.openChest(),
+      collectChest: () => this.collectChest(),
       anyInput: () => this.sound.unlock(),
       click: () => this.sound.click(),
     });
     hud.setToggles({ sfx: this.save.sound, music: this.save.music, vibe: this.save.vibe });
-    hud.renderBoards(THEMES, this.theme.id);
     hud.setCoins(this.save.coins);
+    hud.setKeys(this.save.keys);
+    hud.setStreak(this.save.streak);
+    this.refreshPrices();
+    this.refreshLeague(false);
+    this.checkUnlocks();
+    window.setInterval(() => this.refreshLeague(false), 30000);
     this.applyTheme();
     this.loadLevel(this.levelNo, false);
     this.bindInput();
@@ -170,12 +163,135 @@ export class Game {
 
   private persist() {
     this.save.level = this.levelNo;
+    this.save.best = Math.max(this.save.best, this.levelNo);
     this.save.theme = this.theme.id;
-    try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));
-    } catch {
-      /* storage unavailable: progress lasts for this session only */
+    storeSave(this.save);
+  }
+
+  /** The active board theme with the player's paint and ball choices applied. */
+  private look!: Theme;
+
+  private makeLook(): Theme {
+    const p = PAINTS.find((x) => x.id === this.save.paint) ?? PAINTS[0];
+    const b = BALLS.find((x) => x.id === this.save.ball) ?? BALLS[0];
+    return { ...this.theme, paint: p.paint, paintDark: p.dark, paintLight: p.light, cone: p.cone, ball: b.colors, ballShine: b.shine };
+  }
+
+  // ---------------------------------------------------------------- meta
+
+  private refreshPrices() {
+    const coin = (n: number) => `<i class="coin sm"></i>${n}`;
+    this.hud.setPrices({
+      hint: this.save.hints > 0 ? `×${this.save.hints}` : coin(PRICES.hint),
+      bomb: this.save.bombs > 0 ? `×${this.save.bombs}` : coin(PRICES.bomb),
+    });
+  }
+
+  /** Spend one free use or its coin price. Returns false if unaffordable. */
+  private spend(kind: 'hints' | 'bombs'): boolean {
+    if (this.save[kind] > 0) {
+      this.save[kind]--;
+    } else {
+      const price = kind === 'hints' ? PRICES.hint : PRICES.bomb;
+      if (this.save.coins < price) {
+        this.hud.toast(`Need ${price} coins: finish levels to earn more`);
+        return false;
+      }
+      this.save.coins -= price;
+      this.hud.setCoins(this.save.coins);
     }
+    this.refreshPrices();
+    this.persist();
+    return true;
+  }
+
+  private refreshLeague(render: boolean) {
+    const { rows, rank } = league(this.save.week, this.save.weekStars);
+    this.hud.setLeague(rank, timeLeft());
+    if (render) this.hud.renderLeague(rows);
+  }
+
+  private shopItems(): Record<ShopTab, ShopItem[]> {
+    return {
+      ball: BALLS.map((b) => ({
+        id: b.id,
+        name: b.name,
+        unlock: b.unlock,
+        kind: 'ball' as const,
+        preview: `background: radial-gradient(circle at 36% 32%, ${b.colors[0]} 0 12%, ${b.colors[1]} 45%, ${b.colors[2]} 100%)`,
+      })),
+      paint: PAINTS.map((p) => ({
+        id: p.id,
+        name: p.name,
+        unlock: p.unlock,
+        kind: 'paint' as const,
+        preview: `--paint: ${hexCss(p.paint)}; --paint-dark: ${hexCss(p.dark)}`,
+      })),
+      board: THEMES.map((t) => ({
+        id: t.id,
+        name: t.name,
+        unlock: t.unlock,
+        kind: 'board' as const,
+        preview: `--slab: ${t.swatch.slab}; --side: ${t.swatch.side}; --floor: ${t.swatch.floor}; --paint: ${t.swatch.paint}`,
+      })),
+    };
+  }
+
+  private refreshShop() {
+    const items = this.shopItems();
+    this.hud.setShop('ball', items.ball, this.save.ball, this.save.best);
+    this.hud.setShop('paint', items.paint, this.save.paint, this.save.best);
+    this.hud.setShop('board', items.board, this.theme.id, this.save.best);
+    this.hud.setShopDot(false);
+    this.save.seenUnlock = this.save.best;
+    this.persist();
+  }
+
+  private equip(tab: ShopTab, id: string) {
+    if (tab === 'board') {
+      this.selectTheme(id);
+      return;
+    }
+    if (tab === 'ball') this.save.ball = id;
+    else this.save.paint = id;
+    this.look = this.makeLook();
+    const old = this.board;
+    this.buildBoard();
+    old.destroy();
+    this.persist();
+  }
+
+  /** Red dot on the shop when something new unlocked since the last visit. */
+  private checkUnlocks() {
+    const all = [...BALLS, ...PAINTS, ...THEMES];
+    const fresh = all.some((x) => x.unlock > (this.save.seenUnlock ?? 1) && x.unlock <= this.save.best);
+    this.hud.setShopDot(fresh);
+  }
+
+  private chestPending = false;
+
+  private openChest() {
+    if (!this.chestPending) return;
+    const coins = 80 + Math.floor(Math.random() * 5) * 20;
+    this.chestCoins = coins;
+    this.hud.openChest(coins);
+    this.sound.complete();
+    this.vibrate(20);
+  }
+
+  private chestCoins = 0;
+
+  private collectChest() {
+    if (!this.chestPending || !this.chestCoins) return;
+    this.chestPending = false;
+    this.save.coins += this.chestCoins;
+    this.save.keys = 0;
+    this.chestCoins = 0;
+    this.hud.setCoins(this.save.coins);
+    this.hud.setKeys(0);
+    this.hud.closeChest();
+    this.persist();
+    this.autoNextAt = this.time + 300;
   }
 
   // ---------------------------------------------------------------- input
@@ -236,7 +352,7 @@ export class Game {
   }
 
   private input(dir: Dir) {
-    if (this.completeAt !== null) return;
+    if (this.completeAt !== null || this.hud.modalOpen) return;
     if (this.slideState) {
       this.queued = dir;
       return;
@@ -252,9 +368,10 @@ export class Game {
 
   private loadLevel(n: number, animate: boolean) {
     this.levelNo = n;
+    this.restartedThisLevel = false;
     this.level = getLevel(n);
     this.floorTotal = 0;
-    for (const row of this.level.grid) for (const c of row) if (c === 0) this.floorTotal++;
+    for (const row of this.level.grid) for (const c of row) if (c !== WALL) this.floorTotal++;
     this.resetState();
     const old = this.board;
     this.buildBoard();
@@ -299,9 +416,7 @@ export class Game {
     this.splats = [];
     this.sparkQueue = [];
     this.cone = null;
-    this.bombs = 1;
     this.bombAnim = null;
-    this.hud.setBombLabel('FREE');
     this.moves = 0;
     this.history = [];
     this.slideState = null;
@@ -334,13 +449,17 @@ export class Game {
     this.layoutCache = { cx, cy };
     this.cell = cell;
     const res = Math.min(window.devicePixelRatio || 1, 2);
-    const board = new Board(this.level, this.theme, cell, res);
+    const board = new Board(this.level, this.look, cell, res);
     board.pivot.set(board.boardWidth / 2, board.boardHeight / 2);
     board.position.set(cx, cy);
     this.boardHolder.addChild(board);
     this.board = board;
     this.boardFx = new Fx(board.fxLayer);
-    this.ball = new Ball(cell, res, this.theme, board.ballLayer);
+    // Fresh bomb layer per board: the old one is destroyed with its board.
+    this.bombG = new Graphics();
+    board.fxLayer.addChild(this.bombG);
+    this.bombAnim = null;
+    this.ball = new Ball(cell, res, this.look, board.ballLayer);
     board.ballLayer.addChild(this.ball);
     this.placeBall(this.pos);
     this.ambient.reset(this.app.screen.width, this.app.screen.height, this.theme);
@@ -368,7 +487,7 @@ export class Game {
     const out: Point[] = [];
     this.level.grid.forEach((row, y) =>
       row.forEach((c, x) => {
-        if (c === 0 && !this.painted.has(this.key({ x, y }))) out.push({ x, y });
+        if (c !== WALL && !this.painted.has(this.key({ x, y }))) out.push({ x, y });
       }),
     );
     this.remaining = out;
@@ -381,8 +500,7 @@ export class Game {
     const d = DIRS[dir];
     if (!r.path.length) {
       // Blocked: a small wobble toward the wall.
-      this.nudge.vx += d.x * 90;
-      this.nudge.vy += d.y * 90;
+
       this.ball.impact(0.25);
       this.sound.bump();
       return;
@@ -402,10 +520,7 @@ export class Game {
     this.slideState = { dir, from: { ...this.pos }, path: r.path, t: 0, dur: 45 + 24 * len ** 0.9, done: 0 };
     this.lastDir = d;
     this.cone = { from: { ...this.pos }, to: { ...this.pos }, endedAt: null };
-    // The whole board slides a little with the swipe, then springs back.
-    this.nudge.vx += d.x * 120;
-    this.nudge.vy += d.y * 120;
-    this.sound.launch();
+    this.sound.launch(this.slideState.dur);
   }
 
   private stepSlide(dt: number) {
@@ -429,7 +544,7 @@ export class Game {
         if (Math.random() < 0.6) {
           const c = this.board.cellCenter(cellP.x, cellP.y);
           const side = Math.random() < 0.5 ? 1 : -1;
-          this.boardFx.splash(c.x, c.y, -d.y * side + d.x * 0.3, d.x * side + d.y * 0.3, 2, this.theme.paintDark,
+          this.boardFx.splash(c.x, c.y, -d.y * side + d.x * 0.3, d.x * side + d.y * 0.3, 2, this.look.paintDark,
             this.cell * 2.2, this.cell * 0.06, (x, y, r) => this.addDot(x, y, r));
         }
       }
@@ -444,20 +559,21 @@ export class Game {
     const d = DIRS[s.dir];
     this.pos = s.path[s.path.length - 1];
     this.slideState = null;
+    // A glint runs back along the stroke from the start to where it landed.
+    const now = this.time;
+    this.shimmer = [this.key(s.from), ...s.path.map((p) => this.key(p))].map((k, i) => ({ k, t: now + i * 16 }));
     if (this.cone) this.cone.endedAt = this.time;
     this.updateRemaining();
     const speed = Math.min(1.3, s.path.length / 6);
     this.ball.impact(0.6 + speed * 0.5);
     this.sound.thock(0.6 + speed * 0.4);
     this.vibrate(8);
-    this.nudge.vx += d.x * (60 + 80 * speed);
-    this.nudge.vy += d.y * (60 + 80 * speed);
+
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
     const hitX = c.x + d.x * this.cell * 0.45;
     const hitY = c.y + d.y * this.cell * 0.45;
     this.boardFx.ring(hitX, hitY, this.cell * 0.5, 0xffffff);
-    this.addSplat(hitX, hitY, d, 0.75 + speed * 0.35);
-    this.boardFx.splash(hitX, hitY, -d.x, -d.y, 5 + Math.round(speed * 6), this.theme.paint, this.cell * 3.2,
+    this.boardFx.splash(hitX, hitY, -d.x, -d.y, 5 + Math.round(speed * 6), this.look.paint, this.cell * 3.2,
       this.cell * 0.075, (x, y, r) => this.addDot(x, y, r));
 
     if (this.painted.size >= this.floorTotal) {
@@ -472,25 +588,10 @@ export class Game {
     }
   }
 
-  /** A paint stain spreading from the wall the ball just hit. */
-  private addSplat(x: number, y: number, d: Point, power: number) {
-    const c = this.cell;
-    const blobs = [{ x: x - d.x * c * 0.12, y: y - d.y * c * 0.12, r: c * 0.42 * power }];
-    const back = Math.atan2(-d.y, -d.x);
-    const n = 5 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < n; i++) {
-      const a = back + (Math.random() - 0.5) * 3.4;
-      const dist = c * (0.32 + Math.random() * 0.4) * power;
-      blobs.push({ x: x + Math.cos(a) * dist, y: y + Math.sin(a) * dist, r: c * (0.07 + Math.random() * 0.12) * power });
-    }
-    this.splats.push({ blobs, t: this.time });
-    if (this.splats.length > 40) this.splats.shift();
-  }
-
   private addDot(x: number, y: number, r: number) {
     const cx = Math.floor(x / this.cell);
     const cy = Math.floor(y / this.cell);
-    if (this.level.grid[cy]?.[cx] === 0) this.dots.push({ x, y, r, t: this.time });
+    if (isFloor(this.level.grid, cx, cy)) this.dots.push({ x, y, r, t: this.time });
   }
 
   /** Dense wet splatter on a freshly painted tile. */
@@ -530,6 +631,13 @@ export class Game {
     this.sound.unlock();
     if (this.completeAt !== null) return;
     if (this.moves === 0) return;
+    this.restartedThisLevel = true;
+    if (this.save.streak > 0) {
+      this.hud.toast('Streak lost');
+      this.save.streak = 0;
+      this.hud.setStreak(0);
+      this.persist();
+    }
     this.resetState();
     this.hud.setMoves(0);
     this.placeBall(this.pos);
@@ -546,8 +654,9 @@ export class Game {
       this.hud.toast('No way to finish from here. Tap Undo.');
       return;
     }
+    if (!this.spend('hints')) return;
     const r = slide(this.level.grid, this.pos, sol[0]);
-    this.hint = { path: r.path, dir: DIRS[sol[0]], until: this.time + 5000 };
+    this.hint = { path: r.path, dir: DIRS[sol[0]], until: this.time + 6000 };
     this.sound.click();
   }
 
@@ -569,7 +678,7 @@ export class Game {
       this.scaleKickV += 1.1;
       this.boardFx.sparkle(this.ball.x, this.ball.y, 18, this.cell * 2.5, 0xffffff);
       this.screenFx.confetti(this.app.screen.width, this.app.screen.height, 70, [
-        this.theme.paint, this.theme.paintLight, 0xffd23f, 0x7b5cf0, 0x40e0d0, 0xffffff,
+        this.look.paint, this.look.paintLight, 0xffd23f, 0x7b5cf0, 0x40e0d0, 0xffffff,
       ]);
       // Glints rise from every tile, rippling outward from the ball.
       this.sparkQueue = this.board
@@ -589,7 +698,13 @@ export class Game {
       const stars = this.moves <= par ? 3 : this.moves <= Math.ceil(par * 1.4) ? 2 : 1;
       const coins = 10 + stars * 5 + (this.level.bonus ? 25 : 0);
       this.save.coins += coins;
+      this.save.weekStars += stars + (this.level.bonus ? 2 : 0);
+      this.save.streak = this.restartedThisLevel ? 0 : this.save.streak + 1;
+      const key = this.save.keys < 3 && (this.level.bonus || Math.random() < 0.34);
+      if (key) this.save.keys++;
       this.persist();
+      this.hud.setStreak(this.save.streak, true);
+      this.refreshLeague(false);
       const info = {
         level: this.levelNo,
         stars,
@@ -597,17 +712,25 @@ export class Game {
         par,
         coins,
         bonus: !!this.level.bonus,
+        key,
         onStar: (i: number) => this.sound.star(i),
         onCoin: () => this.sound.coin(),
         totalCoins: this.save.coins,
       };
-      if (this.level.bonus) this.hud.showResult(info);
-      else {
+      const onKey = () => {
+        this.hud.setKeys(this.save.keys, true);
+        this.sound.star(2);
+      };
+      if (this.level.bonus) {
+        this.hud.showResult(info);
+        if (key) window.setTimeout(onKey, 900);
+      } else {
         const c = this.board.toGlobal(this.board.cellCenter(this.pos.x, this.pos.y));
         const top = this.board.toGlobal({ x: 0, y: 0 }).y;
-        this.hud.celebrate(info, { x: c.x, y: c.y }, top);
-        this.autoNextAt = this.time + 1750;
+        this.hud.celebrate(info, { x: c.x, y: c.y }, top, onKey);
+        this.autoNextAt = this.time + (key ? 2200 : 1750);
       }
+      this.checkUnlocks();
     }
   }
 
@@ -618,9 +741,21 @@ export class Game {
   private autoNextAt: number | null = null;
   private landed = false;
 
+  private restartedThisLevel = false;
+
   nextLevel() {
     // Ignore taps in the first moment so the stars can land.
     if (!this.resultShown || this.time - this.resultAt < 450) return;
+    // Three keys: open the treasure chest before moving on.
+    if (this.save.keys >= 3 && !this.chestPending) {
+      this.chestPending = true;
+      this.autoNextAt = null;
+      this.hud.endCelebrate();
+      this.hud.hideResult();
+      this.hud.showChest();
+      return;
+    }
+    if (this.chestPending) return;
     this.autoNextAt = null;
     this.hud.hideResult();
     this.hud.endCelebrate();
@@ -647,6 +782,7 @@ export class Game {
     const next = THEMES.find((t) => t.id === id);
     if (!next || next === this.theme) return;
     this.theme = next;
+    this.look = this.makeLook();
     this.applyTheme();
     const old = this.board;
     this.buildBoard();
@@ -679,37 +815,67 @@ export class Game {
 
   // ---------------------------------------------------------------- booster
 
-  private bombs = 1;
-
   /**
-   * Paint Bomb: a paint ball flies from the button and splats onto the three
-   * tiles an optimal solution would paint last (the awkward ones).
+   * Paint Bomb: three paint blobs land together on the most critical spot,
+   * the pocket whose tiles cost the most extra swipes to reach. Candidate
+   * pockets come from the least productive moves of the best solution, and
+   * each candidate cluster is scored by how many moves it actually saves.
    */
+  private bombTargets(): Point[] {
+    const grid = this.level.grid;
+    const painted = new Set(this.painted.keys());
+    const sol = solve(grid, this.pos, painted, 200000);
+    if (!sol) return this.remaining.slice(0, 3);
+    // Tiles each move of the solution newly paints.
+    const moves: Point[][] = [];
+    const seen = new Set(painted);
+    let p = this.pos;
+    for (const dir of sol) {
+      const r = slide(grid, p, dir);
+      const fresh = r.path.filter((c) => !seen.has(this.key(c)));
+      fresh.forEach((c) => seen.add(this.key(c)));
+      moves.push(fresh);
+      p = r.end;
+    }
+    const unpainted = (c: Point) => isFloor(grid, c.x, c.y) && !painted.has(this.key(c));
+    // Grow a cluster of up to 3 unpainted, connected tiles from a pocket tip.
+    const cluster = (seed: Point): Point[] => {
+      const out = [seed];
+      const queue = [seed];
+      const inCluster = new Set([this.key(seed)]);
+      while (queue.length && out.length < 3) {
+        const c = queue.shift()!;
+        for (const d of Object.values(DIRS)) {
+          const n = { x: c.x + d.x, y: c.y + d.y };
+          if (out.length >= 3 || !unpainted(n) || inCluster.has(this.key(n))) continue;
+          inCluster.add(this.key(n));
+          out.push(n);
+          queue.push(n);
+        }
+      }
+      return out;
+    };
+    const candidates = moves
+      .map((tiles, i) => ({ tiles, i }))
+      .filter((m) => m.tiles.length > 0)
+      .sort((a, b) => a.tiles.length - b.tiles.length)
+      .slice(0, 5)
+      .map((m) => cluster(m.tiles[m.tiles.length - 1]));
+    let best: { tiles: Point[]; saved: number } | null = null;
+    for (const tiles of candidates) {
+      const after = new Set(painted);
+      tiles.forEach((c) => after.add(this.key(c)));
+      const rest = solve(grid, this.pos, after, 120000);
+      const saved = rest ? sol.length - rest.length : -1;
+      if (!best || saved > best.saved) best = { tiles, saved };
+    }
+    return best?.tiles ?? this.remaining.slice(0, 3);
+  }
+
   private paintBomb() {
     if (this.slideState || this.completeAt !== null || this.bombAnim) return;
-    if (this.bombs <= 0) {
-      this.hud.toast('No paint bombs left on this level');
-      return;
-    }
-    const sol = solve(this.level.grid, this.pos, this.painted.keys(), 300000);
-    let targets: Point[] = [];
-    if (sol) {
-      const order: Point[] = [];
-      const seen = new Set(this.painted.keys());
-      let p = this.pos;
-      for (const dir of sol) {
-        const r = slide(this.level.grid, p, dir);
-        for (const c of r.path) if (!seen.has(this.key(c))) {
-          seen.add(this.key(c));
-          order.push(c);
-        }
-        p = r.end;
-      }
-      targets = order.slice(-3);
-    } else targets = this.remaining.slice(0, 3);
-    if (!targets.length) return;
-    this.bombs--;
-    this.hud.setBombLabel(this.bombs > 0 ? 'FREE' : 'USED');
+    const targets = this.bombTargets();
+    if (!targets.length || !this.spend('bombs')) return;
     const o = this.hud.bombOrigin();
     const local = this.board.toLocal({ x: o.x, y: o.y });
     this.bombAnim = { t: 0, from: { x: local.x, y: local.y }, targets };
@@ -717,14 +883,13 @@ export class Game {
   }
 
   private bombAnim: { t: number; from: Point; targets: Point[] } | null = null;
-  private readonly bombG = new Graphics();
+  private bombG = new Graphics();
 
   private stepBomb(dt: number) {
     const b = this.bombAnim;
     const g = this.bombG;
     g.clear();
     if (!b) return;
-    if (g.parent !== this.board.fxLayer) this.board.fxLayer.addChild(g);
     b.t += dt;
     const flight = 520;
     const r = this.cell * 0.42;
@@ -738,13 +903,12 @@ export class Game {
       const y = b.from.y + (to.y - b.from.y) * p - arc;
       if (p < 1) {
         g.circle(x, y + arc * 0.25 + r * 0.3, r * (1 - p * 0.3)).fill({ color: 0x000000, alpha: 0.12 });
-        g.circle(x, y, r * (1.25 - p * 0.45)).fill({ color: this.theme.paint });
+        g.circle(x, y, r * (1.25 - p * 0.45)).fill({ color: this.look.paint });
         g.circle(x - r * 0.3, y - r * 0.35, r * 0.28).fill({ color: 0xffffff, alpha: 0.55 });
       } else if (!this.painted.has(this.key(tp))) {
         this.painted.set(this.key(tp), this.time);
         this.speckle(tp);
-        this.addSplat(to.x, to.y, { x: 0, y: 1 }, 1.1);
-        this.boardFx.splash(to.x, to.y, 0, -1, 8, this.theme.paint, this.cell * 3, this.cell * 0.08, (x, y, rr) => this.addDot(x, y, rr));
+        this.boardFx.splash(to.x, to.y, 0, -1, 8, this.look.paint, this.cell * 3, this.cell * 0.08, (x, y, rr) => this.addDot(x, y, rr));
         this.boardFx.ring(to.x, to.y, this.cell * 0.6, 0xffffff);
         this.sound.thock(0.7);
         this.sound.paintTile();
@@ -811,7 +975,7 @@ export class Game {
         this.ball.impact(0.9);
         this.sound.thock(0.45);
         this.boardFx.ring(this.ball.x, this.ball.y, this.cell * 0.55, 0xffffff);
-        this.boardFx.splash(this.ball.x, this.ball.y, 0, 1, 7, this.theme.paint, this.cell * 2.2, this.cell * 0.07,
+        this.boardFx.splash(this.ball.x, this.ball.y, 0, 1, 7, this.look.paint, this.cell * 2.2, this.cell * 0.07,
           (x, y, r) => this.addDot(x, y, r));
       }
     }
@@ -833,6 +997,7 @@ export class Game {
       dots: this.dots,
       splats: this.splats,
       startRound: this.moves === 0 && !this.slideState ? this.key(this.level.start) : undefined,
+      shimmer: this.shimmer,
     };
     if (this.cone) {
       const fade = this.cone.endedAt === null ? 1 : Math.max(0, 1 - (time - this.cone.endedAt) / 380);

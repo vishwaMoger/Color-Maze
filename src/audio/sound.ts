@@ -128,26 +128,29 @@ export class Sound {
     if (!ctx) return;
     const step = this.cursor % 11;
     this.cursor++;
-    this.note(this.scaleFreq(step + 3), ctx.currentTime, 0.45, 0.075, 'triangle');
+    this.note(this.scaleFreq(step + 3), ctx.currentTime, 0.5, 0.085, 'triangle');
   }
 
-  launch() {
+  /** Rolling whoosh that lasts the whole slide. */
+  launch(durMs = 200) {
     const ctx = this.ready();
     if (!ctx) return;
+    const t = ctx.currentTime;
+    const dur = Math.max(0.12, durMs / 1000);
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.Q.value = 1.2;
-    const t = ctx.currentTime;
-    bp.frequency.setValueAtTime(500, t);
-    bp.frequency.exponentialRampToValueAtTime(2400, t + 0.16);
+    bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(380, t);
+    bp.frequency.exponentialRampToValueAtTime(1600, t + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.09, t + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    g.gain.linearRampToValueAtTime(0.11, t + 0.03);
+    g.gain.setValueAtTime(0.1, t + dur * 0.8);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.08);
     src.connect(bp).connect(g).connect(this.sfx);
-    src.start(t, Math.random() * 0.5, 0.25);
+    src.start(t, Math.random() * 0.4, dur + 0.12);
   }
 
   thock(strength = 1) {
@@ -156,10 +159,10 @@ export class Sound {
     const t = ctx.currentTime;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
-    o.frequency.setValueAtTime(170, t);
-    o.frequency.exponentialRampToValueAtTime(62, t + 0.12);
-    g.gain.setValueAtTime(0.32 * strength, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(55, t + 0.14);
+    g.gain.setValueAtTime(0.38 * strength, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
     o.connect(g).connect(this.sfx);
     o.start(t);
     o.stop(t + 0.2);
@@ -167,13 +170,15 @@ export class Sound {
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
     const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 1400;
+    lp.type = 'bandpass';
+    lp.Q.value = 1.4;
+    lp.frequency.setValueAtTime(1300, t);
+    lp.frequency.exponentialRampToValueAtTime(420, t + 0.12);
     const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.08 * strength, t);
-    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    ng.gain.setValueAtTime(0.16 * strength, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
     src.connect(lp).connect(ng).connect(this.sfx);
-    src.start(t, Math.random() * 0.5, 0.1);
+    src.start(t, Math.random() * 0.5, 0.16);
   }
 
   bump() {

@@ -1,5 +1,5 @@
 import { BlurFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture, UniformGroup } from 'pixi.js';
-import type { Level, Point } from '../levels/core.ts';
+import { STOPPER, type Level, type Point } from '../levels/core.ts';
 import { dilate, fillRoundedCells, makeCanvas, softBlur, tint } from './shape.ts';
 import type { Theme } from './themes.ts';
 
@@ -72,6 +72,8 @@ export interface PaintStroke {
   active?: { from: Point; pos: { x: number; y: number } };
   /** Wet splatter on fresh paint; each speck dries away over about a second. */
   dots: { x: number; y: number; r: number; t: number }[];
+  /** Light racing along a just-finished stroke: cell key and start time. */
+  shimmer?: { k: number; t: number }[];
   /** Start tile drawn as a round puddle under the ball until the first move. */
   startRound?: number;
   /** Splash stains where the ball hit walls: groups of blobs in board px. */
@@ -99,17 +101,21 @@ export class Board extends Container {
   private caustics?: ReturnType<typeof causticFilter>;
   private textures: Texture[] = [];
   private floorCells: Point[] = [];
+  private readonly res: number;
 
   constructor(
     readonly level: Level,
     readonly theme: Theme,
     readonly cell: number,
-    private readonly res: number,
+    res: number,
   ) {
     super();
+    // Snap so one cell is a whole number of texture pixels at any DPR.
+    this.res = Math.max(1, Math.round(cell * res)) / cell;
     this.rows = level.grid.length;
     this.cols = level.grid[0].length;
     this.pad = cell;
+
     level.grid.forEach((row, y) => row.forEach((c, x) => c === 0 && this.floorCells.push({ x, y })));
     this.build();
   }
@@ -121,7 +127,10 @@ export class Board extends Container {
     return this.rows * this.cell;
   }
 
-  private isFloor = (x: number, y: number) => this.level.grid[y]?.[x] === 0;
+  private isFloor = (x: number, y: number) => {
+    const c = this.level.grid[y]?.[x];
+    return c === 0 || c === STOPPER;
+  };
 
   /** Wall cells enclosed by floor (not connected to the outside) belong to the plate. */
   private interiorWalls(): (x: number, y: number) => boolean {
@@ -223,7 +232,7 @@ export class Board extends Container {
     const fctx = floorCanvas.getContext('2d')!;
     fctx.drawImage(tint(floorMask, theme.floor), 0, 0);
     fctx.globalCompositeOperation = 'source-atop';
-    const gap = Math.max(1, res * 1.1);
+    const gap = Math.max(1, Math.round(res * 1.5));
     fctx.fillStyle = theme.gridLine;
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
@@ -250,6 +259,36 @@ export class Board extends Container {
     gctx.drawImage(floorMask, 0, 0);
     this.gridOver = this.sprite(seams);
     this.addChild(this.paintLayer, this.gridOver);
+    // Stopper studs: four glossy white buttons that stay visible over paint.
+    const studs = makeCanvas(W, H);
+    const tctx = studs.getContext('2d')!;
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++) {
+        if (this.level.grid[y][x] !== STOPPER) continue;
+        for (const [ux, uy] of [
+          [0.33, 0.33],
+          [0.67, 0.33],
+          [0.33, 0.67],
+          [0.67, 0.67],
+        ]) {
+          const sx = off + (x + ux) * c;
+          const sy = off + (y + uy) * c;
+          const r = c * 0.11;
+          tctx.fillStyle = 'rgba(20,10,50,0.35)';
+          tctx.beginPath();
+          tctx.ellipse(sx, sy + r * 0.45, r, r * 0.9, 0, 0, Math.PI * 2);
+          tctx.fill();
+          const sg = tctx.createRadialGradient(sx - r * 0.35, sy - r * 0.4, r * 0.1, sx, sy, r);
+          sg.addColorStop(0, '#ffffff');
+          sg.addColorStop(0.6, '#f2eefc');
+          sg.addColorStop(1, '#c9c1e6');
+          tctx.fillStyle = sg;
+          tctx.beginPath();
+          tctx.arc(sx, sy, r, 0, Math.PI * 2);
+          tctx.fill();
+        }
+      }
+    this.addChild(this.sprite(studs));
     if (theme.neon) {
       const glow = new Graphics();
       glow.filters = [new BlurFilter({ strength: this.cell * 0.35, quality: 2 })];
@@ -301,27 +340,22 @@ export class Board extends Container {
     const wet = this.wetG;
     g.clear();
     wet.clear();
-    // Every painted tile is filled edge to edge (the floor mask rounds the
-    // outer corners). Fresh tiles swell in from a rounded blob to a square.
+    // Every painted tile is filled edge to edge and fully saturated the
+    // moment the ball reaches it (the floor mask rounds the outer corners).
     for (const [k, t] of stroke.painted) {
+      if (time < t) continue;
       const x = k % w;
       const y = Math.floor(k / w);
-      const cx = (x + 0.5) * cell;
-      const cy = (y + 0.5) * cell;
-      const age = time - t;
-      if (age < 0) continue;
       if (k === stroke.startRound) {
-        const grow = Math.min(1, age / 200);
-        g.circle(cx, cy, half * (0.4 + 0.66 * (1 - (1 - grow) ** 3)));
-      } else if (age < 140) {
-        const grow = 1 - (1 - age / 140) ** 3;
-        const size = cell * (0.55 + 0.45 * grow) + 1;
-        g.roundRect(cx - size / 2, cy - size / 2, size, size, half * (1 - grow));
+        const grow = Math.min(1, (time - t) / 200);
+        g.circle((x + 0.53) * cell, (y + 0.55) * cell, half * (0.4 + 0.66 * (1 - (1 - grow) ** 3)));
       } else g.rect(x * cell - 0.5, y * cell - 0.5, cell + 1, cell + 1);
-      if (age < 650) {
-        const a = (1 - age / 650) ** 2;
-        wet.rect(x * cell, y * cell, cell, cell).fill({ color: theme.paintLight, alpha: 0.42 * a });
-      }
+    }
+    for (const sh of stroke.shimmer ?? []) {
+      const age = time - sh.t;
+      if (age < 0 || age > 220) continue;
+      const a = Math.sin((age / 220) * Math.PI);
+      wet.rect((sh.k % w) * cell, Math.floor(sh.k / w) * cell, cell, cell).fill({ color: 0xffffff, alpha: 0.32 * a });
     }
     if (stroke.active) {
       // The stroke behind the ball: a band from the slide start to the ball.
@@ -335,16 +369,6 @@ export class Board extends Container {
       const x1 = Math.max(ax, bx) + half;
       const y1 = Math.max(ay, by) + half;
       g.rect(x0, y0, x1 - x0, y1 - y0);
-      // Glossy wet streak along the centre of the fresh stroke.
-      const horizontal = ay === by;
-      const sw = cell * 0.16;
-      wet.roundRect(
-        horizontal ? x0 : (ax + bx) / 2 - sw / 2 - cell * 0.12,
-        horizontal ? (ay + by) / 2 - sw / 2 - cell * 0.12 : y0,
-        horizontal ? x1 - x0 : sw,
-        horizontal ? sw : y1 - y0,
-        sw / 2,
-      ).fill({ color: 0xffffff, alpha: 0.35 });
     }
     for (const sp of stroke.splats) {
       const age = time - sp.t;

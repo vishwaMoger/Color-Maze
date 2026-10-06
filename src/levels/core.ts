@@ -1,6 +1,7 @@
 // Grid rules shared by the game, the hint system and the level tools.
-// A grid is rows of cells: 1 = wall, 0 = floor. The ball slides until the
-// next cell is a wall, painting every floor cell it passes.
+// A grid is rows of cells: 1 = wall, 0 = floor, 2 = stopper (floor that the
+// ball halts on). The ball slides until the next cell is a wall or it rolls
+// onto a stopper, painting every floor cell it passes.
 
 export type Grid = number[][];
 export interface Point {
@@ -17,6 +18,9 @@ export const DIRS: Record<Dir, Point> = {
 };
 export const DIR_LIST: Dir[] = ['U', 'D', 'L', 'R'];
 
+export const WALL = 1;
+export const STOPPER = 2;
+
 export interface Level {
   grid: Grid;
   start: Point;
@@ -27,7 +31,8 @@ export interface Level {
 }
 
 export function isFloor(grid: Grid, x: number, y: number): boolean {
-  return grid[y] !== undefined && grid[y][x] === 0;
+  const c = grid[y]?.[x];
+  return c === 0 || c === STOPPER;
 }
 
 export function slide(grid: Grid, from: Point, dir: Dir): { end: Point; path: Point[] } {
@@ -39,13 +44,14 @@ export function slide(grid: Grid, from: Point, dir: Dir): { end: Point; path: Po
     x += d.x;
     y += d.y;
     path.push({ x, y });
+    if (grid[y][x] === STOPPER) break;
   }
   return { end: { x, y }, path };
 }
 
 export function floorCount(grid: Grid): number {
   let n = 0;
-  for (const row of grid) for (const c of row) if (c === 0) n++;
+  for (const row of grid) for (const c of row) if (c !== WALL) n++;
   return n;
 }
 
@@ -112,7 +118,7 @@ export function solve(
   const index = new Map<number, number>();
   grid.forEach((row, y) =>
     row.forEach((c, x) => {
-      if (c === 0) index.set(y * w + x, index.size);
+      if (c !== WALL) index.set(y * w + x, index.size);
     }),
   );
   const full = (1n << BigInt(index.size)) - 1n;
@@ -150,13 +156,13 @@ export function solve(
   return null;
 }
 
-/** Parse rows where '#' is wall, '.' floor and 'o' the start. */
+/** Parse rows where '#' is wall, '.' floor, '*' a stopper and 'o' the start. */
 export function parseLevel(rows: string[], extra: Partial<Level> = {}): Level {
   let start: Point | null = null;
   const grid = rows.map((row, y) =>
     [...row].map((ch, x) => {
       if (ch === 'o') start = { x, y };
-      return ch === '#' ? 1 : 0;
+      return ch === '#' ? WALL : ch === '*' ? STOPPER : 0;
     }),
   );
   if (!start) throw new Error('level has no start');

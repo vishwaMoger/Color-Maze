@@ -40,7 +40,19 @@ const HANDMADE: Level[] = [
     ],
     { name: 'Panorama', bonus: true },
   ),
-  parseLevel(
+];
+
+// Introduces stoppers: the ball halts on the studded tiles.
+HANDMADE.push(
+  parseLevel(['##########', '#.*.*.*..#', '#........#', '#........#', '#o.*.*.*.#', '##########'], {
+    name: 'Stoppers',
+  }),
+);
+
+// Picture levels that can trap you: kept for later, where Undo-based thinking
+// is expected.
+const SPECIAL = new Map<number, Level>([
+  [33, parseLevel(
     [
       '###############',
       '#..###...###..#',
@@ -53,8 +65,8 @@ const HANDMADE: Level[] = [
       '###############',
     ],
     { name: 'Crown' },
-  ),
-  parseLevel(
+  )],
+  [47, parseLevel(
     [
       '###############',
       '###...###...###',
@@ -70,8 +82,8 @@ const HANDMADE: Level[] = [
       '###############',
     ],
     { name: 'Heart' },
-  ),
-];
+  )],
+]);
 
 const cache = new Map<number, Level>();
 
@@ -80,8 +92,9 @@ export function getLevel(n: number): Level {
   const cached = cache.get(n);
   if (cached) return cached;
   let level: Level;
-  if (n <= HANDMADE.length) {
-    const h = HANDMADE[n - 1];
+  const special = SPECIAL.get(n);
+  if (n <= HANDMADE.length || special) {
+    const h = special ?? HANDMADE[n - 1];
     level = { ...h, ...crop(h.grid, h.start), bonus: h.bonus ?? n % 5 === 0 };
     level.par = solve(level.grid, level.start, undefined, 2_000_000)?.length;
   } else {
