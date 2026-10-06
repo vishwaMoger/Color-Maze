@@ -36,15 +36,16 @@ interface Save {
   level: number;
   theme: string;
   sound: boolean;
+  music: boolean;
+  vibe: boolean;
   coins: number;
 }
 
 const SAVE_KEY = 'colormaze.v1';
 const easeOutBack = (p: number) => 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2;
-const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
 
 function loadSave(): Save {
-  const fallback: Save = { level: 1, theme: 'lavender', sound: true, coins: 0 };
+  const fallback: Save = { level: 1, theme: 'lavender', sound: true, music: true, vibe: true, coins: 0 };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     return raw ? { ...fallback, ...JSON.parse(raw) } : fallback;
@@ -111,6 +112,7 @@ export class Game {
   private splats: PaintStroke['splats'] = [];
   private introAt = 0;
   private sparkQueue: { x: number; y: number; at: number }[] = [];
+  private cone: { from: Point; to: { x: number; y: number }; endedAt: number | null } | null = null;
   private moves = 0;
   private history: Snapshot[] = [];
   private slideState: Slide | null = null;
@@ -136,6 +138,7 @@ export class Game {
     this.theme = THEMES.find((t) => t.id === this.save.theme) ?? THEMES[0];
     this.levelNo = Math.max(1, this.save.level);
     this.sound.setEnabled(this.save.sound);
+    this.sound.setMusic(this.save.music);
     app.stage.addChild(this.world);
     this.ambient = new Ambient(this.world);
     this.world.addChild(this.boardHolder);
@@ -145,12 +148,15 @@ export class Game {
       restart: () => this.restart(),
       undo: () => this.undo(),
       hint: () => this.showHint(),
-      theme: () => this.cycleTheme(),
-      sound: () => this.toggleSound(),
+      bomb: () => this.paintBomb(),
       next: () => this.nextLevel(),
+      selectTheme: (id) => this.selectTheme(id),
+      toggle: (what) => this.toggle(what),
       anyInput: () => this.sound.unlock(),
+      click: () => this.sound.click(),
     });
-    hud.setSound(this.save.sound);
+    hud.setToggles({ sfx: this.save.sound, music: this.save.music, vibe: this.save.vibe });
+    hud.renderBoards(THEMES, this.theme.id);
     hud.setCoins(this.save.coins);
     this.applyTheme();
     this.loadLevel(this.levelNo, false);
@@ -177,25 +183,39 @@ export class Game {
   private bindInput() {
     const el = this.app.canvas;
     let origin: { x: number; y: number; id: number } | null = null;
-    const threshold = () => Math.max(14, Math.min(30, Math.min(innerWidth, innerHeight) * 0.035));
+    const threshold = (e: PointerEvent) =>
+      e.pointerType === 'mouse' ? 12 : Math.max(14, Math.min(28, Math.min(innerWidth, innerHeight) * 0.03));
     el.addEventListener('pointerdown', (e) => {
       this.sound.unlock();
+      if (this.hud.modalOpen) return;
+      if (this.resultShown) {
+        this.nextLevel();
+        return;
+      }
+      e.preventDefault();
       origin = { x: e.clientX, y: e.clientY, id: e.pointerId };
-      if (this.resultShown) this.nextLevel();
+      // Keep receiving the drag even if the mouse passes over buttons.
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture unsupported */
+      }
     });
-    el.addEventListener('pointermove', (e) => {
+    window.addEventListener('pointermove', (e) => {
       if (!origin || e.pointerId !== origin.id) return;
       const dx = e.clientX - origin.x;
       const dy = e.clientY - origin.y;
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < threshold()) return;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < threshold(e)) return;
       const dir: Dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : dy > 0 ? 'D' : 'U';
       // Re-anchor so one continuous drag can chain several swipes.
       origin = { x: e.clientX, y: e.clientY, id: e.pointerId };
       this.input(dir);
     });
-    const end = () => (origin = null);
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
+    const end = (e: PointerEvent) => {
+      if (origin && e.pointerId === origin.id) origin = null;
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
     window.addEventListener('keydown', (e) => {
       this.sound.unlock();
       const keyDirs: Record<string, Dir> = {
@@ -239,29 +259,26 @@ export class Game {
     const old = this.board;
     this.buildBoard();
     if (animate && old) {
+      // Like a carousel: the finished board slides out left, the next one
+      // slides in from the right and settles with a little overshoot.
       this.boardHolder.addChild(old);
       const ox = old.x;
-      const oy = old.y;
+      const w = this.app.screen.width;
       this.tweens.push({
         t: 0,
-        dur: 320,
-        step: (p) => {
-          // Never fully transparent: Pixi mis-sizes masks on alpha-0 containers.
-          old.alpha = Math.max(0.01, 1 - p);
-          old.scale.set(1 - 0.12 * easeInOut(p));
-          old.position.set(ox, oy - 60 * easeInOut(p));
-        },
+        dur: 300,
+        step: (p) => old.position.set(ox - (w * 0.5 + old.boardWidth) * p * p, old.y),
         done: () => old.destroy(),
       });
-      this.board.alpha = 0.01;
+      this.enterX = w * 0.5 + this.board.boardWidth;
       this.tweens.push({
-        t: -120,
-        dur: 520,
-        step: (p) => {
-          this.board.alpha = Math.max(0.01, Math.min(1, p * 2.5));
-          this.board.scale.set(0.82 + 0.18 * easeOutBack(p));
-        },
+        t: -260,
+        dur: 420,
+        step: (p) => (this.enterX = (w * 0.5 + this.board.boardWidth) * (1 - easeOutBack(p))),
+        done: () => (this.enterX = 0),
       });
+      this.introAt = this.time + 560;
+      this.painted.set(this.key(this.pos), this.introAt + 330);
     } else if (old) {
       old.destroy();
     }
@@ -281,12 +298,17 @@ export class Game {
     this.dots = [];
     this.splats = [];
     this.sparkQueue = [];
+    this.cone = null;
+    this.bombs = 1;
+    this.bombAnim = null;
+    this.hud.setBombLabel('FREE');
     this.moves = 0;
     this.history = [];
     this.slideState = null;
     this.queued = null;
     this.completeAt = null;
     this.resultShown = false;
+    this.autoNextAt = null;
     this.hint = null;
     this.timeScale = 1;
     this.sound.resetMelody();
@@ -359,8 +381,8 @@ export class Game {
     const d = DIRS[dir];
     if (!r.path.length) {
       // Blocked: a small wobble toward the wall.
-      this.nudge.vx += d.x * 60;
-      this.nudge.vy += d.y * 60;
+      this.nudge.vx += d.x * 90;
+      this.nudge.vy += d.y * 90;
       this.ball.impact(0.25);
       this.sound.bump();
       return;
@@ -377,8 +399,12 @@ export class Game {
     this.hud.showTip(null);
     this.hint = null;
     const len = r.path.length;
-    this.slideState = { dir, from: { ...this.pos }, path: r.path, t: 0, dur: 70 + 34 * len ** 0.82, done: 0 };
+    this.slideState = { dir, from: { ...this.pos }, path: r.path, t: 0, dur: 45 + 24 * len ** 0.9, done: 0 };
     this.lastDir = d;
+    this.cone = { from: { ...this.pos }, to: { ...this.pos }, endedAt: null };
+    // The whole board slides a little with the swipe, then springs back.
+    this.nudge.vx += d.x * 120;
+    this.nudge.vy += d.y * 120;
     this.sound.launch();
   }
 
@@ -399,7 +425,8 @@ export class Game {
       if (!this.painted.has(k)) {
         this.painted.set(k, this.time);
         this.sound.paintTile();
-        if (Math.random() < 0.45) {
+        this.speckle(cellP);
+        if (Math.random() < 0.6) {
           const c = this.board.cellCenter(cellP.x, cellP.y);
           const side = Math.random() < 0.5 ? 1 : -1;
           this.boardFx.splash(c.x, c.y, -d.y * side + d.x * 0.3, d.x * side + d.y * 0.3, 2, this.theme.paintDark,
@@ -409,6 +436,7 @@ export class Game {
       s.done++;
     }
     this.placeBall({ x: bx, y: by });
+    if (this.cone) this.cone.to = { x: bx, y: by };
     if (p >= 1) this.arrive(s);
   }
 
@@ -416,19 +444,14 @@ export class Game {
     const d = DIRS[s.dir];
     this.pos = s.path[s.path.length - 1];
     this.slideState = null;
+    if (this.cone) this.cone.endedAt = this.time;
     this.updateRemaining();
     const speed = Math.min(1.3, s.path.length / 6);
     this.ball.impact(0.6 + speed * 0.5);
     this.sound.thock(0.6 + speed * 0.4);
-    if ('vibrate' in navigator) {
-      try {
-        navigator.vibrate(8);
-      } catch {
-        /* not allowed */
-      }
-    }
-    this.nudge.vx += d.x * (40 + 70 * speed);
-    this.nudge.vy += d.y * (40 + 70 * speed);
+    this.vibrate(8);
+    this.nudge.vx += d.x * (60 + 80 * speed);
+    this.nudge.vy += d.y * (60 + 80 * speed);
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
     const hitX = c.x + d.x * this.cell * 0.45;
     const hitY = c.y + d.y * this.cell * 0.45;
@@ -465,10 +488,24 @@ export class Game {
   }
 
   private addDot(x: number, y: number, r: number) {
-    if (this.dots.length > 260) return;
     const cx = Math.floor(x / this.cell);
     const cy = Math.floor(y / this.cell);
-    if (this.level.grid[cy]?.[cx] === 0) this.dots.push({ x, y, r });
+    if (this.level.grid[cy]?.[cx] === 0) this.dots.push({ x, y, r, t: this.time });
+  }
+
+  /** Dense wet splatter on a freshly painted tile. */
+  private speckle(p: Point) {
+    const c = this.cell;
+    const n = 5 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < n; i++) {
+      const big = Math.random() < 0.25;
+      this.dots.push({
+        x: (p.x + 0.05 + Math.random() * 0.9) * c,
+        y: (p.y + 0.05 + Math.random() * 0.9) * c,
+        r: c * (big ? 0.07 + Math.random() * 0.05 : 0.025 + Math.random() * 0.035),
+        t: this.time + Math.random() * 60,
+      });
+    }
   }
 
   undo() {
@@ -478,7 +515,7 @@ export class Game {
     if (!snap) return;
     this.pos = snap.pos;
     this.painted = snap.painted;
-    this.dots.length = snap.dots;
+    this.dots = [];
     this.splats.length = snap.splats;
     this.moves = snap.moves;
     this.hud.setMoves(this.moves);
@@ -553,30 +590,40 @@ export class Game {
       const coins = 10 + stars * 5 + (this.level.bonus ? 25 : 0);
       this.save.coins += coins;
       this.persist();
-      this.hud.showResult({
+      const info = {
         level: this.levelNo,
         stars,
         moves: this.moves,
         par,
         coins,
         bonus: !!this.level.bonus,
-        onStar: (i) => this.sound.star(i),
+        onStar: (i: number) => this.sound.star(i),
         onCoin: () => this.sound.coin(),
         totalCoins: this.save.coins,
-      });
+      };
+      if (this.level.bonus) this.hud.showResult(info);
+      else {
+        const c = this.board.toGlobal(this.board.cellCenter(this.pos.x, this.pos.y));
+        const top = this.board.toGlobal({ x: 0, y: 0 }).y;
+        this.hud.celebrate(info, { x: c.x, y: c.y }, top);
+        this.autoNextAt = this.time + 1750;
+      }
     }
   }
 
   private lastFrameDt = 16;
 
   private resultAt = 0;
+  private enterX = 0;
+  private autoNextAt: number | null = null;
   private landed = false;
 
   nextLevel() {
     // Ignore taps in the first moment so the stars can land.
     if (!this.resultShown || this.time - this.resultAt < 450) return;
-    this.sound.click();
+    this.autoNextAt = null;
     this.hud.hideResult();
+    this.hud.endCelebrate();
     this.loadLevel(this.levelNo + 1, true);
   }
 
@@ -588,16 +635,18 @@ export class Game {
     root.setProperty('--bg-top', t.bgTop);
     root.setProperty('--bg-bottom', t.bgBottom);
     root.setProperty('--ink', t.ui.ink);
-    root.setProperty('--btn', t.ui.button);
-    root.setProperty('--btn-shade', t.ui.buttonShade);
-    root.setProperty('--panel', t.ui.panel);
-    this.hud.setThemeName(t.name);
+    root.setProperty('--deep', t.ui.deep);
+    root.setProperty('--p1', t.ui.p1);
+    root.setProperty('--p2', t.ui.p2);
+    root.setProperty('--p3', t.ui.p3);
+    root.setProperty('--panel-edge', t.ui.panelEdge);
     this.sound.setRoot(t.root);
   }
 
-  private cycleTheme() {
-    const i = THEMES.indexOf(this.theme);
-    this.theme = THEMES[(i + 1) % THEMES.length];
+  private selectTheme(id: string) {
+    const next = THEMES.find((t) => t.id === id);
+    if (!next || next === this.theme) return;
+    this.theme = next;
     this.applyTheme();
     const old = this.board;
     this.buildBoard();
@@ -605,15 +654,109 @@ export class Game {
     this.board.scale.set(0.94);
     this.tweens.push({ t: 0, dur: 420, step: (p) => this.board.scale.set(0.94 + 0.06 * easeOutBack(p)) });
     this.persist();
-    this.sound.click();
   }
 
-  private toggleSound() {
-    this.sound.unlock();
-    this.save.sound = !this.save.sound;
-    this.sound.setEnabled(this.save.sound);
-    this.hud.setSound(this.save.sound);
+  private toggle(what: 'sfx' | 'music' | 'vibe') {
+    if (what === 'sfx') {
+      this.save.sound = !this.save.sound;
+      this.sound.setEnabled(this.save.sound);
+    } else if (what === 'music') {
+      this.save.music = !this.save.music;
+      this.sound.setMusic(this.save.music);
+    } else this.save.vibe = !this.save.vibe;
+    this.hud.setToggles({ sfx: this.save.sound, music: this.save.music, vibe: this.save.vibe });
     this.persist();
+  }
+
+  private vibrate(ms: number) {
+    if (!this.save.vibe || !('vibrate' in navigator)) return;
+    try {
+      navigator.vibrate(ms);
+    } catch {
+      /* not allowed */
+    }
+  }
+
+  // ---------------------------------------------------------------- booster
+
+  private bombs = 1;
+
+  /**
+   * Paint Bomb: a paint ball flies from the button and splats onto the three
+   * tiles an optimal solution would paint last (the awkward ones).
+   */
+  private paintBomb() {
+    if (this.slideState || this.completeAt !== null || this.bombAnim) return;
+    if (this.bombs <= 0) {
+      this.hud.toast('No paint bombs left on this level');
+      return;
+    }
+    const sol = solve(this.level.grid, this.pos, this.painted.keys(), 300000);
+    let targets: Point[] = [];
+    if (sol) {
+      const order: Point[] = [];
+      const seen = new Set(this.painted.keys());
+      let p = this.pos;
+      for (const dir of sol) {
+        const r = slide(this.level.grid, p, dir);
+        for (const c of r.path) if (!seen.has(this.key(c))) {
+          seen.add(this.key(c));
+          order.push(c);
+        }
+        p = r.end;
+      }
+      targets = order.slice(-3);
+    } else targets = this.remaining.slice(0, 3);
+    if (!targets.length) return;
+    this.bombs--;
+    this.hud.setBombLabel(this.bombs > 0 ? 'FREE' : 'USED');
+    const o = this.hud.bombOrigin();
+    const local = this.board.toLocal({ x: o.x, y: o.y });
+    this.bombAnim = { t: 0, from: { x: local.x, y: local.y }, targets };
+    this.sound.launch();
+  }
+
+  private bombAnim: { t: number; from: Point; targets: Point[] } | null = null;
+  private readonly bombG = new Graphics();
+
+  private stepBomb(dt: number) {
+    const b = this.bombAnim;
+    const g = this.bombG;
+    g.clear();
+    if (!b) return;
+    if (g.parent !== this.board.fxLayer) this.board.fxLayer.addChild(g);
+    b.t += dt;
+    const flight = 520;
+    const r = this.cell * 0.42;
+    b.targets.forEach((tp, i) => {
+      const start = i * 70;
+      const p = Math.min(1, Math.max(0, (b.t - start) / flight));
+      if (p <= 0) return;
+      const to = this.board.cellCenter(tp.x, tp.y);
+      const x = b.from.x + (to.x - b.from.x) * p;
+      const arc = Math.sin(p * Math.PI) * this.cell * 2.2;
+      const y = b.from.y + (to.y - b.from.y) * p - arc;
+      if (p < 1) {
+        g.circle(x, y + arc * 0.25 + r * 0.3, r * (1 - p * 0.3)).fill({ color: 0x000000, alpha: 0.12 });
+        g.circle(x, y, r * (1.25 - p * 0.45)).fill({ color: this.theme.paint });
+        g.circle(x - r * 0.3, y - r * 0.35, r * 0.28).fill({ color: 0xffffff, alpha: 0.55 });
+      } else if (!this.painted.has(this.key(tp))) {
+        this.painted.set(this.key(tp), this.time);
+        this.speckle(tp);
+        this.addSplat(to.x, to.y, { x: 0, y: 1 }, 1.1);
+        this.boardFx.splash(to.x, to.y, 0, -1, 8, this.theme.paint, this.cell * 3, this.cell * 0.08, (x, y, rr) => this.addDot(x, y, rr));
+        this.boardFx.ring(to.x, to.y, this.cell * 0.6, 0xffffff);
+        this.sound.thock(0.7);
+        this.sound.paintTile();
+        this.vibrate(10);
+        this.updateRemaining();
+      }
+    });
+    if (b.t > flight + b.targets.length * 70 + 40) {
+      this.bombAnim = null;
+      g.clear();
+      if (this.painted.size >= this.floorTotal) this.beginComplete();
+    }
   }
 
   // ---------------------------------------------------------------- frame
@@ -625,7 +768,9 @@ export class Game {
     const time = this.time;
 
     this.stepSlide(dt);
+    this.stepBomb(dt);
     this.stepComplete();
+    if (this.autoNextAt !== null && this.time >= this.autoNextAt) this.nextLevel();
 
     for (const tw of [...this.tweens]) {
       tw.t += rawDt;
@@ -646,14 +791,14 @@ export class Game {
       remainingMs -= 8;
       this.scaleKickV += (-260 * this.scaleKick - 14 * this.scaleKickV) * s;
       this.scaleKick += this.scaleKickV * s;
-      n.vx += (-320 * n.x - 22 * n.vx) * s;
-      n.vy += (-320 * n.y - 22 * n.vy) * s;
+      n.vx += (-230 * n.x - 17 * n.vx) * s;
+      n.vy += (-230 * n.y - 17 * n.vy) * s;
       n.x += n.vx * s;
       n.y += n.vy * s;
     }
     const { cx, cy } = this.layoutCache ?? (this.layoutCache = this.layout());
     if (!this.tweens.length) this.board.scale.set(1 + this.scaleKick * 0.05);
-    this.board.position.set(cx + n.x * 0.04, cy + n.y * 0.04);
+    this.board.position.set(cx + n.x + this.enterX, cy + n.y);
 
     const moving = !!this.slideState;
     const speed = this.slideState ? this.slideState.path.length / (this.slideState.dur / 1000) / 30 : 0;
@@ -682,7 +827,18 @@ export class Game {
     if (this.hint && time > this.hint.until) this.hint = null;
     this.board.drawHint(time, this.hint?.path ?? null, this.hint?.dir);
 
-    const stroke: PaintStroke = { painted: this.painted, dots: this.dots, splats: this.splats };
+    if (this.dots.length > 40 && time - this.dots[0].t > 1100) this.dots = this.dots.filter((d) => time - d.t < 1100);
+    const stroke: PaintStroke = {
+      painted: this.painted,
+      dots: this.dots,
+      splats: this.splats,
+      startRound: this.moves === 0 && !this.slideState ? this.key(this.level.start) : undefined,
+    };
+    if (this.cone) {
+      const fade = this.cone.endedAt === null ? 1 : Math.max(0, 1 - (time - this.cone.endedAt) / 380);
+      this.board.drawCone(this.cone.from, this.cone.to, fade);
+      if (fade <= 0) this.cone = null;
+    } else this.board.drawCone(null, { x: 0, y: 0 }, 0);
     if (this.slideState) {
       const st = this.slideState;
       const d = DIRS[st.dir];

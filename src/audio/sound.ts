@@ -15,6 +15,7 @@ export class Sound {
   private cursor = 0;
   private root = 261.63;
   enabled = true;
+  private musicOn = true;
 
   /** Must be called from a user gesture (browsers block audio before one). */
   unlock() {
@@ -27,12 +28,12 @@ export class Sound {
     const ctx = new Ctx();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = this.enabled ? 0.9 : 0;
+    this.master.gain.value = 0.9;
     this.master.connect(ctx.destination);
     this.sfx = ctx.createGain();
-    this.sfx.gain.value = 0.8;
+    this.sfx.gain.value = this.enabled ? 0.8 : 0;
     this.music = ctx.createGain();
-    this.music.gain.value = 0.22;
+    this.music.gain.value = this.musicOn ? 0.22 : 0;
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this.impulse(2.4);
     const wet = ctx.createGain();
@@ -46,14 +47,20 @@ export class Sound {
     this.startMusic();
   }
 
+  /** Sound effects on or off (music has its own switch). */
   setEnabled(on: boolean) {
     this.enabled = on;
-    if (this.ctx) this.master.gain.setTargetAtTime(on ? 0.9 : 0, this.ctx.currentTime, 0.05);
+    if (this.ctx) this.sfx.gain.setTargetAtTime(on ? 0.8 : 0, this.ctx.currentTime, 0.05);
+  }
+
+  setMusic(on: boolean) {
+    this.musicOn = on;
+    if (this.ctx) this.music.gain.setTargetAtTime(on ? 0.22 : 0, this.ctx.currentTime, 0.2);
   }
 
   /** Duck everything (e.g. while an ad plays or the tab is hidden). */
   setMuted(muted: boolean) {
-    if (this.ctx) this.master.gain.setTargetAtTime(muted || !this.enabled ? 0 : 0.9, this.ctx.currentTime, 0.05);
+    if (this.ctx) this.master.gain.setTargetAtTime(muted ? 0 : 0.9, this.ctx.currentTime, 0.05);
   }
 
   setRoot(hz: number) {

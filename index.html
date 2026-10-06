@@ -13,55 +13,85 @@
     <!--APP-START-->
     <div id="stage"></div>
 
+    <div id="splash">
+      <div class="logo" aria-label="Color Maze">
+        <div class="logo-row"><span style="--c:#ff3d8e">C</span><span style="--c:#ff8a1f">O</span><span style="--c:#ffd21f">L</span><span style="--c:#3fd06a">O</span><span style="--c:#2fb8ff">R</span></div>
+        <div class="logo-row maze"><span>M</span><span>A</span><span>Z</span><span>E</span></div>
+      </div>
+      <div class="loadbar"><span></span></div>
+    </div>
+
     <header id="hud-top" class="hud">
       <div class="group">
-        <button id="btn-restart" class="clay" aria-label="Restart level" title="Restart (R)">
-          <svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.3-5.4" /><path d="M4 4v4.5h4.5" /></svg>
+        <button id="btn-restart" class="gbtn sq" aria-label="Restart level" title="Restart (R)">
+          <svg viewBox="0 0 24 24"><path d="M12 3.2a8.8 8.8 0 1 0 8.5 11h-3.4a5.6 5.6 0 1 1-1.3-5.9l-2.6 2.6h7.6V3.3l-2.6 2.6A8.8 8.8 0 0 0 12 3.2Z" /></svg>
         </button>
-        <button id="btn-undo" class="clay" aria-label="Undo move" title="Undo (Z)">
-          <svg viewBox="0 0 24 24"><path d="M9 7 4.5 11.5 9 16" /><path d="M5 11.5h9a5 5 0 0 1 0 10h-2" /></svg>
+        <button id="btn-undo" class="gbtn sq" aria-label="Undo move" title="Undo (Z)">
+          <svg viewBox="0 0 24 24"><path d="M9.6 3.6 2.8 10l6.8 6.4v-4h4.2a3.9 3.9 0 0 1 0 7.8h-2.4v3.4h2.4a7.3 7.3 0 0 0 0-14.6H9.6v-5.4Z" /></svg>
         </button>
       </div>
       <div class="level-info">
+        <div id="level-progress" class="chain" aria-hidden="true"></div>
         <div id="level-label">Level 1</div>
-        <div id="level-dots"></div>
-        <div id="moves">Moves <b>0</b></div>
       </div>
       <div class="group right">
-        <button id="btn-theme" class="clay" aria-label="Change board" title="Change board">
-          <svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.4 0 2-1 1.5-2.1-.6-1.2.2-2.4 1.6-2.4h2.2a3.2 3.2 0 0 0 3.2-3.3A8.6 8.6 0 0 0 12 3.5Z" /><circle cx="7.5" cy="11" r="1.2" /><circle cx="10.5" cy="7.5" r="1.2" /><circle cx="15" cy="7.8" r="1.2" /></svg>
+        <button id="btn-theme" class="gbtn sq" aria-label="Boards" title="Boards">
+          <svg viewBox="0 0 24 24"><path d="M4.4 10 11 3.4l8 8-6.6 6.6a2.4 2.4 0 0 1-3.4 0L4.4 13.4a2.4 2.4 0 0 1 0-3.4Zm2.7 1.4h9.7L11 5.7Z" /><path d="M20.4 14.4c1.2 1.8 1.8 3.1 1.8 4a1.8 1.8 0 0 1-3.6 0c0-.9.6-2.2 1.8-4Z" /></svg>
         </button>
-        <button id="btn-sound" class="clay" aria-label="Sound on or off" title="Sound">
-          <svg class="on" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M15.5 9a4 4 0 0 1 0 6" /><path d="M18 6.5a7.5 7.5 0 0 1 0 11" /></svg>
-          <svg class="mute" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="m16 9.5 5 5" /><path d="m21 9.5-5 5" /></svg>
+        <button id="btn-settings" class="gbtn sq" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 1.8 21 7v10l-9 5.2L3 17V7l9-5.2Zm0 6.1a4.1 4.1 0 1 0 0 8.2 4.1 4.1 0 0 0 0-8.2Z" /></svg>
         </button>
       </div>
-      <div class="coins" aria-label="Coins">
-        <span class="coin-icon"></span><span id="coins-count">0</span>
-      </div>
+      <div class="pill moves-pill" id="moves"></div>
+      <div class="pill coins" aria-label="Coins"><span class="coin"></span><span id="coins-count">0</span></div>
     </header>
 
     <div id="tip" hidden>Swipe to roll the ball</div>
     <div id="toast" role="status"></div>
 
     <footer id="hud-bottom" class="hud">
-      <button id="btn-hint" class="clay wide gold" aria-label="Show hint" title="Hint (H)">
-        <svg viewBox="0 0 24 24"><path d="M9 18h6" /><path d="M10 21h4" /><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z" /></svg>
-        <span>Hint</span>
+      <button id="btn-bomb" class="gbtn tool go" aria-label="Paint bomb: paints three tricky tiles" title="Paint bomb">
+        <svg viewBox="0 0 24 24"><path d="M10.6 7.2a7.2 7.2 0 1 0 6.2 3.5l1-1-2.6-2.6-1 1a7.2 7.2 0 0 0-3.6-.9Z" /><path d="M16.9 5.6 18.4 4a1 1 0 0 1 1.5 0l.1.1a1 1 0 0 1 0 1.5l-1.5 1.5Z" /><path d="m21.4 1.2.5 1.2 1.3.2-1 .9.3 1.3-1.1-.7-1.1.7.3-1.3-1-.9 1.3-.2Z" /><circle cx="7.6" cy="11.6" r="1.7" fill-opacity="0.55" /></svg>
+        <span class="price" id="bomb-price">FREE</span>
+      </button>
+      <button id="btn-hint" class="gbtn tool gold" aria-label="Show hint" title="Hint (H)">
+        <svg viewBox="0 0 24 24"><path d="M12 1.8a7.4 7.4 0 0 0-4.3 13.4v2.2c0 .7.5 1.2 1.2 1.2h6.2c.7 0 1.2-.5 1.2-1.2v-2.2A7.4 7.4 0 0 0 12 1.8Z" /><path d="M8.9 19.8h6.2v.9c0 .9-.8 1.6-1.7 1.6h-2.8c-.9 0-1.7-.7-1.7-1.6v-.9Z" /></svg>
+        <span class="price">FREE</span>
       </button>
     </footer>
 
+    <div id="settings" class="modal" hidden>
+      <div class="panel" role="dialog" aria-labelledby="settings-title">
+        <div class="ribbon"><span id="settings-title">Settings</span></div>
+        <button id="btn-close-settings" class="gbtn round danger close" aria-label="Close settings">
+          <svg viewBox="0 0 24 24"><path d="M6.3 4 12 9.7 17.7 4 20 6.3 14.3 12l5.7 5.7-2.3 2.3-5.7-5.7L6.3 20 4 17.7 9.7 12 4 6.3Z" /></svg>
+        </button>
+        <div class="rows">
+          <label class="row"><span>Sound effects</span><button id="tg-sfx" class="toggle" aria-pressed="true"><i></i></button></label>
+          <label class="row"><span>Music</span><button id="tg-music" class="toggle" aria-pressed="true"><i></i></button></label>
+          <label class="row"><span>Vibration</span><button id="tg-vibe" class="toggle" aria-pressed="true"><i></i></button></label>
+        </div>
+        <h3>Board</h3>
+        <div id="board-list" class="boards"></div>
+      </div>
+    </div>
+
+    <div id="celebrate" hidden aria-live="polite">
+      <div class="stars"><span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span><span class="star big"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span><span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span></div>
+    </div>
+
     <div id="result" hidden>
+      <div class="rays"></div>
       <div class="card" role="dialog" aria-labelledby="result-title">
-        <h2 id="result-title">Level complete!</h2>
+        <div class="ribbon big"><span id="result-title">Level Complete!</span></div>
         <div class="stars">
-          <span class="star"><svg viewBox="0 0 24 24"><path d="m12 2.8 2.8 5.9 6.4.8-4.7 4.4 1.2 6.3L12 17.1l-5.7 3.1 1.2-6.3-4.7-4.4 6.4-.8Z" /></svg></span>
-          <span class="star big"><svg viewBox="0 0 24 24"><path d="m12 2.8 2.8 5.9 6.4.8-4.7 4.4 1.2 6.3L12 17.1l-5.7 3.1 1.2-6.3-4.7-4.4 6.4-.8Z" /></svg></span>
-          <span class="star"><svg viewBox="0 0 24 24"><path d="m12 2.8 2.8 5.9 6.4.8-4.7 4.4 1.2 6.3L12 17.1l-5.7 3.1 1.2-6.3-4.7-4.4 6.4-.8Z" /></svg></span>
+          <span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span>
+          <span class="star big"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span>
+          <span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span>
         </div>
         <p id="result-moves"></p>
-        <div class="reward"><span class="coin-icon"></span><span id="result-coins">+0</span></div>
-        <button id="btn-next" class="clay wide">Next level</button>
+        <div class="pill reward"><span class="coin"></span><span id="result-coins">+0</span></div>
+        <button id="btn-next" class="gbtn go next">Next</button>
       </div>
     </div>
     <!--APP-END-->
