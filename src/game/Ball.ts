@@ -1,103 +1,114 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { ballImage } from './assets.ts';
+import type { BallSkin } from './cosmetics.ts';
 import { makeCanvas } from './shape.ts';
-import type { Theme } from './themes.ts';
 
-function sphereTexture(radius: number, res: number, colors: [string, string, string]): Texture {
-  const size = Math.ceil(radius * 2 * res);
+const hexRgb = (h: string): [number, number, number] => {
+  const n = parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const mix = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
+const smooth = (e0: number, e1: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * Lit sphere rendered per pixel: wrapped diffuse light from the upper left,
+ * a tight specular highlight, a cool bounce light along the lower rim and
+ * soft occlusion at the edge. Used for the ball and for shop previews.
+ */
+export function renderSphere(size: number, colors: [string, string, string], metal = false): HTMLCanvasElement {
   const c = makeCanvas(size, size);
   const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(size, size);
+  const hi = hexRgb(colors[0]);
+  const base = hexRgb(colors[1]);
+  const shade = hexRgb(colors[2]);
+  const L = [-0.5, -0.62, 0.6];
+  const ll = Math.hypot(L[0], L[1], L[2]);
+  const [lx, ly, lz] = L.map((v) => v / ll);
+  const hl = Math.hypot(lx, ly, lz + 1);
+  const [hx, hy, hz] = [lx / hl, ly / hl, (lz + 1) / hl];
   const r = size / 2;
-  ctx.beginPath();
-  ctx.arc(r, r, r - 0.5, 0, Math.PI * 2);
-  ctx.save();
-  ctx.clip();
-  // Soft, warm body: light from the upper left, deepening to the lower right.
-  const g = ctx.createRadialGradient(r * 0.78, r * 0.62, r * 0.05, r * 1.05, r * 1.1, r * 1.25);
-  g.addColorStop(0, colors[0]);
-  g.addColorStop(0.45, colors[1]);
-  g.addColorStop(1, colors[2]);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  // Gentle rim darkening for roundness.
-  const rim = ctx.createRadialGradient(r * 0.85, r * 0.8, r * 0.6, r, r, r * 1.02);
-  rim.addColorStop(0, 'rgba(160,60,0,0)');
-  rim.addColorStop(1, 'rgba(160,60,0,0.22)');
-  ctx.fillStyle = rim;
-  ctx.fillRect(0, 0, size, size);
-  ctx.restore();
-  return Texture.from(c);
+  for (let py = 0; py < size; py++)
+    for (let px = 0; px < size; px++) {
+      const nx = (px + 0.5 - r) / r;
+      const ny = (py + 0.5 - r) / r;
+      const d2 = nx * nx + ny * ny;
+      const dist = Math.sqrt(d2);
+      const edge = Math.min(1, Math.max(0, (1 - dist) * r));
+      if (edge <= 0) continue;
+      const nz = Math.sqrt(Math.max(0, 1 - d2));
+      const diff = Math.max(0, nx * lx + ny * ly + nz * lz);
+      const wrap = diff * 0.7 + 0.3;
+      let col = mix(shade, base, smooth(0.1, 0.72, wrap));
+      col = mix(col, hi, smooth(0.78, 1.0, wrap) * 0.85);
+      const spec = Math.pow(Math.max(0, nx * hx + ny * hy + nz * hz), metal ? 34 : 70) * (metal ? 1.1 : 0.85);
+      const rim = Math.pow(1 - nz, 2.2) * Math.max(0, ny + 0.2) * 0.45;
+      const ao = Math.pow(1 - nz, 4) * 0.22;
+      const i = (py * size + px) * 4;
+      img.data[i] = Math.min(255, col[0] * (1 - ao) + 255 * spec + 200 * rim);
+      img.data[i + 1] = Math.min(255, col[1] * (1 - ao) + 255 * spec + 215 * rim);
+      img.data[i + 2] = Math.min(255, col[2] * (1 - ao) + 255 * spec + 255 * rim);
+      img.data[i + 3] = 255 * edge;
+    }
+  ctx.putImageData(img, 0, 0);
+  return c;
 }
 
-/** Soft highlight blob, no hard plastic glare. */
-function specular(radius: number, res: number, color: string): Texture {
+function contactShadow(radius: number, res: number): Texture {
   const size = Math.ceil(radius * 2 * res);
   const c = makeCanvas(size, size);
   const ctx = c.getContext('2d')!;
   const r = size / 2;
   const g = ctx.createRadialGradient(r, r, 0, r, r, r);
-  g.addColorStop(0, color);
-  g.addColorStop(0.45, color.replace(/[\d.]+\)$/, '0.75)'));
-  g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)'));
+  g.addColorStop(0, 'rgba(40,10,40,0.42)');
+  g.addColorStop(0.55, 'rgba(40,10,40,0.22)');
+  g.addColorStop(1, 'rgba(40,10,40,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   return Texture.from(c);
 }
 
-function softDot(radius: number, res: number, color: string, alpha: number): Texture {
-  const size = Math.ceil(radius * 2 * res);
-  const c = makeCanvas(size, size);
-  const ctx = c.getContext('2d')!;
-  const r = size / 2;
-  const g = ctx.createRadialGradient(r, r, 0, r, r, r);
-  g.addColorStop(0, color.replace('A', String(alpha)));
-  g.addColorStop(1, color.replace('A', '0'));
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  return Texture.from(c);
-}
-
-/** The glossy ball: squash and stretch, comet trail, breathing idle. */
+/** The ball: squash and stretch, drop-in, breathing idle. */
 export class Ball extends Container {
   private readonly body: Sprite;
-  private readonly shine: Sprite;
   private readonly shadow: Sprite;
   private readonly trail = new Graphics();
   private readonly textures: Texture[] = [];
-  private readonly shadowBase: number;
   private squash = 0;
   private squashV = 0;
   private stretch = 0;
   private heading = 0;
+  private readonly shadowBase: number;
   readonly radius: number;
 
-  constructor(
-    cell: number,
-    res: number,
-    theme: Theme,
-    trailLayer: Container,
-  ) {
+  constructor(cell: number, res: number, skin: BallSkin, trailLayer: Container) {
     super();
     this.radius = cell * 0.44;
-    const bodyTex = sphereTexture(this.radius, res, theme.ball);
-    const shineTex = specular(this.radius * 0.5, res, theme.ballShine);
-    const shadowTex = softDot(this.radius * 1.1, res, 'rgba(60,0,30,A)', 0.38);
-    this.textures.push(bodyTex, shineTex, shadowTex);
+    const px = Math.ceil(this.radius * 2 * res);
+    const image = skin.image ? ballImage(skin.image) : undefined;
+    let bodyTex: Texture;
+    if (image) bodyTex = Texture.from(image);
+    else {
+      bodyTex = Texture.from(renderSphere(px, skin.colors ?? ['#fff7b0', '#ffd23a', '#e98a10'], skin.metal));
+      this.textures.push(bodyTex);
+    }
+    const shadowTex = contactShadow(this.radius * 1.15, res);
+    this.textures.push(shadowTex);
     this.shadow = new Sprite(shadowTex);
     this.body = new Sprite(bodyTex);
-    this.shine = new Sprite(shineTex);
-    for (const s of [this.shadow, this.body, this.shine]) {
-      s.anchor.set(0.5);
-      s.scale.set(1 / res);
-    }
-    this.shadow.position.set(cell * 0.05, cell * 0.08);
+    this.shadow.anchor.set(0.5);
+    this.body.anchor.set(0.5);
     this.shadowBase = 1 / res;
-    this.shadow.scale.set(this.shadowBase, this.shadowBase * 0.8);
-    this.shine.position.set(-this.radius * 0.28, -this.radius * 0.32);
-    this.addChild(this.shadow, this.body, this.shine);
+    this.shadow.scale.set(this.shadowBase, this.shadowBase * 0.75);
+    this.shadow.position.set(cell * 0.05, cell * 0.14);
+    this.addChild(this.shadow, this.body);
     trailLayer.addChild(this.trail);
   }
 
-  /** Called on wall impact; `dir` is the travel direction. */
+  /** Called on wall impact. */
   impact(speed: number) {
     this.squashV -= 5.5 * Math.min(1.3, speed);
   }
@@ -110,21 +121,18 @@ export class Ball extends Container {
       this.squashV += (-420 * this.squash - 16 * this.squashV) * h;
       this.squash += this.squashV * h;
     }
-    const targetStretch = moving ? Math.min(1.25, 0.45 + speed * 0.7) : 0;
+    const targetStretch = moving ? Math.min(1.1, 0.4 + speed * 0.65) : 0;
     this.stretch += (targetStretch - this.stretch) * Math.min(1, dt * (moving ? 30 : 40));
     if (dir) this.heading = Math.atan2(dir.y, dir.x);
 
-    const breathe = moving ? 0 : Math.sin(time * 0.003) * 0.025;
+    const breathe = moving ? 0 : Math.sin(time * 0.003) * 0.02;
     const along = 1 + this.stretch + this.squash * 0.9 + breathe;
-    const across = Math.max(0.6, 1 - this.stretch * 0.3) - this.squash * 0.55 + breathe;
-    this.body.rotation = this.heading;
-    const base = this.body.texture.width ? (this.radius * 2) / this.body.texture.width : 1;
-    this.body.scale.set(base * along, base * across);
-    // The highlight stays on the upper left, drifting slightly when idle.
-    const drift = moving ? 0 : Math.sin(time * 0.0011) * this.radius * 0.04;
-    this.shine.position.set(-this.radius * 0.28 + drift, -this.radius * 0.32 - drift * 0.5);
-    this.shine.alpha = Math.max(0, 0.9 - this.stretch * 0.9);
-
+    const across = Math.max(0.62, 1 - this.stretch * 0.3) - this.squash * 0.55 + breathe;
+    const base = (this.radius * 2) / Math.max(this.body.texture.width, this.body.texture.height);
+    // Moves are axis-aligned, so stretch on x or y without rotating the art
+    // (keeps the light on the upper left and textures upright).
+    const horizontal = Math.abs(Math.cos(this.heading)) > 0.5;
+    this.body.scale.set(base * (horizontal ? along : across), base * (horizontal ? across : along));
     this.trail.clear();
   }
 
@@ -133,10 +141,8 @@ export class Ball extends Container {
     const p = Math.min(1, progress);
     const fall = p < 0.7 ? 1 - (p / 0.7) ** 2 : 0;
     this.body.y = -fall * this.radius * 6;
-    this.shine.alpha = 0.85;
     this.alpha = Math.min(1, p * 3);
-    this.shadow.scale.set(this.shadowBase * (1 - fall * 0.5), this.shadowBase * 0.8 * (1 - fall * 0.5));
-    this.shine.y = -this.radius * 0.32 - fall * this.radius * 6;
+    this.shadow.scale.set(this.shadowBase * (1 - fall * 0.5), this.shadowBase * 0.75 * (1 - fall * 0.5));
   }
 
   override destroy() {

@@ -3,9 +3,10 @@ import { Sound } from '../audio/sound.ts';
 import { DIRS, isFloor, slide, solve, WALL, type Dir, type Level, type Point } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
 import type { Hud, ShopItem, ShopTab } from '../ui/hud.ts';
+import { BALL_URLS } from './assets.ts';
 import { BALLS, hexCss, PAINTS } from './cosmetics.ts';
 import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
-import { Ball } from './Ball.ts';
+import { Ball, renderSphere } from './Ball.ts';
 import { Board, type PaintStroke } from './Board.ts';
 import { Fx } from './fx.ts';
 import { THEMES, type Theme } from './themes.ts';
@@ -143,6 +144,7 @@ export class Game {
       anyInput: () => this.sound.unlock(),
       click: () => this.sound.click(),
     });
+    hud.updateMode();
     hud.setToggles({ sfx: this.save.sound, music: this.save.music, vibe: this.save.vibe });
     hud.setCoins(this.save.coins);
     hud.setKeys(this.save.keys);
@@ -155,7 +157,10 @@ export class Game {
     this.loadLevel(this.levelNo, false);
     this.bindInput();
     app.ticker.add((t) => this.tick(t.deltaMS));
-    window.addEventListener('resize', () => this.invalidateLayout());
+    window.addEventListener('resize', () => {
+      this.hud.updateMode();
+      this.invalidateLayout();
+    });
     document.addEventListener('visibilitychange', () => this.sound.setMuted(document.hidden));
     // HUD height changes once the web font arrives.
     void document.fonts?.ready.then(() => this.invalidateLayout());
@@ -173,8 +178,7 @@ export class Game {
 
   private makeLook(): Theme {
     const p = PAINTS.find((x) => x.id === this.save.paint) ?? PAINTS[0];
-    const b = BALLS.find((x) => x.id === this.save.ball) ?? BALLS[0];
-    return { ...this.theme, paint: p.paint, paintDark: p.dark, paintLight: p.light, cone: p.cone, ball: b.colors, ballShine: b.shine };
+    return { ...this.theme, paint: p.paint, paintDark: p.dark, paintLight: p.light, cone: p.cone };
   }
 
   // ---------------------------------------------------------------- meta
@@ -218,7 +222,7 @@ export class Game {
         name: b.name,
         unlock: b.unlock,
         kind: 'ball' as const,
-        preview: `background: radial-gradient(circle at 36% 32%, ${b.colors[0]} 0 12%, ${b.colors[1]} 45%, ${b.colors[2]} 100%)`,
+        preview: `background-image: url(${b.image ? BALL_URLS[b.image] : this.spherePreview(b.id, b.colors!, b.metal)})`,
       })),
       paint: PAINTS.map((p) => ({
         id: p.id,
@@ -235,6 +239,18 @@ export class Game {
         preview: `--slab: ${t.swatch.slab}; --side: ${t.swatch.side}; --floor: ${t.swatch.floor}; --paint: ${t.swatch.paint}`,
       })),
     };
+  }
+
+  private previews = new Map<string, string>();
+
+  /** Same lit-sphere render as in game, cached as an image for the shop. */
+  private spherePreview(id: string, colors: [string, string, string], metal?: boolean): string {
+    let url = this.previews.get(id);
+    if (!url) {
+      url = renderSphere(128, colors, metal).toDataURL();
+      this.previews.set(id, url);
+    }
+    return url;
   }
 
   private refreshShop() {
@@ -433,15 +449,15 @@ export class Game {
   private layout() {
     const w = this.app.screen.width;
     const h = this.app.screen.height;
-    const top = this.hud.topInset();
-    const bottom = this.hud.bottomInset();
+    const ins = this.hud.insets();
     const cols = this.level.grid[0].length;
     const rows = this.level.grid.length;
-    const availW = w - 24;
-    const availH = h - top - bottom - 16;
-    // The outer wall ring is mostly hidden under the plate's soft border.
-    const cell = Math.floor(Math.max(18, Math.min(availW / (cols - 0.7), availH / (rows - 0.7), 86)));
-    return { cell, cx: w / 2, cy: top + 8 + availH / 2 };
+    const gutter = this.hud.landscape ? 20 : 12;
+    const availW = Math.max(120, w - ins.left - ins.right - gutter * 2);
+    const availH = Math.max(120, h - ins.top - ins.bottom - 16);
+    // The outer wall ring is mostly hidden, so it needs less room.
+    const cell = Math.floor(Math.max(16, Math.min(availW / (cols - 0.7), availH / (rows - 0.7), 96)));
+    return { cell, cx: ins.left + gutter + availW / 2, cy: ins.top + 8 + availH / 2 };
   }
 
   private buildBoard() {
@@ -459,7 +475,8 @@ export class Game {
     this.bombG = new Graphics();
     board.fxLayer.addChild(this.bombG);
     this.bombAnim = null;
-    this.ball = new Ball(cell, res, this.look, board.ballLayer);
+    const skin = BALLS.find((x) => x.id === this.save.ball) ?? BALLS[0];
+    this.ball = new Ball(cell, res, skin, board.ballLayer);
     board.ballLayer.addChild(this.ball);
     this.placeBall(this.pos);
     this.ambient.reset(this.app.screen.width, this.app.screen.height, this.theme);
@@ -697,8 +714,11 @@ export class Game {
       const par = this.level.par ?? this.moves;
       const stars = this.moves <= par ? 3 : this.moves <= Math.ceil(par * 1.4) ? 2 : 1;
       const coins = 10 + stars * 5 + (this.level.bonus ? 25 : 0);
-      this.save.coins += coins;
-      this.save.weekStars += stars + (this.level.bonus ? 2 : 0);
+      const leagueBefore = league(this.save.week, this.save.weekStars).rows;
+      if (!this.level.bonus) {
+        this.save.coins += coins;
+        this.save.weekStars += stars;
+      }
       this.save.streak = this.restartedThisLevel ? 0 : this.save.streak + 1;
       const key = this.save.keys < 3 && (this.level.bonus || Math.random() < 0.34);
       if (key) this.save.keys++;
@@ -722,8 +742,8 @@ export class Game {
         this.sound.star(2);
       };
       if (this.level.bonus) {
-        this.hud.showResult(info);
-        if (key) window.setTimeout(onKey, 900);
+        if (key) window.setTimeout(onKey, 600);
+        this.bonusFlow(stars + 2, coins, leagueBefore);
       } else {
         const c = this.board.toGlobal(this.board.cellCenter(this.pos.x, this.pos.y));
         const top = this.board.toGlobal({ x: 0, y: 0 }).y;
@@ -743,6 +763,54 @@ export class Game {
 
   private restartedThisLevel = false;
 
+  /** Bonus level: Super Reward multiplier, then the league climb, then on. */
+  private bonusFlow(stars: number, coins: number, before: ReturnType<typeof league>['rows']) {
+    this.hud.superReward(
+      stars,
+      coins,
+      (m) => {
+        this.save.coins += coins * m;
+        this.save.weekStars += stars * m;
+        this.persist();
+        this.vibrate(25);
+        window.setTimeout(() => {
+          this.hud.setCoins(this.save.coins);
+          this.sound.coin();
+        }, 1200);
+      },
+      () => {
+        const after = league(this.save.week, this.save.weekStars).rows;
+        this.refreshLeague(false);
+        this.hud.leagueClimb(before, after, timeLeft(), () => this.nextLevel(), () => this.sound.click());
+      },
+      { tick: () => this.sound.click(), win: () => this.sound.complete() },
+    );
+  }
+
+  /** Progress toward the next unlock after a level, or the unlock itself. */
+  private showUnlockProgress(prevBest: number, best: number) {
+    if (best <= prevBest) return;
+    // Never stack on top of a reward screen or panel; wait for it to close.
+    if (this.hud.modalOpen) {
+      window.setTimeout(() => this.showUnlockProgress(prevBest, best), 400);
+      return;
+    }
+    const items = this.shopItems();
+    const all = [...items.ball, ...items.paint, ...items.board].sort((a, b) => a.unlock - b.unlock);
+    const just = all.find((x) => x.unlock > prevBest && x.unlock <= best);
+    if (just) {
+      this.sound.complete();
+      this.hud.unlocked(just.name, just.preview, () => this.equip(just.kind, just.id));
+      this.checkUnlocks();
+      return;
+    }
+    const next = all.find((x) => x.unlock > best);
+    if (!next) return;
+    const prevMilestone = Math.max(1, ...all.filter((x) => x.unlock <= best).map((x) => x.unlock));
+    const need = next.unlock - prevMilestone;
+    this.hud.newItemProgress(`New ${next.kind}: ${next.name}`, next.preview, prevBest - prevMilestone, best - prevMilestone, need);
+  }
+
   nextLevel() {
     // Ignore taps in the first moment so the stars can land.
     if (!this.resultShown || this.time - this.resultAt < 450) return;
@@ -759,7 +827,9 @@ export class Game {
     this.autoNextAt = null;
     this.hud.hideResult();
     this.hud.endCelebrate();
+    const prevBest = this.save.best;
     this.loadLevel(this.levelNo + 1, true);
+    window.setTimeout(() => this.showUnlockProgress(prevBest, this.save.best), 650);
   }
 
   // ---------------------------------------------------------------- themes
@@ -816,58 +886,77 @@ export class Game {
   // ---------------------------------------------------------------- booster
 
   /**
-   * Paint Bomb: three paint blobs land together on the most critical spot,
-   * the pocket whose tiles cost the most extra swipes to reach. Candidate
-   * pockets come from the least productive moves of the best solution, and
-   * each candidate cluster is scored by how many moves it actually saves.
+   * Paint shooter targeting: three tiles that together save the most moves.
+   * Candidates are dead-end tips (corridor ends), the tips of the least
+   * productive moves in the best solution, and every remaining tile when only
+   * a few are left. Each candidate grows into a tight cluster inside its
+   * pocket and is scored with the solver; ties go to the deepest pocket.
    */
   private bombTargets(): Point[] {
     const grid = this.level.grid;
     const painted = new Set(this.painted.keys());
-    const sol = solve(grid, this.pos, painted, 200000);
-    if (!sol) return this.remaining.slice(0, 3);
-    // Tiles each move of the solution newly paints.
-    const moves: Point[][] = [];
-    const seen = new Set(painted);
-    let p = this.pos;
-    for (const dir of sol) {
-      const r = slide(grid, p, dir);
-      const fresh = r.path.filter((c) => !seen.has(this.key(c)));
-      fresh.forEach((c) => seen.add(this.key(c)));
-      moves.push(fresh);
-      p = r.end;
-    }
     const unpainted = (c: Point) => isFloor(grid, c.x, c.y) && !painted.has(this.key(c));
-    // Grow a cluster of up to 3 unpainted, connected tiles from a pocket tip.
+    if (this.remaining.length <= 3) return [...this.remaining];
+    const sol = solve(grid, this.pos, painted, 200000);
+    const neighbours = (c: Point) => Object.values(DIRS).map((d) => ({ x: c.x + d.x, y: c.y + d.y }));
+    const floorDegree = (c: Point) => neighbours(c).filter((n) => isFloor(grid, n.x, n.y)).length;
+    // Grow a cluster of up to 3 unpainted tiles, preferring narrow tiles so it
+    // stays inside the pocket.
     const cluster = (seed: Point): Point[] => {
       const out = [seed];
-      const queue = [seed];
       const inCluster = new Set([this.key(seed)]);
-      while (queue.length && out.length < 3) {
-        const c = queue.shift()!;
-        for (const d of Object.values(DIRS)) {
-          const n = { x: c.x + d.x, y: c.y + d.y };
-          if (out.length >= 3 || !unpainted(n) || inCluster.has(this.key(n))) continue;
-          inCluster.add(this.key(n));
-          out.push(n);
-          queue.push(n);
-        }
+      while (out.length < 3) {
+        const options = out
+          .flatMap(neighbours)
+          .filter((n) => unpainted(n) && !inCluster.has(this.key(n)))
+          .sort((a, b) => floorDegree(a) - floorDegree(b));
+        if (!options.length) break;
+        inCluster.add(this.key(options[0]));
+        out.push(options[0]);
       }
       return out;
     };
-    const candidates = moves
-      .map((tiles, i) => ({ tiles, i }))
-      .filter((m) => m.tiles.length > 0)
-      .sort((a, b) => a.tiles.length - b.tiles.length)
-      .slice(0, 5)
-      .map((m) => cluster(m.tiles[m.tiles.length - 1]));
-    let best: { tiles: Point[]; saved: number } | null = null;
-    for (const tiles of candidates) {
+    const seeds: Point[] = this.remaining.filter((c) => floorDegree(c) <= 1);
+    if (sol) {
+      const seen = new Set(painted);
+      let p = this.pos;
+      const moves: Point[][] = [];
+      for (const dir of sol) {
+        const r = slide(grid, p, dir);
+        const fresh = r.path.filter((c) => !seen.has(this.key(c)));
+        fresh.forEach((c) => seen.add(this.key(c)));
+        moves.push(fresh);
+        p = r.end;
+      }
+      moves
+        .filter((m) => m.length > 0)
+        .sort((a, b) => a.length - b.length)
+        .slice(0, 4)
+        .forEach((m) => seeds.push(m[m.length - 1]));
+    }
+    // Tiles your next swipe could paint anyway are a wasted shot.
+    const oneSwipe = new Set<number>();
+    for (const dir of Object.keys(DIRS) as Dir[]) for (const c of slide(grid, this.pos, dir).path) oneSwipe.add(this.key(c));
+    const dist = (c: Point) => Math.abs(c.x - this.pos.x) + Math.abs(c.y - this.pos.y);
+    // Corners and narrow spots across the board, farthest from the ball first.
+    this.remaining
+      .filter((c) => floorDegree(c) <= 2 && !oneSwipe.has(this.key(c)))
+      .sort((a, b) => dist(b) - dist(a))
+      .slice(0, 6)
+      .forEach((c) => seeds.push(c));
+    const unique = new Map(seeds.map((c) => [this.key(c), c]));
+    let best: { tiles: Point[]; score: number } | null = null;
+    for (const seed of [...unique.values()].slice(0, 12)) {
+      const tiles = cluster(seed);
       const after = new Set(painted);
       tiles.forEach((c) => after.add(this.key(c)));
-      const rest = solve(grid, this.pos, after, 120000);
-      const saved = rest ? sol.length - rest.length : -1;
-      if (!best || saved > best.saved) best = { tiles, saved };
+      const rest = sol ? solve(grid, this.pos, after, 100000) : null;
+      const saved = sol && rest ? sol.length - rest.length : 0;
+      // Moves saved dominate; then pocket depth (narrow tiles) and distance.
+      const narrow = tiles.filter((t) => floorDegree(t) <= 2).length;
+      const easy = tiles.every((t) => oneSwipe.has(this.key(t)));
+      const score = saved * 100 + narrow * 4 + dist(seed) * 0.5 - (easy ? 250 : 0);
+      if (!best || score > best.score) best = { tiles, score };
     }
     return best?.tiles ?? this.remaining.slice(0, 3);
   }
@@ -891,11 +980,32 @@ export class Game {
     g.clear();
     if (!b) return;
     b.t += dt;
-    const flight = 520;
+    const aim = 420;
+    const flight = 460;
     const r = this.cell * 0.42;
+    // Lock-on: target rings close in on each tile before the shots fly.
+    if (b.t < aim + 3 * 70 + flight) {
+      for (const tp of b.targets) {
+        const c = this.board.cellCenter(tp.x, tp.y);
+        const k = Math.min(1, b.t / aim);
+        const ring = this.cell * (0.9 - 0.45 * k);
+        const pulse = 0.65 + 0.35 * Math.sin(this.time * 0.02);
+        g.circle(c.x, c.y, ring).stroke({ color: 0xffffff, width: this.cell * 0.07, alpha: 0.9 * pulse });
+        for (const [ux, uy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ])
+          g.moveTo(c.x + ux * ring * 0.7, c.y + uy * ring * 0.7)
+            .lineTo(c.x + ux * ring * 1.25, c.y + uy * ring * 1.25)
+            .stroke({ color: 0xffffff, width: this.cell * 0.06, alpha: 0.85 * pulse, cap: 'round' });
+      }
+    }
+    const shotT = b.t - aim;
     b.targets.forEach((tp, i) => {
       const start = i * 70;
-      const p = Math.min(1, Math.max(0, (b.t - start) / flight));
+      const p = Math.min(1, Math.max(0, (shotT - start) / flight));
       if (p <= 0) return;
       const to = this.board.cellCenter(tp.x, tp.y);
       const x = b.from.x + (to.x - b.from.x) * p;
@@ -916,7 +1026,7 @@ export class Game {
         this.updateRemaining();
       }
     });
-    if (b.t > flight + b.targets.length * 70 + 40) {
+    if (shotT > flight + b.targets.length * 70 + 40) {
       this.bombAnim = null;
       g.clear();
       if (this.painted.size >= this.floorTotal) this.beginComplete();

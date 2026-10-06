@@ -50,8 +50,7 @@ export interface LeagueRow {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const CHEST_SVG =
-  '<svg viewBox="0 0 24 24"><path d="M4 10h16v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9Z"/><path d="M5.5 5h13A2.5 2.5 0 0 1 21 7.5V10H3V7.5A2.5 2.5 0 0 1 5.5 5Z"/><rect x="10" y="9" width="4" height="5" rx="1"/></svg>';
+const CHEST_SVG = '<i class="ico ico-gift"></i>';
 
 export class Hud {
   private readonly top = $('hud-top');
@@ -103,6 +102,11 @@ export class Hud {
     on('tg-music', () => a.toggle('music'));
     on('tg-vibe', () => a.toggle('vibe'));
     on('chest-box', a.openChest, true);
+    on('btn-unlock-equip', () => {
+      this.close('unlocked');
+      this.onUnlockEquip?.();
+    });
+    on('btn-unlock-later', () => this.close('unlocked'));
     on('btn-chest-ok', a.collectChest);
     for (const b of document.querySelectorAll<HTMLElement>('[data-close]'))
       b.addEventListener('click', (e) => {
@@ -134,7 +138,7 @@ export class Hud {
   }
 
   get modalOpen() {
-    return ['shop', 'settings', 'league', 'chest'].some((id) => !$(id).hidden);
+    return ['shop', 'settings', 'league', 'chest', 'super', 'climb', 'unlocked'].some((id) => !$(id).hidden);
   }
 
   open(id: string) {
@@ -155,12 +159,41 @@ export class Hud {
     if (progress >= 1) window.setTimeout(() => $('splash').classList.add('hide'), 350);
   }
 
-  topInset() {
-    return this.top.getBoundingClientRect().bottom;
+  /** Landscape (PC, tablets on their side): controls move to side columns. */
+  updateMode() {
+    document.body.classList.toggle('landscape', window.innerWidth > window.innerHeight * 1.1);
   }
 
-  bottomInset() {
-    return window.innerHeight - this.bottom.getBoundingClientRect().top;
+  get landscape() {
+    return document.body.classList.contains('landscape');
+  }
+
+  topInset() {
+    return this.insets().top;
+  }
+
+  /** Free area for the board: space not covered by HUD elements. */
+  insets(): { top: number; bottom: number; left: number; right: number } {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    if (!this.landscape) {
+      return {
+        top: this.top.getBoundingClientRect().bottom,
+        bottom: H - this.bottom.getBoundingClientRect().top,
+        left: 0,
+        right: 0,
+      };
+    }
+    const rects = (sel: string) =>
+      [...document.querySelectorAll<HTMLElement>(sel)].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0);
+    const left = rects('.col-left');
+    const right = rects('.col-right');
+    return {
+      top: $('level-info').getBoundingClientRect().bottom,
+      bottom: 12,
+      left: Math.max(0, ...left.map((r) => r.right)),
+      right: W - Math.min(W, ...right.map((r) => r.left)),
+    };
   }
 
   // ------------------------------------------------------------ HUD values
@@ -202,6 +235,7 @@ export class Hud {
   setStreak(n: number, bump = false) {
     $('streak-count').textContent = String(n);
     const b = $('btn-streak');
+    b.classList.toggle('lit', n >= 1);
     b.classList.toggle('hot', n >= 5);
     if (bump) {
       b.classList.remove('bump');
@@ -281,7 +315,7 @@ export class Hud {
     rows.forEach((r, i) => {
       const li = document.createElement('li');
       li.className = `${r.you ? 'you' : ''}${i < 3 ? ` top top${i + 1}` : ''}`;
-      li.innerHTML = `<span class="pos">${i + 1}</span><span class="avatar" style="background:${r.avatar}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
+      li.innerHTML = `<span class="pos">${i < 3 ? `<i class="ico ico-medal${i + 1}"></i>` : i + 1}</span><span class="avatar" style="background:${r.avatar}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
       list.appendChild(li);
     });
     window.setTimeout(() => {
@@ -294,7 +328,7 @@ export class Hud {
 
   showChest() {
     $('chest-box').classList.remove('open');
-    $('chest-text').textContent = 'You collected 3 keys! Tap the chest.';
+    $('chest-text').textContent = 'You collected 3 keys! Tap the gift.';
     $('chest-reward').hidden = true;
     $('btn-chest-ok').hidden = true;
     this.open('chest');
@@ -399,7 +433,7 @@ export class Hud {
     const n = Math.min(10, 4 + Math.round(r.coins / 6));
     const base = r.totalCoins - r.coins;
     let landed = 0;
-    this.flyTo(this.coinsLabel.parentElement!.querySelector('.coin')!, from, n, 'coin flyer', () => {
+    this.flyTo(this.coinsLabel.parentElement!.querySelector('.coin')!, from, n, 'ico ico-coin coin flyer', () => {
       landed++;
       this.bumpCoins(landed === n ? r.totalCoins : Math.round(base + (r.coins / n) * landed));
       r.onCoin();
@@ -450,5 +484,181 @@ export class Hud {
   hideResult() {
     this.result.classList.remove('show');
     this.result.hidden = true;
+  }
+
+  // ------------------------------------------------------------ super reward
+
+  /**
+   * Super Reward after a bonus level: a pointer sweeps a multiplier bar; the
+   * Multiply button locks it. `onLocked` gets the multiplier, `onDone` fires
+   * when the payout has landed.
+   */
+  superReward(stars: number, coins: number, onLocked: (m: number) => void, onDone: () => void, sound: { tick: () => void; win: () => void }) {
+    const scr = $('super');
+    const pointer = $('mult-pointer');
+    const badge = $('mult-badge');
+    const pop = $('mult-pop');
+    const btn = $<HTMLButtonElement>('btn-multiply');
+    const values = [2, 3, 5, 3, 2];
+    $('super-stars').textContent = String(stars);
+    $('super-coins').textContent = String(coins);
+    pop.hidden = true;
+    btn.disabled = false;
+    scr.hidden = false;
+    requestAnimationFrame(() => scr.classList.add('show'));
+    const t0 = performance.now();
+    let locked = false;
+    let seg = -1;
+    let pos = 0;
+    const loop = (now: number) => {
+      if (locked) return;
+      // Eases through the middle so x5 is catchable but not free.
+      pos = (Math.sin((now - t0) * 0.0042 - Math.PI / 2) + 1) / 2;
+      pointer.style.left = `${pos * 100}%`;
+      const i = Math.min(4, Math.floor(pos * 5));
+      if (i !== seg) {
+        seg = i;
+        badge.textContent = `x${values[i]}`;
+        badge.className = `mult-badge v${values[i]}`;
+        sound.tick();
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    const lock = (e: Event) => {
+      e.stopPropagation();
+      if (locked) return;
+      locked = true;
+      btn.disabled = true;
+      const m = values[seg];
+      pop.textContent = `x${m}`;
+      pop.className = `mult-pop v${m}`;
+      pop.hidden = false;
+      sound.win();
+      onLocked(m);
+      // Count the rewards up, then hand over.
+      const from = coins;
+      const to = coins * m;
+      const sFrom = stars;
+      const sTo = stars * m;
+      const start = performance.now() + 450;
+      const count = (now: number) => {
+        const p = Math.min(1, Math.max(0, (now - start) / 700));
+        $('super-coins').textContent = String(Math.round(from + (to - from) * p));
+        $('super-stars').textContent = String(Math.round(sFrom + (sTo - sFrom) * p));
+        if (p < 1) requestAnimationFrame(count);
+        else
+          window.setTimeout(() => {
+            scr.classList.remove('show');
+            window.setTimeout(() => (scr.hidden = true), 250);
+            onDone();
+          }, 700);
+      };
+      requestAnimationFrame(count);
+      btn.removeEventListener('click', lock);
+    };
+    btn.addEventListener('click', lock);
+  }
+
+  // ------------------------------------------------------------ league climb
+
+  /**
+   * Weekly league table that opens on your old rank, then slides your row up
+   * past the players you overtook while they shift down.
+   */
+  leagueClimb(before: LeagueRow[], after: LeagueRow[], left: string, onDone: () => void, onTick: () => void) {
+    const scr = $('climb');
+    const list = $('climb-list');
+    $('climb-left').textContent = left;
+    const rowH = 54;
+    list.innerHTML = '';
+    const inner = document.createElement('div');
+    inner.className = 'climb-inner';
+    inner.style.height = `${after.length * rowH}px`;
+    list.appendChild(inner);
+    const youBefore = before.findIndex((r) => r.you);
+    const youAfter = after.findIndex((r) => r.you);
+    const els = new Map<string, HTMLElement>();
+    before.forEach((r, i) => {
+      const li = document.createElement('div');
+      li.className = `crow${r.you ? ' you' : ''}`;
+      li.style.transform = `translateY(${i * rowH}px)`;
+      li.innerHTML = `<span class="pos">${i + 1}</span><span class="avatar" style="background:${r.avatar}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
+      inner.appendChild(li);
+      els.set(r.you ? '@you' : r.name, li);
+    });
+    scr.hidden = false;
+    requestAnimationFrame(() => scr.classList.add('show'));
+    const viewH = () => list.clientHeight;
+    list.scrollTop = Math.max(0, youBefore * rowH - viewH() / 2 + rowH / 2);
+    const startScroll = list.scrollTop;
+    const endScroll = Math.max(0, youAfter * rowH - viewH() / 2 + rowH / 2);
+    window.setTimeout(() => {
+      const you = els.get('@you')!;
+      you.classList.add('lift');
+      after.forEach((r, i) => {
+        const el = els.get(r.you ? '@you' : r.name)!;
+        el.style.transform = `translateY(${i * rowH}px)`;
+        el.querySelector('.pos')!.textContent = String(i + 1);
+        if (r.you) el.querySelector('.score')!.innerHTML = `${r.stars}<i>★</i>`;
+      });
+      const t0 = performance.now();
+      let lastRank = youBefore;
+      const scroll = (now: number) => {
+        const p = Math.min(1, (now - t0) / 1100);
+        const e = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+        list.scrollTop = startScroll + (endScroll - startScroll) * e;
+        const rank = Math.round(youBefore + (youAfter - youBefore) * e);
+        if (rank !== lastRank) {
+          lastRank = rank;
+          onTick();
+        }
+        if (p < 1) requestAnimationFrame(scroll);
+        else you.classList.remove('lift');
+      };
+      requestAnimationFrame(scroll);
+    }, 650);
+    const close = () => {
+      scr.removeEventListener('click', close);
+      scr.classList.remove('show');
+      window.setTimeout(() => (scr.hidden = true), 250);
+      onDone();
+    };
+    window.setTimeout(() => scr.addEventListener('click', close), 900);
+  }
+
+  // ------------------------------------------------------------ new item
+
+  /** Bottom card showing progress toward the next unlock. */
+  newItemProgress(title: string, preview: string, from: number, to: number, need: number) {
+    const card = $('newitem');
+    $('ni-title').textContent = title;
+    $('ni-swatch').setAttribute('style', preview);
+    $('ni-count').textContent = `${from}/${need}`;
+    const fill = $('ni-fill');
+    fill.style.transition = 'none';
+    fill.style.width = `${(from / need) * 100}%`;
+    card.hidden = false;
+    requestAnimationFrame(() => {
+      card.classList.add('show');
+      window.setTimeout(() => {
+        fill.style.transition = 'width 0.7s cubic-bezier(0.3, 1.3, 0.5, 1)';
+        fill.style.width = `${Math.min(1, to / need) * 100}%`;
+        $('ni-count').textContent = `${Math.min(to, need)}/${need}`;
+      }, 350);
+      window.setTimeout(() => {
+        card.classList.remove('show');
+        window.setTimeout(() => (card.hidden = true), 300);
+      }, 2400);
+    });
+  }
+
+  private onUnlockEquip: (() => void) | null = null;
+
+  unlocked(name: string, preview: string, onEquip: () => void) {
+    $('unlocked-name').textContent = name;
+    $('unlocked-swatch').setAttribute('style', preview);
+    this.onUnlockEquip = onEquip;
+    this.open('unlocked');
   }
 }

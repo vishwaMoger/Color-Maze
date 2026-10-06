@@ -21,33 +21,23 @@
       <div class="loadbar"><span></span></div>
     </div>
 
-    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-      <defs>
-        <linearGradient id="g-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2a8" /><stop offset=".45" stop-color="#ffc93a" /><stop offset="1" stop-color="#e08a00" /></linearGradient>
-        <linearGradient id="g-copper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffcf9e" /><stop offset=".5" stop-color="#e2803d" /><stop offset="1" stop-color="#a24a1c" /></linearGradient>
-        <linearGradient id="g-can" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5a3bd6" /><stop offset=".35" stop-color="#9e86ff" /><stop offset="1" stop-color="#4a2fc0" /></linearGradient>
-        <linearGradient id="g-chest" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb35c" /><stop offset="1" stop-color="#c2591a" /></linearGradient>
-        <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="12" r="5" /><circle cx="7.5" cy="12" r="2" fill="#fff" fill-opacity=".85" /><path d="M11.5 10.6h10.2v2.8h-1.9v2.6h-2.4v-2.6h-1.6v1.8h-2.4v-1.8h-1.9z" /></symbol>
-      </defs>
-    </svg>
-
     <header id="hud-top" class="hud">
-      <div class="group">
+      <div class="group col-left">
         <button id="btn-restart" class="gbtn sq" aria-label="Restart level" title="Restart (R)">
           <svg viewBox="0 0 24 24"><path d="M12 3.2a8.8 8.8 0 1 0 8.5 11h-3.4a5.6 5.6 0 1 1-1.3-5.9l-2.6 2.6h7.6V3.3l-2.6 2.6A8.8 8.8 0 0 0 12 3.2Z" /></svg>
         </button>
         <button id="btn-league" class="league" aria-label="Weekly league">
-          <svg class="cup" viewBox="0 0 32 32"><path fill="url(#g-copper)" stroke="#8a3a12" stroke-width="1.2" d="M8 4h16v6.5a8 8 0 0 1-16 0Z" /><path fill="none" stroke="url(#g-copper)" stroke-width="2.6" d="M8 7H4.5v1.8A4.6 4.6 0 0 0 9 13.4M24 7h3.5v1.8a4.6 4.6 0 0 1-4.5 4.6" /><path fill="url(#g-copper)" stroke="#8a3a12" stroke-width="1.2" d="M13.5 18h5l1 4.5h-7Z" /><rect x="9.5" y="22.5" width="13" height="4" rx="1.6" fill="#7a3fd0" stroke="#4a1f9a" stroke-width="1.2" /></svg>
+          <span class="ico ico-trophy cup"></span>
           <span id="league-rank" class="rank">--</span>
           <span id="league-time" class="time">--</span>
         </button>
       </div>
-      <div class="level-info">
+      <div class="level-info" id="level-info">
         <div id="level-progress" class="chain" aria-hidden="true"></div>
         <div id="level-label">Level 1</div>
         <div id="moves" class="moves"></div>
       </div>
-      <div class="group right">
+      <div class="group right col-right">
         <button id="btn-shop" class="gbtn sq" aria-label="Shop" title="Shop">
           <svg viewBox="0 0 24 24"><path d="M4.4 10 11 3.4l8 8-6.6 6.6a2.4 2.4 0 0 1-3.4 0L4.4 13.4a2.4 2.4 0 0 1 0-3.4Zm2.7 1.4h9.7L11 5.7Z" /><path d="M20.4 14.4c1.2 1.8 1.8 3.1 1.8 4a1.8 1.8 0 0 1-3.6 0c0-.9.6-2.2 1.8-4Z" /></svg>
           <span id="shop-dot" class="notify" hidden></span>
@@ -56,32 +46,32 @@
           <svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 1.8 21 7v10l-9 5.2L3 17V7l9-5.2Zm0 6.1a4.1 4.1 0 1 0 0 8.2 4.1 4.1 0 0 0 0-8.2Z" /></svg>
         </button>
       </div>
-      <div class="pill keys" id="keys" aria-label="Keys">
-        <svg class="key"><use href="#i-key" /></svg><svg class="key"><use href="#i-key" /></svg><svg class="key"><use href="#i-key" /></svg>
+      <div class="pill keys col-left" id="keys" aria-label="Keys">
+        <span class="ico ico-key key"></span><span class="ico ico-key key"></span><span class="ico ico-key key"></span>
       </div>
-      <div class="pill coins" aria-label="Coins"><span class="coin"></span><span id="coins-count">0</span></div>
+      <div class="pill coins col-right" aria-label="Coins"><span class="ico ico-coin coin"></span><span id="coins-count">0</span></div>
     </header>
 
     <div id="tip" hidden>Swipe to roll the ball</div>
     <div id="toast" role="status"></div>
 
     <footer id="hud-bottom" class="hud">
-      <div class="side">
+      <div class="side col-left">
         <button id="btn-streak" class="streak" aria-label="Win streak">
-          <svg viewBox="0 0 32 40"><rect x="4" y="5" width="24" height="31" rx="5" fill="url(#g-can)" stroke="#3a2096" stroke-width="1.6" /><rect x="7" y="2" width="18" height="6" rx="2.5" fill="#7d62f2" stroke="#3a2096" stroke-width="1.6" /><rect x="6" y="14" width="20" height="14" rx="3" fill="#bff3ff" fill-opacity=".9" /><path d="M8 33h16" stroke="#ffffff" stroke-opacity=".35" stroke-width="2" stroke-linecap="round" /></svg>
+          <i class="ico ico-fire"></i>
           <span id="streak-count">0</span>
         </button>
-        <button id="btn-bomb" class="gbtn tool go" aria-label="Paint bomb: paints three tricky tiles" title="Paint bomb">
-          <svg viewBox="0 0 24 24"><path d="M10.6 7.2a7.2 7.2 0 1 0 6.2 3.5l1-1-2.6-2.6-1 1a7.2 7.2 0 0 0-3.6-.9Z" /><path d="M16.9 5.6 18.4 4a1 1 0 0 1 1.5 0l.1.1a1 1 0 0 1 0 1.5l-1.5 1.5Z" /><path d="m21.4 1.2.5 1.2 1.3.2-1 .9.3 1.3-1.1-.7-1.1.7.3-1.3-1-.9 1.3-.2Z" /><circle cx="7.6" cy="11.6" r="1.7" fill-opacity="0.55" /></svg>
+        <button id="btn-bomb" class="gbtn tool go" aria-label="Paint shooter: paints the trickiest tiles" title="Paint shooter">
+          <span class="ico ico-pistol tool-ico"></span>
           <span class="price" id="bomb-price"></span>
         </button>
       </div>
-      <button id="btn-undo" class="gbtn round undo" aria-label="Undo move" title="Undo (Z)">
+      <button id="btn-undo" class="gbtn round undo col-right" aria-label="Undo move" title="Undo (Z)">
         <svg viewBox="0 0 24 24"><path d="M9.6 3.6 2.8 10l6.8 6.4v-4h4.2a3.9 3.9 0 0 1 0 7.8h-2.4v3.4h2.4a7.3 7.3 0 0 0 0-14.6H9.6v-5.4Z" /></svg>
       </button>
-      <div class="side right">
+      <div class="side right col-right">
         <button id="btn-hint" class="gbtn tool gold" aria-label="Show hint" title="Hint (H)">
-          <svg viewBox="0 0 24 24"><path d="M12 1.8a7.4 7.4 0 0 0-4.3 13.4v2.2c0 .7.5 1.2 1.2 1.2h6.2c.7 0 1.2-.5 1.2-1.2v-2.2A7.4 7.4 0 0 0 12 1.8Z" /><path d="M8.9 19.8h6.2v.9c0 .9-.8 1.6-1.7 1.6h-2.8c-.9 0-1.7-.7-1.7-1.6v-.9Z" /></svg>
+          <span class="ico ico-bulb tool-ico"></span>
           <span class="price" id="hint-price"></span>
         </button>
       </div>
@@ -125,18 +115,66 @@
 
     <div id="chest" class="modal" hidden>
       <div class="panel" role="dialog" aria-labelledby="chest-title">
-        <div class="ribbon"><span id="chest-title">Treasure Chest</span></div>
-        <button id="chest-box" class="chest-box" aria-label="Open the chest">
-          <svg viewBox="0 0 64 56"><path class="lid" fill="url(#g-chest)" stroke="#7a2f08" stroke-width="2" d="M6 22a14 14 0 0 1 14-14h24a14 14 0 0 1 14 14v4H6Z" /><rect x="6" y="26" width="52" height="26" rx="5" fill="url(#g-chest)" stroke="#7a2f08" stroke-width="2" /><rect x="27" y="22" width="10" height="13" rx="2.5" fill="url(#g-gold)" stroke="#8a5200" stroke-width="1.6" /><path d="M6 32h52" stroke="#7a2f08" stroke-width="2" /></svg>
+        <div class="ribbon"><span id="chest-title">Key Reward</span></div>
+        <button id="chest-box" class="chest-box" aria-label="Open the gift">
+          <span class="ico ico-gift gift"></span>
         </button>
         <p id="chest-text">You collected 3 keys! Tap the chest.</p>
-        <div id="chest-reward" class="pill reward" hidden><span class="coin"></span><span id="chest-coins">+0</span></div>
+        <div id="chest-reward" class="pill reward" hidden><span class="ico ico-coin coin"></span><span id="chest-coins">+0</span></div>
         <button id="btn-chest-ok" class="gbtn go next" hidden>Collect</button>
       </div>
     </div>
 
     <div id="celebrate" hidden aria-live="polite">
-      <div class="stars"><span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span><span class="star big"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span><span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span></div>
+      <div class="stars"><span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span><span class="star big"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span><span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span></div>
+    </div>
+
+    <div id="super" class="screen" hidden>
+      <div class="rays"></div>
+      <h2 class="screen-title">Super Reward!</h2>
+      <div class="rewards">
+        <div class="reward-item"><i class="ico ico-star big-ico"></i><span id="super-stars">0</span></div>
+        <div class="reward-item"><i class="ico ico-coin big-ico"></i><span id="super-coins">0</span></div>
+      </div>
+      <div class="mult-wrap">
+        <div class="mult-bar" id="mult-bar">
+          <span class="seg s2">x2</span><span class="seg s3">x3</span><span class="seg s5">x5</span><span class="seg s3">x3</span><span class="seg s2">x2</span>
+        </div>
+        <div class="pointer" id="mult-pointer"></div>
+      </div>
+      <div id="mult-pop" class="mult-pop" hidden>x3</div>
+      <button id="btn-multiply" class="gbtn go multiply"><span id="mult-badge" class="mult-badge">x2</span><span>Multiply</span></button>
+    </div>
+
+    <div id="climb" class="screen" hidden>
+      <div class="climb-head">
+        <i class="ico ico-trophy climb-cup"></i>
+        <h2 class="screen-title">Weekly League</h2>
+        <p class="league-sub"><span>Rookie League</span> · ends in <b id="climb-left">--</b></p>
+      </div>
+      <div class="climb-list" id="climb-list"></div>
+      <p class="tap-continue">Tap to continue</p>
+    </div>
+
+    <div id="newitem" class="newitem" hidden>
+      <span class="ni-swatch" id="ni-swatch"></span>
+      <div class="ni-body">
+        <b id="ni-title">New Item</b>
+        <div class="ni-bar"><span id="ni-fill"></span></div>
+      </div>
+      <span class="ni-count" id="ni-count">0/0</span>
+    </div>
+
+    <div id="unlocked" class="modal" hidden>
+      <div class="panel" role="dialog" aria-labelledby="unlocked-title">
+        <div class="ribbon"><span id="unlocked-title">Unlocked!</span></div>
+        <div class="unlock-show"><div class="rays small"></div><span class="ni-swatch big" id="unlocked-swatch"></span></div>
+        <p id="unlocked-name"></p>
+        <div class="unlock-actions">
+          <button id="btn-unlock-later" class="gbtn later">Later</button>
+          <button id="btn-unlock-equip" class="gbtn go equip">Equip</button>
+        </div>
+      </div>
     </div>
 
     <div id="result" hidden>
@@ -144,12 +182,12 @@
       <div class="card" role="dialog" aria-labelledby="result-title">
         <div class="ribbon big"><span id="result-title">Level Complete!</span></div>
         <div class="stars">
-          <span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span>
-          <span class="star big"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span>
-          <span class="star"><svg viewBox="0 0 24 24"><path class="socket" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /><path class="fill" d="m12 2.6 2.9 6 6.6.8-4.8 4.5 1.2 6.5L12 17.2l-5.9 3.2 1.2-6.5-4.8-4.5 6.6-.8Z" /></svg></span>
+          <span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span>
+          <span class="star big"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span>
+          <span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span>
         </div>
         <p id="result-moves"></p>
-        <div class="pill reward"><span class="coin"></span><span id="result-coins">+0</span></div>
+        <div class="pill reward"><span class="ico ico-coin coin"></span><span id="result-coins">+0</span></div>
         <button id="btn-next" class="gbtn go next">Next</button>
       </div>
     </div>

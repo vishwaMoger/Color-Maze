@@ -63,6 +63,36 @@ function causticFilter(): Filter & { uniforms: { uTime: number; uScale: number; 
   return Object.assign(f, { uniforms: uniforms.uniforms as { uTime: number; uScale: number; uStrength: number } });
 }
 
+/**
+ * One tile of a blob of painted tiles: a rect whose convex corners (no
+ * filled tile on either side of that corner) are rounded. Edges overlap
+ * neighbours by half a pixel so anti-aliasing leaves no seams.
+ */
+function roundedCell(g: Graphics, x: number, y: number, cell: number, r: number, filled: (x: number, y: number) => boolean) {
+  const e = 0.5;
+  const x0 = x * cell - e;
+  const y0 = y * cell - e;
+  const x1 = (x + 1) * cell + e;
+  const y1 = (y + 1) * cell + e;
+  const tl = !filled(x - 1, y) && !filled(x, y - 1);
+  const tr = !filled(x + 1, y) && !filled(x, y - 1);
+  const br = !filled(x + 1, y) && !filled(x, y + 1);
+  const bl = !filled(x - 1, y) && !filled(x, y + 1);
+  if (!tl && !tr && !br && !bl) {
+    g.rect(x0, y0, x1 - x0, y1 - y0);
+    return;
+  }
+  g.moveTo(x0 + (tl ? r : 0), y0).lineTo(x1 - (tr ? r : 0), y0);
+  if (tr) g.arcTo(x1, y0, x1, y0 + r, r);
+  g.lineTo(x1, y1 - (br ? r : 0));
+  if (br) g.arcTo(x1, y1, x1 - r, y1, r);
+  g.lineTo(x0 + (bl ? r : 0), y1);
+  if (bl) g.arcTo(x0, y1, x0, y1 - r, r);
+  g.lineTo(x0, y0 + (tl ? r : 0));
+  if (tl) g.arcTo(x0, y0, x0 + r, y0, r);
+  g.closePath();
+}
+
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
 export interface PaintStroke {
@@ -177,6 +207,22 @@ export class Board extends Container {
     return out;
   }
 
+  /**
+   * Grout lines only where two floor tiles meet, never along walls, so the
+   * floor reads as evenly laid tiles.
+   */
+  private drawGrout(ctx: CanvasRenderingContext2D, color: string, c: number, off: number, gap: number) {
+    ctx.fillStyle = color;
+    for (let y = 0; y < this.rows; y++)
+      for (let x = 0; x < this.cols; x++) {
+        if (!this.isFloor(x, y)) continue;
+        const x0 = off + x * c;
+        const y0 = off + y * c;
+        if (this.isFloor(x + 1, y)) ctx.fillRect(x0 + c - gap / 2, y0, gap, c);
+        if (this.isFloor(x, y + 1)) ctx.fillRect(x0, y0 + c - gap / 2, c, gap);
+      }
+  }
+
   private build() {
     const { cols, rows, theme } = this;
     const res = this.res;
@@ -211,7 +257,9 @@ export class Board extends Container {
     const surface = makeCanvas(W, H);
     const sctx = surface.getContext('2d')!;
     sctx.drawImage(tint(dilate(slab, c * 0.45), theme.wallTop), 0, 0);
-    sctx.drawImage(softBlur(tint(floorMask, theme.bevel), c * 0.13), 0, 0);
+    // Rounded top edge: wall tops darken softly as they curve down to the floor.
+    sctx.drawImage(softBlur(tint(floorMask, theme.bevel), c * 0.24), 0, 0);
+    sctx.drawImage(softBlur(tint(floorMask, theme.bevel), c * 0.1), 0, 0);
     this.plate = this.sprite(surface);
     if (theme.caustics) {
       this.caustics = causticFilter();
@@ -232,14 +280,8 @@ export class Board extends Container {
     const fctx = floorCanvas.getContext('2d')!;
     fctx.drawImage(tint(floorMask, theme.floor), 0, 0);
     fctx.globalCompositeOperation = 'source-atop';
-    const gap = Math.max(1, Math.round(res * 1.5));
-    fctx.fillStyle = theme.gridLine;
-    for (let y = 0; y < rows; y++)
-      for (let x = 0; x < cols; x++) {
-        if (!this.isFloor(x, y)) continue;
-        fctx.fillRect(off + x * c - gap / 2, off + y * c - gap / 2, c, gap);
-        fctx.fillRect(off + x * c - gap / 2, off + y * c - gap / 2, gap, c);
-      }
+    const gap = Math.max(1, Math.round(res * 1.7));
+    this.drawGrout(fctx, theme.gridLine, c, off, gap);
     this.addChild(this.sprite(floorCanvas));
 
     // Live paint, clipped to the floor.
@@ -248,13 +290,7 @@ export class Board extends Container {
     this.paintLayer.mask = paintMask;
     const seams = makeCanvas(W, H);
     const gctx = seams.getContext('2d')!;
-    gctx.fillStyle = theme.paintSeam;
-    for (let y = 0; y < rows; y++)
-      for (let x = 0; x < cols; x++) {
-        if (!this.isFloor(x, y)) continue;
-        gctx.fillRect(off + x * c - gap / 2, off + y * c - gap / 2, c, gap);
-        gctx.fillRect(off + x * c - gap / 2, off + y * c - gap / 2, gap, c);
-      }
+    this.drawGrout(gctx, theme.paintSeam, c, off, gap);
     gctx.globalCompositeOperation = 'destination-in';
     gctx.drawImage(floorMask, 0, 0);
     this.gridOver = this.sprite(seams);
@@ -300,11 +336,13 @@ export class Board extends Container {
 
     // The walls' front faces, seen along the top edge of the floor, and the
     // shadow they cast just below. Drawn over the paint so it runs under them.
-    const faceH = c * 0.27;
-    const shadowH = c * 0.24;
+    const faceH = c * 0.28;
+    const shadowH = c * 0.3;
     const walls = makeCanvas(W, H);
     const wctx = walls.getContext('2d')!;
-    wctx.drawImage(softBlur(tint(this.edgeBand(floorMask, faceH + shadowH), theme.wallShadow), c * 0.06), 0, 0);
+    // Cast shadow: a crisp core band plus a softer falloff below it.
+    wctx.drawImage(softBlur(tint(this.edgeBand(floorMask, faceH + shadowH * 1.35), theme.wallShadow), c * 0.1), 0, 0);
+    wctx.drawImage(tint(this.edgeBand(floorMask, faceH + shadowH * 0.8), theme.wallShadow), 0, 0);
     const face = tint(this.edgeBand(floorMask, faceH), theme.wallFace);
     wctx.drawImage(face, 0, 0);
     // Darker base where the face meets the floor, lit lip at the top.
@@ -340,8 +378,16 @@ export class Board extends Container {
     const wet = this.wetG;
     g.clear();
     wet.clear();
-    // Every painted tile is filled edge to edge and fully saturated the
-    // moment the ball reaches it (the floor mask rounds the outer corners).
+    const isPainted = (x: number, y: number) => {
+      const k = y * w + x;
+      if (x < 0 || x >= w || k === stroke.startRound) return false;
+      const t = stroke.painted.get(k);
+      return t !== undefined && time >= t;
+    };
+    // Painted tiles form one soft blob, like the floor itself: convex corners
+    // are rounded and concave corners filleted wherever paint meets unpainted
+    // floor (the floor mask already shapes the edges against walls).
+    const r = cell * 0.4;
     for (const [k, t] of stroke.painted) {
       if (time < t) continue;
       const x = k % w;
@@ -349,13 +395,39 @@ export class Board extends Container {
       if (k === stroke.startRound) {
         const grow = Math.min(1, (time - t) / 200);
         g.circle((x + 0.53) * cell, (y + 0.55) * cell, half * (0.4 + 0.66 * (1 - (1 - grow) ** 3)));
-      } else g.rect(x * cell - 0.5, y * cell - 0.5, cell + 1, cell + 1);
+      } else roundedCell(g, x, y, cell, r, isPainted);
     }
+    for (let j = 0; j <= this.rows; j++)
+      for (let i = 0; i <= w; i++) {
+        const tl = isPainted(i - 1, j - 1);
+        const tr = isPainted(i, j - 1);
+        const bl = isPainted(i - 1, j);
+        const br = isPainted(i, j);
+        if (+tl + +tr + +bl + +br !== 3) continue;
+        const ex = !tl || !bl ? i - 1 : i;
+        const ey = !tl || !tr ? j - 1 : j;
+        const px = i * cell;
+        const py = j * cell;
+        if (!this.isFloor(ex, ey)) {
+          // The floor curves into this wall corner; paint the whole corner
+          // and let the floor mask trim it to the exact curve.
+          g.rect(ex < i ? px - half : px - 0.5, ey < j ? py - half : py - 0.5, half + 0.5, half + 0.5);
+          continue;
+        }
+        const sx = ex < i ? -1 : 1;
+        const sy = ey < j ? -1 : 1;
+        g.moveTo(px - sx * 0.5, py - sy * 0.5)
+          .lineTo(px + sx * r, py - sy * 0.5)
+          .arcTo(px, py, px, py + sy * r, r)
+          .lineTo(px - sx * 0.5, py + sy * r)
+          .closePath();
+      }
     for (const sh of stroke.shimmer ?? []) {
       const age = time - sh.t;
       if (age < 0 || age > 220) continue;
       const a = Math.sin((age / 220) * Math.PI);
-      wet.rect((sh.k % w) * cell, Math.floor(sh.k / w) * cell, cell, cell).fill({ color: 0xffffff, alpha: 0.32 * a });
+      roundedCell(wet, sh.k % w, Math.floor(sh.k / w), cell, r, isPainted);
+      wet.fill({ color: 0xffffff, alpha: 0.32 * a });
     }
     if (stroke.active) {
       // The stroke behind the ball: a band from the slide start to the ball.
@@ -364,11 +436,25 @@ export class Board extends Container {
       const ay = (from.y + 0.5) * cell;
       const bx = (pos.x + 0.5) * cell;
       const by = (pos.y + 0.5) * cell;
-      const x0 = Math.min(ax, bx) - half;
-      const y0 = Math.min(ay, by) - half;
-      const x1 = Math.max(ax, bx) + half;
-      const y1 = Math.max(ay, by) + half;
+      // Square tail (it joins the painted tiles), rounded head that leads
+      // the ball like a brush stroke.
+      const sx = Math.sign(bx - ax);
+      const sy = Math.sign(by - ay);
+      const hx = bx + sx * half;
+      const hy = by + sy * half;
+      const tx = ax - sx * half;
+      const ty = ay - sy * half;
+      const x0 = Math.min(tx, hx - sx * r, ax - half);
+      const y0 = Math.min(ty, hy - sy * r, ay - half);
+      const x1 = Math.max(tx, hx - sx * r, ax + half);
+      const y1 = Math.max(ty, hy - sy * r, ay + half);
       g.rect(x0, y0, x1 - x0, y1 - y0);
+      if (sx || sy) {
+        const len = 2 * r;
+        const rx = sx ? (sx > 0 ? hx - len : hx) : bx - half;
+        const ry = sy ? (sy > 0 ? hy - len : hy) : by - half;
+        g.roundRect(rx, ry, sx ? len : cell, sy ? len : cell, r);
+      }
     }
     for (const sp of stroke.splats) {
       const age = time - sp.t;
