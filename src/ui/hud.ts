@@ -1,6 +1,11 @@
 // DOM overlay: HUD, panels (shop, settings, league, chest) and the
 // level-complete moments. The board itself is drawn by Pixi underneath.
 
+import { avatarUrl } from '../game/assets.ts';
+
+const avatarStyle = (r: { name: string; you?: boolean; avatar: string }) =>
+  `background:url('${avatarUrl(r.name, !!r.you)}') center 60% / 84% no-repeat, ${r.avatar}`;
+
 export type ShopTab = 'ball' | 'paint' | 'board';
 
 export interface ShopItem {
@@ -212,6 +217,14 @@ export class Hud {
     this.movesLabel.dataset.par = par ? String(par) : '';
   }
 
+  /** Level title pops in as the next board arrives. */
+  popLevel() {
+    const el = $('level-info');
+    el.classList.remove('pop');
+    void el.offsetWidth;
+    el.classList.add('pop');
+  }
+
   setMoves(n: number) {
     const par = this.movesLabel.dataset.par;
     this.movesLabel.innerHTML = par
@@ -315,7 +328,7 @@ export class Hud {
     rows.forEach((r, i) => {
       const li = document.createElement('li');
       li.className = `${r.you ? 'you' : ''}${i < 3 ? ` top top${i + 1}` : ''}`;
-      li.innerHTML = `<span class="pos">${i < 3 ? `<i class="ico ico-medal${i + 1}"></i>` : i + 1}</span><span class="avatar" style="background:${r.avatar}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
+      li.innerHTML = `<span class="pos">${i < 3 ? `<i class="ico ico-medal${i + 1}"></i>` : i + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
       list.appendChild(li);
     });
     window.setTimeout(() => {
@@ -420,10 +433,15 @@ export class Hud {
    */
   celebrate(r: ResultInfo, from: { x: number; y: number }, boardTop: number, onKey: () => void) {
     const box = $('celebrate');
-    box.style.top = `${Math.max(this.topInset() + 6, boardTop - 112)}px`;
+
     const stars = box.querySelectorAll<HTMLElement>('.star');
     stars.forEach((s) => s.classList.remove('lit'));
+    const title = $('cel-title');
+    title.textContent = r.stars >= 3 ? 'Perfect!' : r.stars === 2 ? 'Great!' : 'Nice!';
+    title.classList.toggle('gold', r.stars >= 3);
     box.hidden = false;
+    // Sit just above the board; the ribbon hangs ~20px below the card.
+    box.style.top = `${Math.max(this.topInset() + 6, boardTop - box.offsetHeight - 26)}px`;
     requestAnimationFrame(() => box.classList.add('show'));
     for (let i = 0; i < r.stars; i++)
       window.setTimeout(() => {
@@ -495,7 +513,9 @@ export class Hud {
    */
   superReward(stars: number, coins: number, onLocked: (m: number) => void, onDone: () => void, sound: { tick: () => void; win: () => void }) {
     const scr = $('super');
-    const pointer = $('mult-pointer');
+    const needle = $('mult-needle');
+    const arc = $('mult-arc');
+    const segs = arc.querySelectorAll<SVGPathElement>('.arcseg');
     const badge = $('mult-badge');
     const pop = $('mult-pop');
     const btn = $<HTMLButtonElement>('btn-multiply');
@@ -504,6 +524,10 @@ export class Hud {
     $('super-coins').textContent = String(coins);
     pop.hidden = true;
     btn.disabled = false;
+    arc.classList.remove('locked');
+    segs.forEach((el) => el.classList.remove('on', 'win'));
+    $('super-coins').classList.remove('bump');
+    $('super-stars').classList.remove('bump');
     scr.hidden = false;
     requestAnimationFrame(() => scr.classList.add('show'));
     const t0 = performance.now();
@@ -514,9 +538,11 @@ export class Hud {
       if (locked) return;
       // Eases through the middle so x5 is catchable but not free.
       pos = (Math.sin((now - t0) * 0.0042 - Math.PI / 2) + 1) / 2;
-      pointer.style.left = `${pos * 100}%`;
+      needle.setAttribute('transform', `rotate(${-86 + pos * 172} 160 168)`);
       const i = Math.min(4, Math.floor(pos * 5));
       if (i !== seg) {
+        segs[seg]?.classList.remove('on');
+        segs[i].classList.add('on');
         seg = i;
         badge.textContent = `x${values[i]}`;
         badge.className = `mult-badge v${values[i]}`;
@@ -531,6 +557,8 @@ export class Hud {
       locked = true;
       btn.disabled = true;
       const m = values[seg];
+      arc.classList.add('locked');
+      segs[seg].classList.add('win');
       pop.textContent = `x${m}`;
       pop.className = `mult-pop v${m}`;
       pop.hidden = false;
@@ -547,12 +575,16 @@ export class Hud {
         $('super-coins').textContent = String(Math.round(from + (to - from) * p));
         $('super-stars').textContent = String(Math.round(sFrom + (sTo - sFrom) * p));
         if (p < 1) requestAnimationFrame(count);
-        else
+        else {
+          $('super-coins').classList.add('bump');
+          $('super-stars').classList.add('bump');
+        }
+        if (p >= 1)
           window.setTimeout(() => {
             scr.classList.remove('show');
             window.setTimeout(() => (scr.hidden = true), 250);
             onDone();
-          }, 700);
+          }, 900);
       };
       requestAnimationFrame(count);
       btn.removeEventListener('click', lock);
@@ -583,7 +615,7 @@ export class Hud {
       const li = document.createElement('div');
       li.className = `crow${r.you ? ' you' : ''}`;
       li.style.transform = `translateY(${i * rowH}px)`;
-      li.innerHTML = `<span class="pos">${i + 1}</span><span class="avatar" style="background:${r.avatar}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
+      li.innerHTML = `<span class="pos">${i + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
       inner.appendChild(li);
       els.set(r.you ? '@you' : r.name, li);
     });

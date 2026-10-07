@@ -35,6 +35,8 @@ interface Tween {
   done?: () => void;
 }
 
+/** Ease out with a gentle overshoot (about 4%). */
+const easeOutSoft = (p: number) => 1 + 1.6 * (p - 1) ** 3 + 0.6 * (p - 1) ** 2;
 const easeOutBack = (p: number) => 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2;
 
 /** Floating background particles that set each theme's mood. */
@@ -55,10 +57,16 @@ class Ambient {
       ph: Math.random() * 6.28,
     }));
   }
+  /** Sideways drift (px/s), used for parallax while boards change. */
+  vx = 0;
   update(dt: number, time: number, w: number, h: number, theme: Theme) {
     const g = this.g;
     g.clear();
     for (const p of this.parts) {
+      // Bigger (closer) particles drift faster: cheap depth.
+      p.x += this.vx * dt * (0.4 + Math.min(1, p.r / 30) * 0.6);
+      if (p.x < -p.r * 2) p.x += w + p.r * 4;
+      else if (p.x > w + p.r * 2) p.x -= w + p.r * 4;
       if (theme.ambient !== 'stars') {
         p.y -= p.v * dt * (theme.ambient === 'bubbles' ? 2.2 : 0.6);
         p.x += Math.sin(time * 0.0008 + p.ph) * dt * 6;
@@ -392,26 +400,52 @@ export class Game {
     const old = this.board;
     this.buildBoard();
     if (animate && old) {
-      // Like a carousel: the finished board slides out left, the next one
-      // slides in from the right and settles with a little overshoot.
+      // Like a carousel: the finished board lifts, then swings out left with
+      // a slight tilt; the next one swings in from the right, settles with a
+      // soft overshoot and a sweep of light. The background drifts along.
       this.boardHolder.addChild(old);
       const ox = old.x;
+      const os = old.scale.x;
       const w = this.app.screen.width;
+      const outDist = w * 0.5 + old.boardWidth * 0.6;
       this.tweens.push({
         t: 0,
-        dur: 300,
-        step: (p) => old.position.set(ox - (w * 0.5 + old.boardWidth) * p * p, old.y),
+        dur: 480,
+        step: (p) => {
+          const lift = Math.sin(Math.min(1, p / 0.28) * Math.PI * 0.5);
+          const go = Math.max(0, (p - 0.18) / 0.82) ** 2.3;
+          old.position.set(ox - outDist * go, old.y - lift * 6 * (1 - go));
+          old.rotation = -0.07 * go;
+          old.scale.set(os * (1 + 0.035 * lift - 0.1 * go));
+          old.alpha = 1 - Math.max(0, (go - 0.55) / 0.45);
+        },
         done: () => old.destroy(),
       });
-      this.enterX = w * 0.5 + this.board.boardWidth;
+      const inDist = w * 0.5 + this.board.boardWidth * 0.6;
+      this.enter = { x: inDist, rot: 0.08, s: 0.9 };
+      this.board.alpha = 0;
       this.tweens.push({
-        t: -260,
-        dur: 420,
-        step: (p) => (this.enterX = (w * 0.5 + this.board.boardWidth) * (1 - easeOutBack(p))),
-        done: () => (this.enterX = 0),
+        t: -250,
+        dur: 640,
+        step: (p) => {
+          const e = easeOutSoft(p);
+          this.enter = { x: inDist * (1 - e), rot: 0.08 * (1 - e), s: 0.9 + 0.1 * e };
+          this.board.alpha = Math.min(1, p * 3);
+        },
+        done: () => {
+          this.enter = { x: 0, rot: 0, s: 1 };
+          this.introSweepAt = this.time;
+        },
       });
-      this.introAt = this.time + 560;
+      this.tweens.push({
+        t: 0,
+        dur: 900,
+        step: (p) => (this.ambient.vx = -Math.sin(p * Math.PI) * w * 0.55),
+        done: () => (this.ambient.vx = 0),
+      });
+      this.introAt = this.time + 600;
       this.painted.set(this.key(this.pos), this.introAt + 330);
+      this.hud.popLevel();
     } else if (old) {
       old.destroy();
     }
@@ -694,7 +728,7 @@ export class Game {
       this.sound.complete();
       this.scaleKickV += 1.1;
       this.boardFx.sparkle(this.ball.x, this.ball.y, 18, this.cell * 2.5, 0xffffff);
-      this.screenFx.confetti(this.app.screen.width, this.app.screen.height, 70, [
+      this.screenFx.confetti(this.app.screen.width, this.app.screen.height, 120, [
         this.look.paint, this.look.paintLight, 0xffd23f, 0x7b5cf0, 0x40e0d0, 0xffffff,
       ]);
       // Glints rise from every tile, rippling outward from the ball.
@@ -757,7 +791,9 @@ export class Game {
   private lastFrameDt = 16;
 
   private resultAt = 0;
-  private enterX = 0;
+  /** Offset, tilt and scale of the incoming board during a transition. */
+  private enter = { x: 0, rot: 0, s: 1 };
+  private introSweepAt = -1e9;
   private autoNextAt: number | null = null;
   private landed = false;
 
@@ -857,8 +893,8 @@ export class Game {
     const old = this.board;
     this.buildBoard();
     old.destroy();
-    this.board.scale.set(0.94);
-    this.tweens.push({ t: 0, dur: 420, step: (p) => this.board.scale.set(0.94 + 0.06 * easeOutBack(p)) });
+    this.enter = { x: 0, rot: 0, s: 0.94 };
+    this.tweens.push({ t: 0, dur: 420, step: (p) => (this.enter = { x: 0, rot: 0, s: 0.94 + 0.06 * easeOutBack(p) }) });
     this.persist();
   }
 
@@ -1071,8 +1107,14 @@ export class Game {
       n.y += n.vy * s;
     }
     const { cx, cy } = this.layoutCache ?? (this.layoutCache = this.layout());
-    if (!this.tweens.length) this.board.scale.set(1 + this.scaleKick * 0.05);
-    this.board.position.set(cx + n.x + this.enterX, cy + n.y);
+    const e = this.enter;
+    this.board.scale.set(e.s * (1 + this.scaleKick * 0.05));
+    this.board.rotation = e.rot;
+    this.board.position.set(cx + n.x + e.x, cy + n.y);
+    if (this.completeAt === null) {
+      const sweep = (time - this.introSweepAt) / 750;
+      if (sweep >= 0 && sweep < 1.5) this.board.drawSweep(sweep, 0.6);
+    }
 
     const moving = !!this.slideState;
     const speed = this.slideState ? this.slideState.path.length / (this.slideState.dur / 1000) / 30 : 0;
