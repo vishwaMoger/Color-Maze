@@ -21,6 +21,15 @@
       <div class="loadbar"><span></span></div>
     </div>
 
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="glyph-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#ffffff" />
+          <stop offset="0.55" stop-color="#f6f2ff" />
+          <stop offset="1" stop-color="#d9d0ff" />
+        </linearGradient>
+      </defs>
+    </svg>
     <header id="hud-top" class="hud">
       <div class="group col-left">
         <button id="btn-restart" class="gbtn sq" aria-label="Restart level" title="Restart (R)">
@@ -39,11 +48,11 @@
       </div>
       <div class="group right col-right">
         <button id="btn-shop" class="gbtn sq" aria-label="Shop" title="Shop">
-          <svg viewBox="0 0 24 24"><path d="M4.4 10 11 3.4l8 8-6.6 6.6a2.4 2.4 0 0 1-3.4 0L4.4 13.4a2.4 2.4 0 0 1 0-3.4Zm2.7 1.4h9.7L11 5.7Z" /><path d="M20.4 14.4c1.2 1.8 1.8 3.1 1.8 4a1.8 1.8 0 0 1-3.6 0c0-.9.6-2.2 1.8-4Z" /></svg>
+          <i class="ico ico-bags btn-ico"></i>
           <span id="shop-dot" class="notify" hidden></span>
         </button>
         <button id="btn-settings" class="gbtn sq" aria-label="Settings" title="Settings">
-          <svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 1.8 21 7v10l-9 5.2L3 17V7l9-5.2Zm0 6.1a4.1 4.1 0 1 0 0 8.2 4.1 4.1 0 0 0 0-8.2Z" /></svg>
+          <i class="ico ico-gear btn-ico"></i>
         </button>
       </div>
       <div class="pill keys col-left" id="keys" aria-label="Keys">
@@ -126,24 +135,61 @@
     </div>
 
     <div id="celebrate" hidden aria-live="polite">
-      <div class="stars"><span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span><span class="star big"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span><span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span></div>
+      <div class="cel-card">
+        <div class="cel-rays"></div>
+        <div class="stars"><span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span><span class="star big"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span><span class="star"><i class="ico ico-star socket"></i><i class="ico ico-star fill"></i></span></div>
+        <div class="cel-title" id="cel-title">Perfect!</div>
+      </div>
     </div>
 
-    <div id="super" class="screen" hidden>
+    <div id="super" class="screen rich" hidden>
       <div class="rays"></div>
-      <h2 class="screen-title">Super Reward!</h2>
+      <div class="twinkles"><i class="twinkle" style="left:8%;top:14%;--d:0s;--s:1"></i><i class="twinkle" style="left:88%;top:10%;--d:0.7s;--s:0.8"></i><i class="twinkle" style="left:18%;top:36%;--d:1.3s;--s:0.6"></i><i class="twinkle" style="left:84%;top:34%;--d:0.4s;--s:1.1"></i><i class="twinkle" style="left:6%;top:62%;--d:1.8s;--s:0.7"></i><i class="twinkle" style="left:92%;top:58%;--d:1.1s;--s:0.9"></i><i class="twinkle" style="left:14%;top:84%;--d:0.6s;--s:1"></i><i class="twinkle" style="left:80%;top:86%;--d:1.5s;--s:0.7"></i><i class="twinkle" style="left:50%;top:6%;--d:2.1s;--s:0.6"></i><i class="twinkle" style="left:34%;top:92%;--d:0.9s;--s:0.8"></i><i class="twinkle" style="left:66%;top:22%;--d:1.7s;--s:0.5"></i><i class="twinkle" style="left:26%;top:20%;--d:2.4s;--s:0.7"></i></div>
+      <h2 class="screen-title sr-title" aria-label="Super Reward!">
+      <svg class="sr-ribbon" viewBox="0 0 360 120" aria-hidden="true">
+        <defs>
+          <linearGradient id="rib" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6fae" /><stop offset="0.55" stop-color="#f0257a" /><stop offset="1" stop-color="#c3105d" /></linearGradient>
+          <linearGradient id="ribtail" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d81c6c" /><stop offset="1" stop-color="#8f0a45" /></linearGradient>
+          <path id="ribtext" d="M44 86Q180 26 316 86" />
+        </defs>
+        <path class="tail" d="M8 96L46 74L56 112L34 104L20 120Z" fill="url(#ribtail)" />
+        <path class="tail" d="M352 96L314 74L304 112L326 104L340 120Z" fill="url(#ribtail)" />
+        <path class="fold" d="M46 74L60 96L56 112Z" />
+        <path class="fold" d="M314 74L300 96L304 112Z" />
+        <path class="band" d="M40 50Q180 -6 320 50L320 98Q180 42 40 98Z" fill="url(#rib)" />
+        <path class="band-gloss" d="M48 54Q180 4 312 54L312 64Q180 16 48 64Z" />
+        <text><textPath href="#ribtext" startOffset="50%" text-anchor="middle">SUPER REWARD!</textPath></text>
+      </svg>
+      </h2>
       <div class="rewards">
         <div class="reward-item"><i class="ico ico-star big-ico"></i><span id="super-stars">0</span></div>
         <div class="reward-item"><i class="ico ico-coin big-ico"></i><span id="super-coins">0</span></div>
       </div>
       <div class="mult-wrap">
-        <div class="mult-bar" id="mult-bar">
-          <span class="seg s2">x2</span><span class="seg s3">x3</span><span class="seg s5">x5</span><span class="seg s3">x3</span><span class="seg s2">x2</span>
-        </div>
-        <div class="pointer" id="mult-pointer"></div>
+        <svg class="gauge" id="mult-arc" viewBox="0 0 320 196" aria-hidden="true">
+          <defs>
+            <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8197" /><stop offset="1" stop-color="#e5214a" /></linearGradient>
+            <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd84d" /><stop offset="1" stop-color="#ff9500" /></linearGradient>
+            <linearGradient id="g5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9cf25d" /><stop offset="1" stop-color="#22b33a" /></linearGradient>
+            <linearGradient id="gneedle" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff6c4" /><stop offset="0.5" stop-color="#ffc21a" /><stop offset="1" stop-color="#e07a00" /></linearGradient>
+            <radialGradient id="ghub" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#fffbe0" /><stop offset="0.45" stop-color="#ffc927" /><stop offset="1" stop-color="#c76400" /></radialGradient>
+          </defs>
+          <path class="rim-shadow" d="M40.0 168.0A120 120 0 0 1 280.0 168.0" />
+          <path class="rim" d="M40.0 168.0A120 120 0 0 1 280.0 168.0" />
+          <path class="rim-inner" d="M40.0 168.0A120 120 0 0 1 280.0 168.0" />
+          <path class="arcseg s2" d="M40.0 168.0A120 120 0 0 1 62.9 97.5" stroke="url(#g2)" /><path class="arcseg s3" d="M62.9 97.5A120 120 0 0 1 122.9 53.9" stroke="url(#g3)" /><path class="arcseg s5" d="M122.9 53.9A120 120 0 0 1 197.1 53.9" stroke="url(#g5)" /><path class="arcseg s3" d="M197.1 53.9A120 120 0 0 1 257.1 97.5" stroke="url(#g3)" /><path class="arcseg s2" d="M257.1 97.5A120 120 0 0 1 280.0 168.0" stroke="url(#g2)" />
+          <g class="ticks"><line x1="81.5" y1="111.0" x2="44.3" y2="83.9" /><line x1="130.0" y1="75.7" x2="115.8" y2="32.0" /><line x1="190.0" y1="75.7" x2="204.2" y2="32.0" /><line x1="238.5" y1="111.0" x2="275.7" y2="83.9" /></g>
+          <path class="gloss" d="M27 168A133 133 0 0 1 293 168" />
+          <g class="labels"><text x="45.9" y="137.9">x2</text><text x="89.5" y="77.9">x3</text><text x="160.0" y="55.0">x5</text><text x="230.5" y="77.9">x3</text><text x="274.1" y="137.9">x2</text></g>
+          <g id="mult-needle" transform="rotate(0 160 168)">
+            <path class="needle" d="M151 168L160 26L169 168Z" />
+            <circle class="hub" cx="160" cy="168" r="19" />
+            <circle class="hub-gem" cx="160" cy="168" r="8" />
+          </g>
+        </svg>
       </div>
       <div id="mult-pop" class="mult-pop" hidden>x3</div>
-      <button id="btn-multiply" class="gbtn go multiply"><span id="mult-badge" class="mult-badge">x2</span><span>Multiply</span></button>
+      <button id="btn-multiply" class="gbtn go multiply"><span id="mult-badge" class="mult-badge">x2</span><span>Claim</span></button>
     </div>
 
     <div id="climb" class="screen" hidden>

@@ -8,6 +8,18 @@ const byName = (urls: Record<string, string>) =>
 
 export const BALL_URLS: Record<string, string> = byName(ballUrls);
 
+const avatarUrls = import.meta.glob('../assets/avatars/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+const AVATAR_URLS: Record<string, string> = byName(avatarUrls);
+const FACES = Object.keys(AVATAR_URLS).filter((k) => k !== 'you').sort();
+
+/** A stable 3D animal face per league name ('you' for the player). */
+export function avatarUrl(name: string, you: boolean): string {
+  if (you) return AVATAR_URLS.you;
+  let h = 7;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_URLS[FACES[h % FACES.length]];
+}
+
 const images = new Map<string, HTMLImageElement>();
 
 /** Decode all ball textures up front so skins switch instantly. */

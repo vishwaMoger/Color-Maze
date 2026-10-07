@@ -504,20 +504,24 @@ export class Board extends Container {
   }
 
   /** Diagonal light sweep across the painted floor (level complete). */
-  drawSweep(progress: number) {
+  drawSweep(progress: number, strength = 1) {
     const g = this.waveG;
     g.clear();
     if (progress <= 0 || progress >= 1) return;
     const W = this.boardWidth;
     const H = this.boardHeight;
-    const span = W + H;
-    const x = -H + span * progress;
-    const band = this.cell * 1.4;
-    for (const [off, a] of [
-      [0, 0.45],
-      [band * 0.9, 0.18],
-    ] as const) {
-      g.poly([x + off, 0, x + off + band, 0, x + off + band - H, H, x + off - H, H]).fill({ color: 0xffffff, alpha: a });
+    const band = this.cell * 2.2;
+    const span = W + H + band * 2;
+    const x = -H - band + span * progress;
+    // A soft diagonal band of light: thin slices with a bell-shaped falloff
+    // and a bright core, so it reads as a sheen rather than a stripe.
+    const n = 14;
+    const sw = band / n;
+    for (let i = 0; i < n; i++) {
+      const u = (i + 0.5) / n;
+      const a = Math.exp(-(((u - 0.5) / 0.22) ** 2)) * 0.42 + Math.exp(-(((u - 0.5) / 0.06) ** 2)) * 0.2;
+      const x0 = x + i * sw;
+      g.poly([x0, 0, x0 + sw + 0.5, 0, x0 + sw + 0.5 - H, H, x0 - H, H]).fill({ color: 0xffffff, alpha: a * strength });
     }
   }
 
