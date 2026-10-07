@@ -2762,6 +2762,195 @@ body {
   }
 }
 
+/* ------------------------------------------------------------ hurt + revive */
+#hurt {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 40, 90, 0.38) 78%, rgba(255, 20, 70, 0.6) 100%);
+}
+#hurt.on {
+  animation: hurt 0.9s ease-out;
+}
+@keyframes hurt {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.revive-panel {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: min(330px, 86vw);
+  padding: 26px 22px 18px;
+}
+.revive-x {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #efeaff;
+  color: var(--deep);
+  font: 700 24px/1 var(--font);
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(90, 60, 190, 0.2);
+}
+.revive-title {
+  margin: 4px 0 0;
+  font-weight: 700;
+  font-size: 28px;
+  color: var(--ink);
+}
+.revive-sub {
+  margin: 0;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--deep);
+  opacity: 0.75;
+}
+.revive-art {
+  display: flex;
+  gap: 18px;
+  margin: 8px 0 2px;
+}
+.rv-item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #f6f2ff, #e6dcff);
+  box-shadow: inset 0 -3px 0 rgba(90, 60, 190, 0.15);
+}
+.rv-item .ico {
+  width: 52px;
+  height: 52px;
+  filter: drop-shadow(0 3px 2px rgba(80, 30, 0, 0.25));
+  animation: rvwobble 1.6s ease-in-out infinite;
+}
+.rv-item b {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 7px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffb340, #ff6a00);
+  color: #fff;
+  font-size: 13px;
+}
+.rv-x {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: #ff3d5e
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path stroke="white" stroke-width="3.4" stroke-linecap="round" d="M7 7l10 10M17 7 7 17"/></svg>')
+    center / 70% no-repeat;
+  box-shadow: 0 3px 0 #b81d3a;
+  animation: rvpulse 1s ease-in-out infinite;
+}
+@keyframes rvwobble {
+  50% {
+    transform: rotate(-6deg) scale(0.94);
+  }
+}
+@keyframes rvpulse {
+  50% {
+    transform: scale(1.15);
+  }
+}
+.revive-level {
+  margin: 0;
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--deep);
+}
+.revive-btn {
+  width: 100%;
+  height: 62px;
+  margin-top: 6px;
+  grid-auto-flow: column;
+  justify-content: center;
+  gap: 12px;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 26px;
+  text-shadow: 0 2px 0 var(--b3);
+  animation: btnpulse 1.2s ease-in-out infinite;
+}
+.revive-btn > span {
+  position: relative;
+  z-index: 1;
+}
+.rv-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+}
+.rv-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.rv-ring circle {
+  fill: rgba(0, 0, 0, 0.15);
+  stroke-width: 4px;
+}
+.rv-ring .track {
+  stroke: rgba(255, 255, 255, 0.3);
+}
+.rv-ring .bar {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+}
+.rv-ring b {
+  position: relative;
+  font-size: 18px;
+}
+.rv-ring b.tick {
+  animation: countpop2 0.35s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+@keyframes countpop2 {
+  40% {
+    transform: scale(1.4);
+  }
+}
+.revive-giveup {
+  border: 0;
+  background: none;
+  padding: 6px 12px;
+  font: 600 16px var(--font);
+  color: var(--deep);
+  opacity: 0.6;
+  cursor: pointer;
+}
+.revive-giveup:hover {
+  opacity: 1;
+}
+
 /* League climb */
 #climb {
   place-content: stretch;

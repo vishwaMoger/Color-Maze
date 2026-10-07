@@ -229,6 +229,26 @@
       </div>
     </div>
 
+    <div id="hurt" aria-hidden="true"></div>
+
+    <div id="revive" class="modal" hidden>
+      <div class="panel revive-panel" role="dialog" aria-labelledby="revive-title">
+        <button id="btn-revive-close" class="revive-x" aria-label="Give up">&times;</button>
+        <h2 id="revive-title" class="revive-title">Don't give up!</h2>
+        <p class="revive-sub" id="revive-sub">You'll lose your win streak</p>
+        <div class="revive-art">
+          <span class="rv-item"><i class="ico ico-fire"></i><b id="revive-streak">0</b><i class="rv-x"></i></span>
+          <span class="rv-item"><i class="ico ico-star"></i><i class="rv-x"></i></span>
+        </div>
+        <p class="revive-level" id="revive-level">Level 1</p>
+        <button id="btn-revive" class="gbtn revive-btn">
+          <span class="rv-ring"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="track" cx="18" cy="18" r="15" /><circle class="bar" id="revive-bar" cx="18" cy="18" r="15" /></svg><b id="revive-count">9</b></span>
+          <span>Revive</span>
+        </button>
+        <button id="btn-giveup" class="revive-giveup">Give up</button>
+      </div>
+    </div>
+
     <div id="result" hidden>
       <div class="rays"></div>
       <div class="card" role="dialog" aria-labelledby="result-title">

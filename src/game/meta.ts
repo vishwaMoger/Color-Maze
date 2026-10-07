@@ -24,6 +24,8 @@ export interface Save {
   /** Key vault: progress dots per prize (0-2), and items won early. */
   vault: { hint: number; item: number; coins: number };
   owned: string[];
+  /** One-time tips already shown (e.g. 'curves'). */
+  tips: string[];
 }
 
 const SAVE_KEY = 'colormaze.v1';
@@ -50,6 +52,7 @@ export function loadSave(): Save {
     seenUnlock: 1,
     vault: { hint: 0, item: 0, coins: 0 },
     owned: [],
+    tips: [],
   };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
