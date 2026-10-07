@@ -1,7 +1,8 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import { Sound } from '../audio/sound.ts';
-import { DIRS, floorCount, isFloor, SAW, slide, solve, type Dir, type Level, type Point, isCurve } from '../levels/core.ts';
+import { DIRS, floorCount, isFloor, SAW, slide, solve, type Dir, type Level, type Point, isCurve, COIN, KEY } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
+import { prefetchLevels } from '../levels/prefetch.ts';
 import type { Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
 import { BALL_URLS } from './assets.ts';
 import { BALLS, hexCss, PAINTS } from './cosmetics.ts';
@@ -22,6 +23,8 @@ interface Slide {
   turns: number[];
   /** The slide runs into a saw blade. */
   saw?: Point;
+  /** Indices into `path` reached through a portal. */
+  jumps: number[];
   t: number;
   dur: number;
   done: number;
@@ -120,6 +123,9 @@ export class Game {
   private queued: Dir | null = null;
   private lastDir: Point | null = null;
   private turnDamp = 1;
+  private warping = false;
+  /** Collectibles already picked up on this level (kept through undo). */
+  private collected = new Set<number>();
   private light: BoardLight | null = null;
   private completeAt: number | null = null;
   private resultShown = false;
@@ -458,6 +464,8 @@ export class Game {
     this.levelNo = n;
     this.restartedThisLevel = false;
     this.level = getLevel(n);
+    prefetchLevels(n + 1);
+    this.collected = new Set();
     this.floorTotal = 0;
     this.floorTotal = floorCount(this.level.grid);
     this.resetState();
@@ -645,7 +653,7 @@ export class Game {
     this.hud.showTip(null);
     this.hint = null;
     const len = r.path.length;
-    this.slideState = { dir, endDir: r.dir, from: { ...this.pos }, path: r.path, turns: r.turns, saw: r.saw, t: 0, dur: 40 + 19 * Math.max(1, len) ** 0.9, done: 0 };
+    this.slideState = { dir, endDir: r.dir, from: { ...this.pos }, path: r.path, turns: r.turns, saw: r.saw, jumps: r.jumps, t: 0, dur: 40 + 19 * Math.max(1, len) ** 0.9, done: 0 };
     this.lastDir = d;
     this.cone = { from: { ...this.pos }, to: { ...this.pos }, endedAt: null };
     this.sound.launch(this.slideState.dur);
@@ -662,6 +670,19 @@ export class Game {
     const sp = this.slidePoint(s, dist);
     const d = sp.dir;
     this.lastDir = d;
+    const warp = sp.warp ?? 1;
+    this.ball.scale.set(0.15 + 0.85 * warp);
+    if (sp.warp !== undefined && !this.warping) {
+      this.warping = true;
+      const c = this.board.cellCenter(sp.p.x, sp.p.y);
+      this.boardFx.sparkle(c.x, c.y, 10, this.cell * 1.4, 0x7ae8ff);
+      this.sound.launch(120);
+    } else if (sp.warp === undefined && this.warping) {
+      this.warping = false;
+      const c = this.board.cellCenter(sp.p.x, sp.p.y);
+      this.boardFx.sparkle(c.x, c.y, 10, this.cell * 1.4, 0xffb46b);
+      this.boardFx.ring(c.x, c.y, this.cell * 0.6, 0xffd9a8);
+    }
     // Ease off the squash and stretch while swinging round a curve.
     this.turnDamp += ((sp.turning ? 0.3 : 1) - this.turnDamp) * Math.min(1, dt / 40);
     while (s.done < s.path.length && dist >= s.done + 0.55) {
@@ -672,6 +693,7 @@ export class Game {
         this.sound.paintTile();
         this.speckle(cellP);
       }
+      this.collect(cellP);
       this.sprayTile(cellP, d);
       s.done++;
     }
@@ -688,11 +710,25 @@ export class Game {
    * through a curve tile the ball follows a quarter arc. Also returns the
    * travel direction and the straight stretch of fresh paint behind it.
    */
-  private slidePoint(s: Slide, dist: number): { p: XY; dir: XY; band: { from: XY; pos: XY }; turning?: boolean } {
+  private slidePoint(s: Slide, dist: number): { p: XY; dir: XY; band: { from: XY; pos: XY }; turning?: boolean; warp?: number } {
     const pts: XY[] = [s.from, ...s.path];
     const end = pts.length - 1;
     const dd = Math.max(0, Math.min(end, dist));
     let segStart = s.from;
+    // Through a portal: shrink into the entry, pop out of the exit.
+    for (const j of s.jumps) {
+      const k = j + 1;
+      const a = pts[k - 1];
+      const b = pts[k];
+      const dir = k >= 2 ? { x: a.x - pts[k - 2].x, y: a.y - pts[k - 2].y } : DIRS[s.dir];
+      if (dd >= k - 1 && dd < k) {
+        const f = dd - (k - 1);
+        return f < 0.5
+          ? { p: a, dir, band: { from: a, pos: a }, warp: 1 - f * 2 }
+          : { p: b, dir, band: { from: b, pos: b }, warp: (f - 0.5) * 2 };
+      }
+      if (dd >= k) segStart = b;
+    }
     for (const ti of s.turns) {
       const k = ti + 1;
       if (k >= end) continue; // stopped on the curve itself
@@ -709,7 +745,7 @@ export class Game {
         const p = { x: u * u * A.x + 2 * u * t * c.x + t * t * B.x, y: u * u * A.y + 2 * u * t * c.y + t * t * B.y };
         return { p, dir: t < 0.5 ? dIn : dOut, band: { from: c, pos: c }, turning: true };
       }
-      if (dd > k + 0.5) segStart = c;
+      if (dd > k + 0.5 && !s.jumps.some((j) => j + 1 > k && j + 1 <= dd)) segStart = c;
     }
     const i = Math.min(end - 1, Math.floor(dd));
     const f = dd - i;
@@ -762,6 +798,27 @@ export class Game {
     const cx = Math.floor(x / this.cell);
     const cy = Math.floor(y / this.cell);
     if (isFloor(this.level.grid, cx, cy)) this.dots.push({ x, y, r, t: this.time });
+  }
+
+  /** Coins and keys lying on a tile pop off and fly to the HUD. */
+  private collect(p: Point) {
+    const v = this.level.grid[p.y][p.x];
+    if (v !== COIN && v !== KEY) return;
+    const k = this.key(p);
+    if (this.collected.has(k)) return;
+    this.collected.add(k);
+    this.board.pickup(p);
+    const g = this.board.toGlobal(this.board.cellCenter(p.x, p.y));
+    if (v === COIN) {
+      this.save.coins += 5;
+      this.hud.flyCoins(g, 3, this.save.coins);
+      this.sound.coin();
+    } else if (this.save.keys < 3) {
+      this.save.keys++;
+      this.hud.flyKey(g, this.save.keys);
+      this.sound.complete();
+    }
+    this.persist();
   }
 
   /**

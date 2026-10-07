@@ -43,6 +43,21 @@ export const isCurve = (c: number | undefined) => c !== undefined && c >= CURVE_
 /** A spinning saw in a notch of the wall: rolling into it ends the attempt. */
 export const SAW = 7;
 
+/** A linked pair of portals: roll into one, come out of the other. */
+export const PORTAL_A = 8;
+export const PORTAL_B = 9;
+/** Arrow tiles send the ball on in the direction they point. */
+export const ARROW_U = 10;
+export const ARROW_D = 11;
+export const ARROW_L = 12;
+export const ARROW_R = 13;
+export const ARROWS: Record<number, Dir> = { [ARROW_U]: 'U', [ARROW_D]: 'D', [ARROW_L]: 'L', [ARROW_R]: 'R' };
+/** Collectibles lying on a tile: painting the tile picks them up. */
+export const COIN = 14;
+export const KEY = 15;
+export const isPortal = (c: number | undefined) => c === PORTAL_A || c === PORTAL_B;
+export const isArrow = (c: number | undefined) => c !== undefined && c >= ARROW_U && c <= ARROW_R;
+
 export interface Level {
   grid: Grid;
   start: Point;
@@ -54,7 +69,15 @@ export interface Level {
 
 export function isFloor(grid: Grid, x: number, y: number): boolean {
   const c = grid[y]?.[x];
-  return c === 0 || c === STOPPER || isCurve(c);
+  return c === 0 || c === STOPPER || isCurve(c) || (c !== undefined && c >= PORTAL_A && c <= KEY);
+}
+
+function findTile(grid: Grid, v: number): Point | null {
+  for (let y = 0; y < grid.length; y++) {
+    const x = grid[y].indexOf(v);
+    if (x >= 0) return { x, y };
+  }
+  return null;
 }
 
 export interface SlideResult {
@@ -67,6 +90,8 @@ export interface SlideResult {
   turns: number[];
   /** The slide ends in a saw blade (the saw cell is not in `path`). */
   saw?: Point;
+  /** Indices into `path` that the ball reached by teleporting. */
+  jumps: number[];
 }
 
 export function slide(grid: Grid, from: Point, dir: Dir): SlideResult {
@@ -75,11 +100,14 @@ export function slide(grid: Grid, from: Point, dir: Dir): SlideResult {
   let y = from.y;
   const path: Point[] = [];
   const turns: number[] = [];
+  const jumps: number[] = [];
+  // Curves, arrows and portals can form loops: stop if a state repeats.
   const seen = new Set<string>();
+  const result = (saw?: Point): SlideResult => ({ end: { x, y }, path, dir, turns, jumps, saw });
   for (;;) {
     const nx = x + d.x;
     const ny = y + d.y;
-    if (grid[ny]?.[nx] === SAW) return { end: { x, y }, path, dir, turns, saw: { x: nx, y: ny } };
+    if (grid[ny]?.[nx] === SAW) return result({ x: nx, y: ny });
     if (!isFloor(grid, nx, ny)) break;
     const c = grid[ny][nx];
     const out = isCurve(c) ? CURVES[c][dir] : undefined;
@@ -89,17 +117,29 @@ export function slide(grid: Grid, from: Point, dir: Dir): SlideResult {
     y = ny;
     path.push({ x, y });
     if (c === STOPPER) break;
+    const k = `${x},${y},${dir}`;
+    if (seen.has(k)) break;
+    seen.add(k);
     if (out) {
-      // Curves in a ring could loop forever: stop if we come round again.
-      const k = `${x},${y},${out}`;
-      if (seen.has(k)) break;
-      seen.add(k);
       turns.push(path.length - 1);
       dir = out;
       d = DIRS[dir];
+    } else if (isArrow(c) && ARROWS[c] !== dir) {
+      turns.push(path.length - 1);
+      dir = ARROWS[c];
+      d = DIRS[dir];
+    } else if (isPortal(c)) {
+      const twin = findTile(grid, c === PORTAL_A ? PORTAL_B : PORTAL_A);
+      if (twin) {
+        x = twin.x;
+        y = twin.y;
+        path.push({ x, y });
+        jumps.push(path.length - 1);
+        seen.add(`${x},${y},${dir}`);
+      }
     }
   }
-  return { end: { x, y }, path, dir, turns };
+  return result();
 }
 
 export function floorCount(grid: Grid): number {
@@ -236,11 +276,26 @@ export function solve(
 }
 
 /** Characters for curved corners in level text: a=TL, b=TR, c=BL, d=BR. */
-export const CURVE_CHARS: Record<string, number> = { a: CURVE_TL, b: CURVE_TR, c: CURVE_BL, d: CURVE_BR, x: SAW };
+export const CURVE_CHARS: Record<string, number> = {
+  a: CURVE_TL,
+  b: CURVE_TR,
+  c: CURVE_BL,
+  d: CURVE_BR,
+  x: SAW,
+  p: PORTAL_A,
+  q: PORTAL_B,
+  '^': ARROW_U,
+  v: ARROW_D,
+  '<': ARROW_L,
+  '>': ARROW_R,
+  $: COIN,
+  k: KEY,
+};
 
 /**
  * Parse rows where '#' is wall, '.' floor, '*' a stopper, 'o' the start,
- * a-d curved corners and 'x' a saw.
+ * a-d curved corners, 'x' a saw, p/q portals, ^v<> arrows, '$' a coin and
+ * 'k' a key.
  */
 export function parseLevel(rows: string[], extra: Partial<Level> = {}): Level {
   let start: Point | null = null;

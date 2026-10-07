@@ -1,5 +1,24 @@
 import { BlurFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture, UniformGroup } from 'pixi.js';
-import { CURVE_BL, CURVE_BR, CURVE_TL, CURVE_TR, isFloor, SAW, STOPPER, type Level, type Point } from '../levels/core.ts';
+import {
+  ARROW_D,
+  ARROW_L,
+  ARROW_R,
+  ARROW_U,
+  COIN,
+  CURVE_BL,
+  CURVE_BR,
+  CURVE_TL,
+  CURVE_TR,
+  isFloor,
+  KEY,
+  PORTAL_A,
+  PORTAL_B,
+  SAW,
+  STOPPER,
+  type Level,
+  type Point,
+} from '../levels/core.ts';
+import { iconImage } from './assets.ts';
 import { dilate, fillRoundedCells, makeCanvas, softBlur, tint } from './shape.ts';
 import { paintGloss, type PaintGloss } from './shaders.ts';
 import type { Theme } from './themes.ts';
@@ -94,6 +113,48 @@ function roundedCell(g: Graphics, x: number, y: number, cell: number, r: number,
   g.closePath();
 }
 
+/** A swirling portal: a glowing ring with spiral arms. */
+function portalTexture(r: number, res: number, cols: [string, string, string]): Texture {
+  const R = r * res;
+  const size = Math.ceil(R * 2 + 6);
+  const cv = makeCanvas(size, size);
+  const ctx = cv.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+  const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R);
+  g.addColorStop(0, cols[0]);
+  g.addColorStop(0.45, cols[1]);
+  g.addColorStop(0.8, cols[2]);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fill();
+  // Spiral arms.
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineCap = 'round';
+  for (let a = 0; a < 3; a++) {
+    ctx.lineWidth = R * 0.1;
+    ctx.beginPath();
+    for (let t = 0; t <= 1; t += 0.05) {
+      const ang = a * ((Math.PI * 2) / 3) + t * Math.PI * 1.4;
+      const rr = R * (0.18 + t * 0.66);
+      const px = cx + Math.cos(ang) * rr;
+      const py = cy + Math.sin(ang) * rr;
+      if (t === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  // Bright rim.
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = R * 0.08;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2);
+  ctx.stroke();
+  return Texture.from(cv);
+}
+
 /** A shiny circular saw blade with a dark hub. */
 function sawBlade(r: number, res: number): Texture {
   const R = r * res;
@@ -184,6 +245,16 @@ export class Board extends Container {
   private readonly saws: Sprite[] = [];
   private sawAngle = 0;
   private sawHitAt = -1e9;
+
+  private readonly portals: { s: Sprite; dir: number }[] = [];
+  private readonly pickups = new Map<number, { s: Sprite; glow: Graphics; base: number; y0: number; at: number }>();
+  private lastTime = 0;
+
+  /** A coin or key was collected from this tile. */
+  pickup(p: Point) {
+    const it = this.pickups.get(p.y * this.cols + p.x);
+    if (it && it.at < 0) it.at = this.lastTime;
+  }
 
   /** The ball hit a saw: it whirrs faster for a moment. */
   sawHit(time: number) {
@@ -483,6 +554,37 @@ export class Board extends Container {
     lctx.globalCompositeOperation = 'destination-out';
     lctx.drawImage(rise(faceH - res * 1.5), 0, 0);
     wctx.drawImage(tint(lip, theme.wallLip), 0, 0);
+    // Arrow tiles: a bold white double chevron pointing the way.
+    const arrowAngle: Record<number, number> = { [ARROW_R]: 0, [ARROW_D]: Math.PI / 2, [ARROW_L]: Math.PI, [ARROW_U]: -Math.PI / 2 };
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++) {
+        const ang = arrowAngle[this.level.grid[y][x]];
+        if (ang === undefined) continue;
+        hasMarks = true;
+        mctx.save();
+        mctx.translate(off + (x + 0.5) * c, off + (y + 0.5) * c);
+        mctx.rotate(ang);
+        mctx.lineCap = 'round';
+        mctx.lineJoin = 'round';
+        for (const [dx, a] of [
+          [-0.12, 0.55],
+          [0.12, 1],
+        ]) {
+          for (const [col, w, oy] of [
+            ['rgba(20,10,50,0.3)', 0.13, 0.035],
+            [`rgba(255,255,255,${a})`, 0.1, 0],
+          ] as const) {
+            mctx.strokeStyle = col;
+            mctx.lineWidth = c * w;
+            mctx.beginPath();
+            mctx.moveTo((dx - 0.1) * c, -0.2 * c + oy * c);
+            mctx.lineTo((dx + 0.1) * c, 0 + oy * c);
+            mctx.lineTo((dx - 0.1) * c, 0.2 * c + oy * c);
+            mctx.stroke();
+          }
+        }
+        mctx.restore();
+      }
     this.addChild(this.sprite(walls));
     if (hasMarks) this.addChild(this.sprite(marks));
 
@@ -512,6 +614,37 @@ export class Board extends Container {
         this.saws.push(blade);
         this.sawLayer.addChild(blade);
       }
+    // Portals: swirling rings, cyan for one end and orange for the other.
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++) {
+        const v = this.level.grid[y][x];
+        if (v !== PORTAL_A && v !== PORTAL_B) continue;
+        const tex = portalTexture(cs * 0.46, res, v === PORTAL_A ? ['#bff6ff', '#38d8ff', '#1167d8'] : ['#ffe6b8', '#ffa13d', '#d8540f']);
+        this.textures.push(tex);
+        const sp = new Sprite(tex);
+        sp.anchor.set(0.5);
+        sp.scale.set(1 / res);
+        sp.position.set((x + 0.5) * cs, (y + 0.5) * cs);
+        this.portals.push({ s: sp, dir: v === PORTAL_A ? 1 : -1 });
+        this.sawLayer.addChild(sp);
+      }
+    // Coins and keys lying on tiles, bobbing gently.
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++) {
+        const v = this.level.grid[y][x];
+        if (v !== COIN && v !== KEY) continue;
+        const img = iconImage(v === COIN ? 'coin' : 'key');
+        if (!img) continue;
+        const sp = new Sprite(Texture.from(img));
+        sp.anchor.set(0.5);
+        const size = cs * (v === COIN ? 0.5 : 0.6);
+        sp.scale.set(size / Math.max(img.width, img.height));
+        sp.position.set((x + 0.5) * cs, (y + 0.5) * cs);
+        const glow = new Graphics().circle(0, 0, size * 0.62).fill({ color: v === COIN ? 0xffe27a : 0xfff3c2, alpha: 0.35 });
+        glow.position.copyFrom(sp.position);
+        this.sawLayer.addChild(glow, sp);
+        this.pickups.set(y * cols + x, { s: sp, glow, base: sp.scale.x, y0: sp.y, at: -1 });
+      }
     this.addChild(this.sawLayer, this.glowG, this.hintG, this.coneG, this.fxLayer, this.ballLayer);
   }
 
@@ -520,12 +653,32 @@ export class Board extends Container {
   }
 
   update(time: number, stroke: PaintStroke, remaining: Point[]) {
+    this.lastTime = time;
     if (this.caustics) this.caustics.uniforms.uTime = time * 0.00035;
     if (this.gloss) this.gloss.uniforms.uTime = time * 0.001;
     // Saws spin; after a hit they whirr faster for a moment.
     const boost = Math.max(0, 1 - (time - this.sawHitAt) / 900);
     this.sawAngle += 0.16 * (1 + boost * 2.5);
     for (const b of this.saws) b.rotation = this.sawAngle;
+    for (const p of this.portals) {
+      p.s.rotation = time * 0.003 * p.dir;
+      p.s.scale.set((1 / this.res) * (1 + Math.sin(time * 0.004) * 0.05));
+    }
+    let i = 0;
+    for (const p of this.pickups.values()) {
+      i++;
+      if (p.at < 0) {
+        p.s.y = p.y0 + Math.sin(time * 0.004 + i) * this.cell * 0.05;
+        p.glow.alpha = 0.75 + Math.sin(time * 0.006 + i) * 0.25;
+      } else {
+        // Picked up: pop up and fade out.
+        const t = Math.min(1, (time - p.at) / 320);
+        p.s.scale.set(p.base * (1 + t * 0.8));
+        p.s.alpha = 1 - t;
+        p.glow.alpha = 1 - t;
+        p.s.y = p.y0 - t * this.cell * 0.4;
+      }
+    }
     this.drawPaint(time, stroke);
     this.drawGlow(time, remaining);
   }
