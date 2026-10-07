@@ -127,28 +127,54 @@ export function solve(
   for (const c of painted ?? []) if (index.has(c)) mask |= bit(c);
   if (mask === full) return [];
 
-  interface Node {
-    p: Point;
-    m: bigint;
-    moves: Dir[];
-  }
-  const seen = new Set<string>([`${start.x},${start.y},${mask}`]);
-  let frontier: Node[] = [{ p: start, m: mask, moves: [] }];
+  // Precompute every slide once: from a stop, each direction leads to an
+  // end cell and paints a fixed set of tiles.
+  const moves = new Map<number, { dir: Dir; end: number; bits: bigint }[]>();
+  const movesFrom = (cell: number) => {
+    let list = moves.get(cell);
+    if (list) return list;
+    list = [];
+    const p = { x: cell % w, y: Math.floor(cell / w) };
+    for (const dir of DIR_LIST) {
+      const r = slide(grid, p, dir);
+      if (!r.path.length) continue;
+      let bits = 0n;
+      for (const c of r.path) bits |= bit(c.y * w + c.x);
+      list.push({ dir, end: r.end.y * w + r.end.x, bits });
+    }
+    moves.set(cell, list);
+    return list;
+  };
+
+  // Breadth-first over (stop, painted set); parents kept in flat arrays.
+  const parent: number[] = [-1];
+  const via: Dir[] = ['U'];
+  const posOf: number[] = [start.y * w + start.x];
+  const maskOf: bigint[] = [mask];
+  const seen = new Map<bigint, Set<number>>([[mask, new Set([posOf[0]])]]);
+  let frontier = [0];
+  const path = (i: number) => {
+    const out: Dir[] = [];
+    for (; parent[i] !== -1; i = parent[i]) out.push(via[i]);
+    return out.reverse();
+  };
   while (frontier.length) {
-    const next: Node[] = [];
-    for (const node of frontier) {
-      for (const dir of DIR_LIST) {
-        const r = slide(grid, node.p, dir);
-        if (!r.path.length) continue;
-        let m = node.m;
-        for (const c of r.path) m |= bit(c.y * w + c.x);
-        const k = `${r.end.x},${r.end.y},${m}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        const moves = [...node.moves, dir];
-        if (m === full) return moves;
-        next.push({ p: r.end, m, moves });
-        if (seen.size > cap) return null;
+    const next: number[] = [];
+    for (const i of frontier) {
+      for (const mv of movesFrom(posOf[i])) {
+        const m = maskOf[i] | mv.bits;
+        let at = seen.get(m);
+        if (at?.has(mv.end)) continue;
+        if (!at) seen.set(m, (at = new Set()));
+        at.add(mv.end);
+        const j = posOf.length;
+        parent.push(i);
+        via.push(mv.dir);
+        posOf.push(mv.end);
+        maskOf.push(m);
+        if (m === full) return path(j);
+        next.push(j);
+        if (j > cap) return null;
       }
     }
     frontier = next;
