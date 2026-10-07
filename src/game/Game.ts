@@ -9,6 +9,7 @@ import { BALLS, hexCss, PAINTS } from './cosmetics.ts';
 import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball, renderSphere } from './Ball.ts';
 import { Board, type PaintStroke } from './Board.ts';
+import { rewardedAd } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
 import { boardLight, type BoardLight } from './shaders.ts';
 import { THEMES, type Theme } from './themes.ts';
@@ -163,8 +164,20 @@ export class Game {
       equip: (tab, id) => this.equip(tab, id),
       toggle: (what) => this.toggle(what),
       openShop: () => this.refreshShop(),
+      sheet: (top) => this.focusAbove(top),
       openLeague: () => this.refreshLeague(true),
       anyInput: () => this.sound.unlock(),
+      freeCoins: () => {
+        this.sound.click();
+        void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(false)).then((ok) => {
+          if (!ok) return;
+          this.save.coins += 80;
+          this.hud.setCoins(this.save.coins);
+          this.hud.toast('+80 coins');
+          this.sound.coin();
+          this.persist();
+        });
+      },
       click: () => this.sound.click(),
     });
     hud.updateMode();
@@ -207,10 +220,9 @@ export class Game {
   // ---------------------------------------------------------------- meta
 
   private refreshPrices() {
-    const coin = (n: number) => `<i class="coin sm"></i>${n}`;
     this.hud.setPrices({
-      hint: this.save.hints > 0 ? `×${this.save.hints}` : coin(PRICES.hint),
-      bomb: this.save.bombs > 0 ? `×${this.save.bombs}` : coin(PRICES.bomb),
+      hint: { price: PRICES.hint, free: this.save.hints },
+      bomb: { price: PRICES.bomb, free: this.save.bombs },
     });
   }
 
@@ -823,8 +835,7 @@ export class Game {
 
   /**
    * Wet spray as the ball rolls through a tile (painted or not): glossy
-   * droplets in three shades burst out to both sides of the path, plus a
-   * little glitter in the trail.
+   * droplets in three shades burst out to both sides of the path.
    */
   private sprayTile(p: Point, d: XY) {
     const c = this.board.cellCenter(p.x, p.y);
@@ -853,8 +864,6 @@ export class Game {
         420 + Math.random() * 380,
       );
     }
-    for (let i = 0; i < 2; i++)
-      this.boardFx.glint(c.x + (Math.random() - 0.5) * cell * 0.5, c.y + (Math.random() - 0.5) * cell * 0.5, cell * 0.07, 0xffffff);
   }
 
   /** Dense wet splatter on a freshly painted tile. */
@@ -1376,9 +1385,14 @@ export class Game {
     }
     const { cx, cy } = this.layoutCache ?? (this.layoutCache = this.layout());
     const e = this.enter;
-    this.board.scale.set(e.s * (1 + this.scaleKick * 0.05));
+    // View: eases toward its target (the shop slides the board up).
+    const v = this.view;
+    const k = Math.min(1, rawDt / 90);
+    v.dy += (v.tdy - v.dy) * k;
+    v.s += (v.ts - v.s) * k;
+    this.board.scale.set(e.s * v.s * (1 + this.scaleKick * 0.05));
     this.board.rotation = e.rot;
-    this.board.position.set(cx + n.x + e.x, cy + n.y);
+    this.board.position.set(cx + n.x + e.x, cy + n.y + v.dy);
     if (this.completeAt === null) {
       const sweep = (time - this.introSweepAt) / 750;
       if (sweep >= 0 && sweep < 1.5) this.board.drawSweep(sweep, 0.6);
@@ -1444,6 +1458,25 @@ export class Game {
   }
 
   private layoutCache: { cx: number; cy: number } | null = null;
+
+  private view = { dy: 0, s: 1, tdy: 0, ts: 1 };
+
+  /** Fit the board in the space above `top` (screen px), or restore it. */
+  focusAbove(top: number | null) {
+    const v = this.view;
+    if (top === null) {
+      v.tdy = 0;
+      v.ts = 1;
+      return;
+    }
+    const { cy } = this.layoutCache ?? (this.layoutCache = this.layout());
+    const h = this.board.boardHeight;
+    const w = this.board.boardWidth;
+    const areaTop = 64;
+    const areaH = Math.max(80, top - areaTop - 12);
+    v.ts = Math.min(1, areaH / h, (this.app.screen.width - 32) / w);
+    v.tdy = areaTop + areaH / 2 - cy;
+  }
 
   invalidateLayout() {
     this.layoutCache = null;

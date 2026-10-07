@@ -127,6 +127,20 @@ function textures() {
   return TEX;
 }
 
+/** Points of a rotated ellipse, for stretched paint droplets. */
+function ellipsePts(cx: number, cy: number, rx: number, ry: number, ang: number): number[] {
+  const out: number[] = [];
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const x = Math.cos(a) * rx;
+    const y = Math.sin(a) * ry;
+    out.push(cx + x * c - y * s, cy + x * s + y * c);
+  }
+  return out;
+}
+
 const shade = (c: number, k: number) =>
   (Math.min(255, ((c >> 16) & 255) * k) << 16) | (Math.min(255, ((c >> 8) & 255) * k) << 8) | Math.min(255, (c & 255) * k);
 
@@ -341,7 +355,6 @@ export class Fx {
           const yy = p.y - p.z * 0.55;
           g.circle(p.x + 2, p.y + 3, p.r * (1 + lift * 0.3)).fill({ color: 0x000000, alpha: 0.12 * (1 - lift) });
           g.circle(p.x, yy, rr).fill({ color: p.color, alpha: 1 });
-          g.circle(p.x - rr * 0.32, yy - rr * 0.32, rr * 0.34).fill({ color: 0xffffff, alpha: 0.55 });
           break;
         }
         case 'fw': {
@@ -394,18 +407,22 @@ export class Fx {
           break;
         }
         case 'blob': {
+          // Flat paint splatter: a fling that stretches along its motion,
+          // settles round, then shrinks away. No shine, no shadow.
           const drag = Math.exp(-dt * 7);
           p.vx *= drag;
           p.vy *= drag;
           p.x += p.vx * dt;
           p.y += p.vy * dt;
-          const grow = Math.min(1, t / 0.08);
-          const shrink = t > 0.6 ? 1 - (t - 0.6) / 0.4 : 1;
-          const rr = p.r * (0.4 + 0.6 * grow) * shrink;
+          const grow = Math.min(1, t / 0.06);
+          const shrink = t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1;
+          const rr = p.r * (0.5 + 0.5 * grow) * shrink;
           if (rr < 0.3) break;
-          g.circle(p.x + rr * 0.12, p.y + rr * 0.22, rr).fill({ color: 0x000000, alpha: 0.12 * shrink });
-          g.circle(p.x, p.y, rr).fill({ color: p.color, alpha: 1 });
-          g.circle(p.x - rr * 0.32, p.y - rr * 0.34, rr * 0.36).fill({ color: 0xffffff, alpha: 0.5 });
+          const sp = Math.hypot(p.vx, p.vy);
+          const stretch = Math.min(1.8, 1 + sp / (p.r * 40));
+          if (stretch > 1.05)
+            g.poly(ellipsePts(p.x, p.y, rr * stretch, rr / Math.sqrt(stretch), Math.atan2(p.vy, p.vx))).fill({ color: p.color, alpha: 1 });
+          else g.circle(p.x, p.y, rr).fill({ color: p.color, alpha: 1 });
           break;
         }
         case 'ring': {

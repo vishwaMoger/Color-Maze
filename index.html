@@ -31,97 +31,115 @@
       </defs>
     </svg>
     <header id="hud-top" class="hud">
-      <div class="group col-left">
-        <button id="btn-restart" class="gbtn sq" aria-label="Restart level" title="Restart (R)">
-          <svg viewBox="0 0 24 24"><path d="M12 3.2a8.8 8.8 0 1 0 8.5 11h-3.4a5.6 5.6 0 1 1-1.3-5.9l-2.6 2.6h7.6V3.3l-2.6 2.6A8.8 8.8 0 0 0 12 3.2Z" /></svg>
-        </button>
-        <button id="btn-league" class="league" aria-label="Weekly league">
-          <span class="ico ico-trophy cup"></span>
-          <span id="league-rank" class="rank">--</span>
-          <span id="league-time" class="time">--</span>
-        </button>
+      <div class="hrow">
+        <div class="hgroup col-left">
+          <button id="btn-restart" class="pbtn" aria-label="Restart level" title="Restart (R)">
+            <svg viewBox="0 0 24 24"><path d="M12 4.2a7.8 7.8 0 1 1-7.6 9.6l2.5-.6A5.2 5.2 0 1 0 12 6.8c-1.6 0-3 .7-4 1.8l2.3 2.3H3.9V4.5l2.3 2.3A7.7 7.7 0 0 1 12 4.2Z" /></svg>
+          </button>
+          <button id="btn-league" class="trophy-card" aria-label="Weekly league">
+            <span class="ico ico-trophy cup"></span>
+            <b id="league-rank" class="rank">--</b>
+            <span id="league-time" class="time">--</span>
+          </button>
+        </div>
+        <div class="level-info" id="level-info">
+          <span class="lvl-reward" id="lvl-reward"><i class="ico ico-coinstack"></i><i class="ico ico-star rstar"></i></span>
+          <svg id="level-progress" class="chain" viewBox="0 0 92 16" aria-hidden="true"></svg>
+          <div id="level-label">Level 1</div>
+          <div id="moves" class="moves" hidden></div>
+        </div>
+        <div class="hgroup right col-right">
+          <button id="btn-shop" class="pbtn" aria-label="Shop" title="Shop">
+            <svg viewBox="0 0 24 24"><path d="M10.6 2.9a1.6 1.6 0 0 1 2.2 0l7 7a1.6 1.6 0 0 1 0 2.2l-6.3 6.3a3 3 0 0 1-4.2 0L4 13.1a3 3 0 0 1 0-4.2Zm-4.4 7.8h11.3l-6-6Z" /><path d="M20.4 15.6c1 1.5 1.6 2.6 1.6 3.4a1.6 1.6 0 0 1-3.2 0c0-.8.6-1.9 1.6-3.4Z" /></svg>
+            <span id="shop-dot" class="notify" hidden></span>
+          </button>
+          <button id="btn-settings" class="pbtn" aria-label="Settings" title="Settings">
+            <svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M10.4 2.5a3.2 3.2 0 0 1 3.2 0l5.8 3.3a3.2 3.2 0 0 1 1.6 2.8v6.8a3.2 3.2 0 0 1-1.6 2.8l-5.8 3.3a3.2 3.2 0 0 1-3.2 0l-5.8-3.3A3.2 3.2 0 0 1 3 15.4V8.6a3.2 3.2 0 0 1 1.6-2.8Zm1 2.3-5.4 3.1a1.2 1.2 0 0 0-.6 1v6.2c0 .4.2.8.6 1l5.4 3.1c.4.2.8.2 1.2 0l5.4-3.1c.4-.2.6-.6.6-1V8.9c0-.4-.2-.8-.6-1l-5.4-3.1a1.2 1.2 0 0 0-1.2 0ZM12 8.4a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Zm0 2.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z" /></svg>
+          </button>
+        </div>
       </div>
-      <div class="level-info" id="level-info">
-        <div id="level-progress" class="chain" aria-hidden="true"></div>
-        <div id="level-label">Level 1</div>
-        <div id="moves" class="moves"></div>
+      <div class="hrow pills">
+        <div class="pill keys col-left" id="keys" aria-label="Keys">
+          <span class="ico ico-key key"></span><span class="ico ico-key key"></span><span class="ico ico-key key"></span>
+        </div>
+        <div class="pill coins col-right" aria-label="Coins"><span class="ico ico-coin coin"></span><span id="coins-count">0</span></div>
       </div>
-      <div class="group right col-right">
-        <button id="btn-shop" class="gbtn sq" aria-label="Shop" title="Shop">
-          <i class="ico ico-bags btn-ico"></i>
-          <span id="shop-dot" class="notify" hidden></span>
-        </button>
-        <button id="btn-settings" class="gbtn sq" aria-label="Settings" title="Settings">
-          <i class="ico ico-gear btn-ico"></i>
-        </button>
-      </div>
-      <div class="pill keys col-left" id="keys" aria-label="Keys">
-        <span class="ico ico-key key"></span><span class="ico ico-key key"></span><span class="ico ico-key key"></span>
-      </div>
-      <div class="pill coins col-right" aria-label="Coins"><span class="ico ico-coin coin"></span><span id="coins-count">0</span></div>
     </header>
 
     <div id="tip" hidden>Swipe to roll the ball</div>
     <div id="toast" role="status"></div>
 
     <footer id="hud-bottom" class="hud">
-      <div class="side col-left">
+      <div class="tool-col col-left">
         <button id="btn-streak" class="streak" aria-label="Win streak">
           <span class="streak-aura"></span>
           <span class="embers"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-          <i class="ico ico-fire"></i>
-          <span id="streak-count">0</span>
+          <span class="can"><span class="cap top"></span><span class="glass"><span class="fire"></span><b id="streak-count">0</b></span><span class="cap bot"></span></span>
         </button>
-        <button id="btn-bomb" class="gbtn tool go" aria-label="Paint gun: paints the trickiest tiles" title="Paint gun">
+        <button id="btn-bomb" class="tbtn green" aria-label="Paint gun: paints the trickiest tiles" title="Paint gun">
           <span class="ico ico-paintgun tool-ico"></span>
           <span class="price" id="bomb-price"></span>
+          <span class="free" id="bomb-free" hidden></span>
         </button>
       </div>
-      <button id="btn-undo" class="gbtn round undo col-right" aria-label="Undo move" title="Undo (Z)">
-        <svg viewBox="0 0 24 24"><path d="M9.6 3.6 2.8 10l6.8 6.4v-4h4.2a3.9 3.9 0 0 1 0 7.8h-2.4v3.4h2.4a7.3 7.3 0 0 0 0-14.6H9.6v-5.4Z" /></svg>
+      <button id="btn-undo" class="pbtn undo col-right" aria-label="Undo move" title="Undo (Z)">
+        <svg viewBox="0 0 24 24"><path d="M9.4 4.6v3.3h4.4a6.7 6.7 0 0 1 0 13.4H9.5v-2.8h4.3a3.9 3.9 0 0 0 0-7.8H9.4v3.3L3.6 9.3Z" /></svg>
       </button>
-      <div class="side right col-right">
-        <button id="btn-hint" class="gbtn tool gold" aria-label="Show hint" title="Hint (H)">
+      <div class="tool-col right col-right">
+        <button id="btn-hint" class="tbtn yellow" aria-label="Show hint" title="Hint (H)">
           <span class="ico ico-bulb tool-ico"></span>
           <span class="price" id="hint-price"></span>
+          <span class="free" id="hint-free" hidden></span>
         </button>
       </div>
     </footer>
 
-    <div id="shop" class="modal" hidden>
-      <div class="panel wide" role="dialog" aria-labelledby="shop-title">
-        <div class="ribbon"><span id="shop-title">Shop</span></div>
-        <button class="gbtn round danger close" data-close="shop" aria-label="Close shop"><svg viewBox="0 0 24 24"><path d="M6.3 4 12 9.7 17.7 4 20 6.3 14.3 12l5.7 5.7-2.3 2.3-5.7-5.7L6.3 20 4 17.7 9.7 12 4 6.3Z" /></svg></button>
-        <div class="tabs" role="tablist">
-          <button class="tab" role="tab" data-tab="ball" aria-selected="true">Ball</button>
-          <button class="tab" role="tab" data-tab="paint" aria-selected="false">Paint</button>
-          <button class="tab" role="tab" data-tab="board" aria-selected="false">Board</button>
+    <div id="shop" class="sheet" hidden>
+      <div class="sheet-top">
+        <button class="pbtn back" data-close="shop" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 4.6 17.6 6.8 12.4 12l5.2 5.2-2.2 2.2L8 12Z" /></svg></button>
+        <div class="pill coins mini"><span class="ico ico-coin coin"></span><span class="shop-coins">0</span></div>
+      </div>
+      <div class="sheet-panel" role="dialog" aria-label="Shop">
+        <div class="ftabs" role="tablist">
+          <button class="tab" role="tab" data-tab="ball" aria-selected="true"><i class="tglyph ball"></i>Ball</button>
+          <button class="tab" role="tab" data-tab="paint" aria-selected="false"><i class="tglyph paint"></i>Paint</button>
+          <button class="tab" role="tab" data-tab="board" aria-selected="false"><i class="tglyph maze"></i>Maze</button>
         </div>
-        <div id="shop-grid" class="grid"></div>
+        <div class="sheet-body">
+          <div id="shop-grid" class="pages"></div>
+          <div class="page-dots" id="shop-dots"></div>
+          <button id="btn-free-coins" class="pbtn wide-cta"><span class="ico ico-coin"></span>+80 Coins<span class="ad-badge" aria-label="Watch an ad"></span></button>
+        </div>
       </div>
     </div>
 
-    <div id="settings" class="modal" hidden>
-      <div class="panel" role="dialog" aria-labelledby="settings-title">
-        <div class="ribbon"><span id="settings-title">Settings</span></div>
-        <button class="gbtn round danger close" data-close="settings" aria-label="Close settings"><svg viewBox="0 0 24 24"><path d="M6.3 4 12 9.7 17.7 4 20 6.3 14.3 12l5.7 5.7-2.3 2.3-5.7-5.7L6.3 20 4 17.7 9.7 12 4 6.3Z" /></svg></button>
-        <div class="rows">
-          <div class="row"><span>Sound effects</span><button id="tg-sfx" class="toggle" aria-label="Sound effects" aria-pressed="true"><i></i></button></div>
-          <div class="row"><span>Music</span><button id="tg-music" class="toggle" aria-label="Music" aria-pressed="true"><i></i></button></div>
-          <div class="row"><span>Vibration</span><button id="tg-vibe" class="toggle" aria-label="Vibration" aria-pressed="true"><i></i></button></div>
-        </div>
-        <p class="fineprint">Swipe or drag to roll. Arrow keys and WASD work too.<br />Z undo · R restart · H hint</p>
+    <div id="settings" class="page" hidden>
+      <div class="page-bar">
+        <button class="pbtn back" data-close="settings" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 4.6 17.6 6.8 12.4 12l5.2 5.2-2.2 2.2L8 12Z" /></svg></button>
+        <h2>Settings</h2>
+        <span class="bar-gap"></span>
       </div>
+      <div class="rows">
+        <div class="row"><i class="rglyph sound"></i><span>Sound</span><button id="tg-sfx" class="toggle" aria-label="Sound" aria-pressed="true"><i></i></button></div>
+        <div class="row"><i class="rglyph music"></i><span>Music</span><button id="tg-music" class="toggle" aria-label="Music" aria-pressed="true"><i></i></button></div>
+        <div class="row"><i class="rglyph vibe"></i><span>Vibration</span><button id="tg-vibe" class="toggle" aria-label="Vibration" aria-pressed="true"><i></i></button></div>
+      </div>
+      <p class="page-foot">Swipe or use the arrow keys · Z undo · R restart · H hint<br /><span class="ver">v1.0</span></p>
     </div>
 
-    <div id="league" class="modal" hidden>
-      <div class="panel wide" role="dialog" aria-labelledby="league-title">
-        <div class="ribbon"><span id="league-title">Weekly League</span></div>
-        <button class="gbtn round danger close" data-close="league" aria-label="Close league"><svg viewBox="0 0 24 24"><path d="M6.3 4 12 9.7 17.7 4 20 6.3 14.3 12l5.7 5.7-2.3 2.3-5.7-5.7L6.3 20 4 17.7 9.7 12 4 6.3Z" /></svg></button>
-        <p class="league-sub"><span id="league-name">Rookie League</span> · ends in <b id="league-left">--</b></p>
+    <div id="league" class="page" hidden>
+      <div class="page-bar">
+        <button class="pbtn back" data-close="league" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 4.6 17.6 6.8 12.4 12l5.2 5.2-2.2 2.2L8 12Z" /></svg></button>
+        <h2>Weekly Ranking</h2>
+        <button class="pbtn info" id="btn-league-info" aria-label="How it works"><svg viewBox="0 0 24 24"><path d="M10.4 9.6h3.2V20h-3.2ZM12 3.6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" /></svg></button>
+      </div>
+      <div class="tiers" id="league-tiers"></div>
+      <div class="lcard">
+        <div class="lcard-head"><span id="league-name">Rookie league</span><span class="lchip" id="league-left">--</span></div>
         <ol id="league-list" class="ranking"></ol>
-        <p class="fineprint">Earn stars by finishing levels. The top 3 win a gift every Sunday.</p>
+        <div id="league-you" class="ranking you-row"></div>
       </div>
+      <p class="page-foot" id="league-help" hidden>Finish levels to earn stars. The ranking resets every Sunday; the top 3 win a gift.</p>
     </div>
 
     <div id="vault" class="screen vault" hidden>
@@ -166,7 +184,7 @@
           </defs>
           <path class="rim-shadow" d="M52.8 63.8A300 300 0 0 1 287.2 63.8" />
           <path class="rim" d="M52.8 63.8A300 300 0 0 1 287.2 63.8" />
-          <path class="arcseg s3" d="M52.8 63.8A300 300 0 0 1 98.4 48.7" stroke="url(#g3)" /><path class="arcseg s4" d="M98.4 48.7A300 300 0 0 1 145.9 41.0" stroke="url(#g4)" /><path class="arcseg s7" d="M145.9 41.0A300 300 0 0 1 194.1 41.0" stroke="url(#g7)" /><path class="arcseg s4" d="M194.1 41.0A300 300 0 0 1 241.6 48.7" stroke="url(#g4)" /><path class="arcseg s3" d="M241.6 48.7A300 300 0 0 1 287.2 63.8" stroke="url(#g3)" />
+          <path class="arcseg s3 end" d="M52.8 63.8A300 300 0 0 1 98.4 48.7" stroke="url(#g3)" /><path class="arcseg s4" d="M98.4 48.7A300 300 0 0 1 145.9 41.0" stroke="url(#g4)" /><path class="arcseg s7" d="M145.9 41.0A300 300 0 0 1 194.1 41.0" stroke="url(#g7)" /><path class="arcseg s4" d="M194.1 41.0A300 300 0 0 1 241.6 48.7" stroke="url(#g4)" /><path class="arcseg s3 end" d="M241.6 48.7A300 300 0 0 1 287.2 63.8" stroke="url(#g3)" />
           <g class="ticks"><line x1="102.0" y1="63.2" x2="94.9" y2="34.1" /><line x1="147.1" y1="55.9" x2="144.7" y2="26.0" /><line x1="192.9" y1="55.9" x2="195.3" y2="26.0" /><line x1="238.0" y1="63.2" x2="245.1" y2="34.1" /></g>
           <path class="gloss" d="M57.5 54.4A307 307 0 0 1 282.5 54.4" />
           <g class="labels"><text x="75.3" y="61.3" transform="rotate(-18.4 75.3 55.3)">x3</text><text x="122.0" y="49.9" transform="rotate(-9.2 122.0 43.9)">x4</text><text x="170.0" y="46.0" transform="rotate(0.0 170.0 40.0)">x7</text><text x="218.0" y="49.9" transform="rotate(9.2 218.0 43.9)">x4</text><text x="264.7" y="61.3" transform="rotate(18.4 264.7 55.3)">x3</text></g>
