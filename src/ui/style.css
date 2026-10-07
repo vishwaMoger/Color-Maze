@@ -108,6 +108,12 @@ body {
 .ico-party {
   background-image: url('../assets/icons/party.webp');
 }
+.ico-coinstack {
+  background-image: url('../assets/icons/coinstack.webp');
+}
+.ico-paintgun {
+  background-image: url('../assets/icons/paintgun.webp');
+}
 .ico-bags {
   background-image: url('../assets/icons/bags.webp');
 }
@@ -138,26 +144,53 @@ body {
   place-items: center;
   color: #fff;
   background: linear-gradient(180deg, var(--b1), var(--b2));
+  /* Crisp: a bright top rim, a fine inner edge, a solid lip and a soft
+     drop, all hard-edged so the button reads sharply at any scale. */
   box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.35),
-    inset 0 -3px 0 rgba(0, 0, 0, 0.08),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.1),
     0 5px 0 var(--b3),
-    0 9px 14px rgba(50, 20, 140, 0.22);
+    0 6px 0 color-mix(in srgb, var(--b3) 70%, #000),
+    0 10px 16px rgba(50, 20, 140, 0.22);
+  -webkit-font-smoothing: antialiased;
   cursor: pointer;
   pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
   transition:
-    transform 0.09s ease-out,
-    box-shadow 0.09s ease-out;
+    transform 0.08s ease-out,
+    box-shadow 0.08s ease-out,
+    filter 0.15s;
+}
+@media (hover: hover) {
+  .gbtn:hover {
+    filter: brightness(1.06) saturate(1.05);
+  }
 }
 
 .gbtn::after {
-  /* Soft gloss on the upper half. */
+  /* Glossy cap on the upper half with a clean lower edge. */
   content: '';
   position: absolute;
-  inset: 3px 5px 50% 5px;
-  border-radius: 14px 14px 40% 40% / 14px 14px 18px 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+  inset: 3px 5px 52% 5px;
+  border-radius: 13px 13px 40% 40% / 13px 13px 16px 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12) 70%, rgba(255, 255, 255, 0.04));
   pointer-events: none;
+}
+/* Juicy release: a springy pop after every press. */
+.gbtn.pop {
+  animation: btnpop 0.34s cubic-bezier(0.3, 1.9, 0.5, 1);
+}
+@keyframes btnpop {
+  0% {
+    transform: translateY(3px) scale(0.95, 0.92);
+  }
+  55% {
+    transform: translateY(-1px) scale(1.04, 1.06);
+  }
+  100% {
+    transform: none;
+  }
 }
 
 .gbtn svg {
@@ -186,11 +219,13 @@ body {
 
 .gbtn:active,
 .gbtn.pressed {
-  transform: translateY(4px);
+  transform: translateY(4px) scale(0.98, 0.96);
   box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
     inset 0 -2px 0 rgba(0, 0, 0, 0.08),
     0 1px 0 var(--b3),
+    0 2px 0 color-mix(in srgb, var(--b3) 70%, #000),
     0 3px 6px rgba(50, 20, 140, 0.2);
 }
 
@@ -1821,7 +1856,7 @@ body {
   animation-delay: -1.3s;
 }
 
-.reward-item span {
+.reward-item > span[id] {
   min-width: 70px;
   padding: 4px 14px;
   border-radius: 999px;
@@ -1834,17 +1869,12 @@ body {
   box-shadow: 0 3px 0 rgba(90, 60, 190, 0.18);
 }
 
-/* Super Reward: rich backdrop, ribbon title, curved multiplier gauge. */
-#super.rich {
-  gap: 12px;
-  background: radial-gradient(120% 80% at 50% 36%, #9d66ff 0%, #6a35e8 34%, #3d1aa8 68%, #230f6c 100%);
-}
-#super.rich .rays {
-  top: 38%;
-  background: repeating-conic-gradient(rgba(255, 214, 90, 0.24) 0 7deg, transparent 7deg 18deg);
-  -webkit-mask: radial-gradient(circle, #000 0 5%, transparent 44%);
-  mask: radial-gradient(circle, #000 0 5%, transparent 44%);
-  animation: spin 26s linear infinite;
+/* Super Reward, after the original: a clean white screen, a gently
+   arched multiplier bar with a pointer underneath, and a Multiply pill with
+   a big tilted badge. */
+#super.sr {
+  gap: 14px;
+  background: radial-gradient(120% 70% at 50% 40%, #ffffff 0%, #f7f4ff 55%, #ece6ff 100%);
 }
 .twinkles {
   position: absolute;
@@ -1866,73 +1896,109 @@ body {
     transform: scale(0.4) rotate(0);
   }
   50% {
-    opacity: 1;
+    opacity: 0.9;
     transform: scale(1) rotate(25deg);
   }
 }
-
-.sr-title {
-  width: min(360px, 92vw);
-  line-height: 0;
-  text-shadow: none;
-  animation: ribbonin 0.7s cubic-bezier(0.3, 1.6, 0.5, 1) both;
-}
-.sr-ribbon {
-  width: 100%;
-  height: auto;
-  overflow: visible;
-  filter: drop-shadow(0 5px 0 rgba(70, 0, 40, 0.35)) drop-shadow(0 14px 18px rgba(20, 0, 60, 0.45));
-}
-.sr-ribbon .fold {
-  fill: #6e0634;
-}
-.sr-ribbon .band-gloss {
-  fill: rgba(255, 255, 255, 0.3);
-}
-.sr-ribbon text {
-  font-family: var(--font);
+.sr-coins {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 4px 6px;
   font-weight: 700;
-  font-size: 30px;
-  letter-spacing: 1px;
-  fill: #fff;
-  stroke: #8a0a45;
-  stroke-width: 6px;
-  stroke-linejoin: round;
-  paint-order: stroke;
+  font-size: 18px;
+  color: var(--deep);
 }
-@keyframes ribbonin {
-  0% {
-    transform: translateY(-40px) scale(0.3);
-    opacity: 0;
-  }
-  100% {
-    transform: none;
-    opacity: 1;
-  }
+.sr-coins .ico {
+  width: 26px;
+  height: 26px;
+}
+.sr-title {
+  font-size: clamp(34px, 9.5vw, 46px);
+  color: var(--ink);
+  text-shadow: none;
+  letter-spacing: 0.2px;
+}
+#super.sr .rewards {
+  gap: 30px;
+  align-items: flex-end;
+}
+.sr-stars,
+.sr-pile {
+  position: relative;
+  display: block;
+  width: 104px;
+  height: 84px;
+  animation: bob 2.6s ease-in-out infinite;
+}
+.sr-pile {
+  animation-delay: -1.3s;
+}
+.sr-stars .ico {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  /* League stars are blue, like the original. */
+  filter: hue-rotate(178deg) saturate(1.35) brightness(1.05) drop-shadow(0 4px 3px rgba(20, 40, 140, 0.3));
+}
+.sr-stars .ico:nth-child(1) {
+  left: 2px;
+  top: 30px;
+  transform: rotate(-14deg);
+}
+.sr-stars .ico:nth-child(2) {
+  left: 50px;
+  top: 30px;
+  transform: rotate(12deg);
+}
+.sr-stars .ico:nth-child(3) {
+  left: 22px;
+  top: 6px;
+  width: 58px;
+  height: 58px;
+}
+.sr-pile .ico {
+  position: absolute;
+  inset: 4px -6px 0;
+  width: auto;
+  height: auto;
+  filter: drop-shadow(0 4px 3px rgba(130, 70, 0, 0.3));
 }
 
-#super.rich .reward-item span {
-  color: #ffe36a;
-  background: linear-gradient(180deg, rgba(40, 10, 110, 0.55), rgba(20, 4, 64, 0.75));
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.16),
-    0 4px 10px rgba(10, 0, 40, 0.35);
-  text-shadow: 0 2px 0 #a24f00;
+#super.sr .reward-item::before {
+  background: radial-gradient(circle, rgba(255, 240, 180, 0.55) 0 18%, rgba(200, 180, 255, 0.25) 42%, transparent 66%);
 }
-#super.rich .reward-item span.bump {
+#super.sr .reward-item span[id] {
+  min-width: 78px;
+  color: var(--deep);
+  background: #efeaff;
+  box-shadow: inset 0 -2px 0 rgba(90, 60, 190, 0.12);
+}
+#super.sr .reward-item span.bump {
   animation: chipbump 0.45s cubic-bezier(0.3, 1.8, 0.5, 1);
 }
 @keyframes chipbump {
   40% {
     transform: scale(1.28);
-    color: #fff;
   }
+}
+.flyer.big {
+  width: 46px;
+  height: 46px;
+}
+.star-flyer {
+  position: fixed;
+  z-index: 9;
+  pointer-events: none;
+  filter: hue-rotate(178deg) saturate(1.35) drop-shadow(0 4px 4px rgba(20, 40, 140, 0.35));
 }
 
 .mult-wrap {
   position: relative;
-  width: min(340px, 88vw);
+  width: min(360px, 92vw);
   margin-top: 2px;
 }
 .gauge {
@@ -1945,84 +2011,70 @@ body {
   fill: none;
 }
 .gauge .rim-shadow {
-  stroke: rgba(20, 0, 60, 0.5);
-  stroke-width: 66px;
-  transform: translateY(7px);
+  stroke: rgba(90, 60, 190, 0.18);
+  stroke-width: 38px;
+  transform: translateY(4px);
 }
 .gauge .rim {
   stroke: #fff;
-  stroke-width: 62px;
-}
-.gauge .rim-inner {
-  stroke: #33128a;
-  stroke-width: 52px;
+  stroke-width: 36px;
 }
 .gauge .arcseg {
-  stroke-width: 44px;
+  stroke-width: 27px;
   transition: filter 0.15s;
 }
 .gauge .arcseg.on {
-  filter: brightness(1.2) saturate(1.15);
+  filter: brightness(1.1) saturate(1.1);
 }
 .gauge.locked .arcseg:not(.win) {
-  filter: saturate(0.45) brightness(0.65);
+  filter: saturate(0.4) brightness(1.08) opacity(0.6);
 }
 .gauge .arcseg.win {
   animation: segwin 0.42s ease-in-out 4;
 }
 @keyframes segwin {
   50% {
-    filter: brightness(1.7) saturate(1.2);
+    filter: brightness(1.3) saturate(1.2);
   }
 }
 .gauge .ticks line {
-  stroke: rgba(255, 255, 255, 0.92);
-  stroke-width: 3px;
+  stroke: #fff;
+  stroke-width: 2.5px;
 }
 .gauge .gloss {
-  stroke: rgba(255, 255, 255, 0.28);
-  stroke-width: 9px;
+  stroke: rgba(255, 255, 255, 0.4);
+  stroke-width: 4px;
+  stroke-linecap: round;
 }
 .gauge .labels text {
   font-family: var(--font);
   font-weight: 700;
-  font-size: 21px;
+  font-size: 15px;
   text-anchor: middle;
   fill: #fff;
-  stroke: rgba(90, 20, 0, 0.45);
-  stroke-width: 4px;
+  stroke: rgba(70, 20, 60, 0.3);
+  stroke-width: 3px;
   paint-order: stroke;
 }
-.gauge .needle {
-  fill: url(#gneedle);
-  stroke: #9a4a00;
-  stroke-width: 2px;
-  stroke-linejoin: round;
-  filter: drop-shadow(0 3px 2px rgba(20, 0, 60, 0.5));
-}
-.gauge .hub {
-  fill: url(#ghub);
-  stroke: #a65200;
-  stroke-width: 2.5px;
-  filter: drop-shadow(0 3px 3px rgba(20, 0, 60, 0.5));
-}
-.gauge .hub-gem {
-  fill: #ff3d7f;
+.gauge .pointer {
+  fill: url(#gptr);
   stroke: #fff;
   stroke-width: 2.5px;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 2px rgba(60, 30, 150, 0.35));
 }
 
 #super .gbtn.multiply {
-  overflow: hidden;
   animation: btnpulse 1.3s ease-in-out infinite;
 }
+/* A light glint sweeps across the button (kept inside its rounded edge). */
 #super .gbtn.multiply::before {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.5) 45%, transparent 60%);
-  transform: translateX(-120%);
+  border-radius: inherit;
+  background: linear-gradient(110deg, transparent 40%, rgba(255, 255, 255, 0.5) 50%, transparent 60%) 0 0 / 260% 100% no-repeat;
   animation: shine 2.2s ease-in-out infinite;
   pointer-events: none;
 }
@@ -2032,16 +2084,16 @@ body {
 }
 @keyframes shine {
   0% {
-    transform: translateX(-120%);
+    background-position: 120% 0;
   }
   55%,
   100% {
-    transform: translateX(120%);
+    background-position: -20% 0;
   }
 }
 @keyframes btnpulse {
   50% {
-    transform: scale(1.045);
+    transform: scale(1.04);
   }
 }
 
@@ -2066,18 +2118,6 @@ body {
   pointer-events: none;
 }
 
-.mult-pop.v2,
-.mult-badge.v2 {
-  background: linear-gradient(180deg, #ff8a8a, #f2484c);
-}
-.mult-pop.v3,
-.mult-badge.v3 {
-  background: linear-gradient(180deg, #ffe27a, #ffb21e);
-}
-.mult-pop.v5,
-.mult-badge.v5 {
-  background: linear-gradient(180deg, #9df06a, #3fc22d);
-}
 
 @keyframes multpop {
   0% {
@@ -2095,33 +2135,66 @@ body {
 }
 
 .gbtn.multiply {
-  margin-top: 26px;
-  width: min(300px, 80vw);
-  height: 64px;
-  grid-auto-flow: column;
-  justify-content: center;
-  gap: 12px;
+  margin-top: 18px;
+  width: min(270px, 74vw);
+  height: 62px;
+  padding-left: 46px;
+  border-radius: 18px;
   font-family: var(--font);
   font-weight: 700;
   font-size: 26px;
   text-shadow: 0 2px 0 var(--b3);
 }
-
 .gbtn.multiply:disabled {
-  filter: saturate(0.6) brightness(0.95);
+  filter: saturate(0.6) brightness(0.97);
 }
-
+/* The multiplier badge hangs off the button's left edge, tilted. */
 .mult-badge {
-  position: relative;
-  z-index: 1;
-  padding: 2px 10px;
-  border-radius: 12px;
-  border: 3px solid #fff;
-  font-size: 22px;
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.15);
+  position: absolute;
+  z-index: 2;
+  left: -18px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 17px;
+  border: 4px solid #fff;
+  font-size: 30px;
+  color: #fff;
+  transform: translateY(-50%) rotate(-9deg);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    0 4px 0 rgba(0, 0, 0, 0.16),
+    0 8px 14px rgba(50, 20, 140, 0.25);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.18);
 }
-
-.gbtn.multiply > span:last-child {
+.mult-badge.flick {
+  animation: flick 0.22s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+@keyframes flick {
+  0% {
+    transform: translateY(-50%) rotate(-9deg) scale(1.18);
+  }
+  100% {
+    transform: translateY(-50%) rotate(-9deg) scale(1);
+  }
+}
+.mult-pop.v3,
+.mult-badge.v3 {
+  background: linear-gradient(180deg, #ff7a8e, #ef2f55);
+}
+.mult-pop.v4,
+.mult-badge.v4 {
+  background: linear-gradient(180deg, #ffe266, #ffad14);
+  text-shadow: 0 2px 0 #c76f00;
+}
+.mult-pop.v7,
+.mult-badge.v7 {
+  background: linear-gradient(180deg, #9cf05c, #2fbf3e);
+  text-shadow: 0 2px 0 #1d8a2c;
+}
+.gbtn.multiply .mlabel {
   position: relative;
   z-index: 1;
 }
@@ -2131,14 +2204,14 @@ body {
     width: clamp(96px, 15vh, 150px);
     height: clamp(96px, 15vh, 150px);
   }
-  .reward-item span {
+  .reward-item > span[id] {
     font-size: 30px;
   }
   .mult-wrap {
     width: min(440px, 50vw);
   }
   .sr-title {
-    width: min(460px, 60vw);
+    font-size: 54px;
   }
   .gbtn.multiply {
     width: min(400px, 60vw);
@@ -2152,7 +2225,7 @@ body {
 
 /* Short landscape screens: title on top, rewards beside the gauge. */
 @media (max-height: 560px) and (min-aspect-ratio: 1/1) {
-  #super.rich {
+  #super.sr {
     grid-template-columns: auto auto;
     grid-template-areas:
       'title title'
@@ -2162,23 +2235,23 @@ body {
     row-gap: 8px;
     align-items: center;
   }
-  #super.rich .sr-title {
+  #super.sr .sr-title {
     grid-area: title;
-    width: min(290px, 44vw);
+    font-size: 32px;
   }
-  #super.rich .rewards {
+  #super.sr .rewards {
     grid-area: rewards;
     gap: 28px;
   }
-  #super.rich .big-ico {
+  #super.sr .big-ico {
     width: 84px;
     height: 84px;
   }
-  #super.rich .mult-wrap {
+  #super.sr .mult-wrap {
     grid-area: gauge;
     width: min(280px, 40vw);
   }
-  #super.rich .gbtn.multiply {
+  #super.sr .gbtn.multiply {
     grid-area: button;
     justify-self: center;
     margin-top: 4px;

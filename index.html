@@ -72,8 +72,8 @@
           <i class="ico ico-fire"></i>
           <span id="streak-count">0</span>
         </button>
-        <button id="btn-bomb" class="gbtn tool go" aria-label="Paint bomb: paints the trickiest tiles" title="Paint bomb">
-          <span class="ico ico-bomb tool-ico"></span>
+        <button id="btn-bomb" class="gbtn tool go" aria-label="Paint gun: paints the trickiest tiles" title="Paint gun">
+          <span class="ico ico-paintgun tool-ico"></span>
           <span class="price" id="bomb-price"></span>
         </button>
       </div>
@@ -148,54 +148,35 @@
       </div>
     </div>
 
-    <div id="super" class="screen rich" hidden>
-      <div class="rays"></div>
-      <div class="twinkles"><i class="twinkle" style="left:8%;top:14%;--d:0s;--s:1"></i><i class="twinkle" style="left:88%;top:10%;--d:0.7s;--s:0.8"></i><i class="twinkle" style="left:18%;top:36%;--d:1.3s;--s:0.6"></i><i class="twinkle" style="left:84%;top:34%;--d:0.4s;--s:1.1"></i><i class="twinkle" style="left:6%;top:62%;--d:1.8s;--s:0.7"></i><i class="twinkle" style="left:92%;top:58%;--d:1.1s;--s:0.9"></i><i class="twinkle" style="left:14%;top:84%;--d:0.6s;--s:1"></i><i class="twinkle" style="left:80%;top:86%;--d:1.5s;--s:0.7"></i><i class="twinkle" style="left:50%;top:6%;--d:2.1s;--s:0.6"></i><i class="twinkle" style="left:34%;top:92%;--d:0.9s;--s:0.8"></i><i class="twinkle" style="left:66%;top:22%;--d:1.7s;--s:0.5"></i><i class="twinkle" style="left:26%;top:20%;--d:2.4s;--s:0.7"></i></div>
-      <h2 class="screen-title sr-title" aria-label="Super Reward!">
-      <svg class="sr-ribbon" viewBox="0 0 360 120" aria-hidden="true">
-        <defs>
-          <linearGradient id="rib" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6fae" /><stop offset="0.55" stop-color="#f0257a" /><stop offset="1" stop-color="#c3105d" /></linearGradient>
-          <linearGradient id="ribtail" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d81c6c" /><stop offset="1" stop-color="#8f0a45" /></linearGradient>
-          <path id="ribtext" d="M44 86Q180 26 316 86" />
-        </defs>
-        <path class="tail" d="M8 96L46 74L56 112L34 104L20 120Z" fill="url(#ribtail)" />
-        <path class="tail" d="M352 96L314 74L304 112L326 104L340 120Z" fill="url(#ribtail)" />
-        <path class="fold" d="M46 74L60 96L56 112Z" />
-        <path class="fold" d="M314 74L300 96L304 112Z" />
-        <path class="band" d="M40 50Q180 -6 320 50L320 98Q180 42 40 98Z" fill="url(#rib)" />
-        <path class="band-gloss" d="M48 54Q180 4 312 54L312 64Q180 16 48 64Z" />
-        <text><textPath href="#ribtext" startOffset="50%" text-anchor="middle">SUPER REWARD!</textPath></text>
-      </svg>
-      </h2>
+    <div id="super" class="screen sr" hidden>
+      <div class="twinkles"><i class="twinkle" style="left:14%;top:22%;--d:0s;--s:0.7"></i><i class="twinkle" style="left:84%;top:18%;--d:0.7s;--s:0.6"></i><i class="twinkle" style="left:22%;top:46%;--d:1.3s;--s:0.5"></i><i class="twinkle" style="left:78%;top:44%;--d:0.4s;--s:0.7"></i><i class="twinkle" style="left:10%;top:66%;--d:1.8s;--s:0.5"></i><i class="twinkle" style="left:88%;top:64%;--d:1.1s;--s:0.6"></i><i class="twinkle" style="left:30%;top:80%;--d:0.6s;--s:0.5"></i><i class="twinkle" style="left:70%;top:82%;--d:1.5s;--s:0.6"></i><i class="twinkle" style="left:50%;top:12%;--d:2.1s;--s:0.5"></i><i class="twinkle" style="left:60%;top:30%;--d:0.9s;--s:0.45"></i></div>
+      <div class="sr-coins pill"><i class="ico ico-coin"></i><span id="sr-coin-total">0</span></div>
+      <h2 class="screen-title sr-title">Super reward!</h2>
       <div class="rewards">
-        <div class="reward-item"><i class="ico ico-star big-ico"></i><span id="super-stars">0</span></div>
-        <div class="reward-item"><i class="ico ico-coin big-ico"></i><span id="super-coins">0</span></div>
+        <div class="reward-item"><span class="sr-stars"><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i></span><span id="super-stars">0</span></div>
+        <div class="reward-item"><span class="sr-pile"><i class="ico ico-coinstack"></i></span><span id="super-coins">0</span></div>
       </div>
       <div class="mult-wrap">
-        <svg class="gauge" id="mult-arc" viewBox="0 0 320 196" aria-hidden="true">
+        <svg class="gauge" id="mult-arc" viewBox="0 18 340 92" data-cx="170" data-cy="340" data-span="46" aria-hidden="true">
           <defs>
-            <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8197" /><stop offset="1" stop-color="#e5214a" /></linearGradient>
-            <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd84d" /><stop offset="1" stop-color="#ff9500" /></linearGradient>
-            <linearGradient id="g5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9cf25d" /><stop offset="1" stop-color="#22b33a" /></linearGradient>
-            <linearGradient id="gneedle" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff6c4" /><stop offset="0.5" stop-color="#ffc21a" /><stop offset="1" stop-color="#e07a00" /></linearGradient>
-            <radialGradient id="ghub" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#fffbe0" /><stop offset="0.45" stop-color="#ffc927" /><stop offset="1" stop-color="#c76400" /></radialGradient>
+            <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff7a8e" /><stop offset="1" stop-color="#ef2f55" /></linearGradient>
+            <linearGradient id="g4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe266" /><stop offset="1" stop-color="#ffb81c" /></linearGradient>
+            <linearGradient id="g7" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9cf05c" /><stop offset="1" stop-color="#36c23f" /></linearGradient>
+            <linearGradient id="gptr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9a7bff" /><stop offset="1" stop-color="#6136e0" /></linearGradient>
           </defs>
-          <path class="rim-shadow" d="M40.0 168.0A120 120 0 0 1 280.0 168.0" />
-          <path class="rim" d="M40.0 168.0A120 120 0 0 1 280.0 168.0" />
-          <path class="rim-inner" d="M40.0 168.0A120 120 0 0 1 280.0 168.0" />
-          <path class="arcseg s2" d="M40.0 168.0A120 120 0 0 1 62.9 97.5" stroke="url(#g2)" /><path class="arcseg s3" d="M62.9 97.5A120 120 0 0 1 122.9 53.9" stroke="url(#g3)" /><path class="arcseg s5" d="M122.9 53.9A120 120 0 0 1 197.1 53.9" stroke="url(#g5)" /><path class="arcseg s3" d="M197.1 53.9A120 120 0 0 1 257.1 97.5" stroke="url(#g3)" /><path class="arcseg s2" d="M257.1 97.5A120 120 0 0 1 280.0 168.0" stroke="url(#g2)" />
-          <g class="ticks"><line x1="81.5" y1="111.0" x2="44.3" y2="83.9" /><line x1="130.0" y1="75.7" x2="115.8" y2="32.0" /><line x1="190.0" y1="75.7" x2="204.2" y2="32.0" /><line x1="238.5" y1="111.0" x2="275.7" y2="83.9" /></g>
-          <path class="gloss" d="M27 168A133 133 0 0 1 293 168" />
-          <g class="labels"><text x="45.9" y="137.9">x2</text><text x="89.5" y="77.9">x3</text><text x="160.0" y="55.0">x5</text><text x="230.5" y="77.9">x3</text><text x="274.1" y="137.9">x2</text></g>
-          <g id="mult-needle" transform="rotate(0 160 168)">
-            <path class="needle" d="M151 168L160 26L169 168Z" />
-            <circle class="hub" cx="160" cy="168" r="19" />
-            <circle class="hub-gem" cx="160" cy="168" r="8" />
+          <path class="rim-shadow" d="M52.8 63.8A300 300 0 0 1 287.2 63.8" />
+          <path class="rim" d="M52.8 63.8A300 300 0 0 1 287.2 63.8" />
+          <path class="arcseg s3" d="M52.8 63.8A300 300 0 0 1 98.4 48.7" stroke="url(#g3)" /><path class="arcseg s4" d="M98.4 48.7A300 300 0 0 1 145.9 41.0" stroke="url(#g4)" /><path class="arcseg s7" d="M145.9 41.0A300 300 0 0 1 194.1 41.0" stroke="url(#g7)" /><path class="arcseg s4" d="M194.1 41.0A300 300 0 0 1 241.6 48.7" stroke="url(#g4)" /><path class="arcseg s3" d="M241.6 48.7A300 300 0 0 1 287.2 63.8" stroke="url(#g3)" />
+          <g class="ticks"><line x1="102.0" y1="63.2" x2="94.9" y2="34.1" /><line x1="147.1" y1="55.9" x2="144.7" y2="26.0" /><line x1="192.9" y1="55.9" x2="195.3" y2="26.0" /><line x1="238.0" y1="63.2" x2="245.1" y2="34.1" /></g>
+          <path class="gloss" d="M57.5 54.4A307 307 0 0 1 282.5 54.4" />
+          <g class="labels"><text x="75.3" y="61.3" transform="rotate(-18.4 75.3 55.3)">x3</text><text x="122.0" y="49.9" transform="rotate(-9.2 122.0 43.9)">x4</text><text x="170.0" y="46.0" transform="rotate(0.0 170.0 40.0)">x7</text><text x="218.0" y="49.9" transform="rotate(9.2 218.0 43.9)">x4</text><text x="264.7" y="61.3" transform="rotate(18.4 264.7 55.3)">x3</text></g>
+          <g id="mult-needle" transform="rotate(0 170 340)">
+            <path class="pointer" d="M170 59l12 17a4 4 0 0 1 -3.3 6.3h-17.4a4 4 0 0 1 -3.3 -6.3Z" />
           </g>
         </svg>
       </div>
       <div id="mult-pop" class="mult-pop" hidden>x3</div>
-      <button id="btn-multiply" class="gbtn go multiply"><span id="mult-badge" class="mult-badge">x2</span><span>Claim</span></button>
+      <button id="btn-multiply" class="gbtn multiply"><span id="mult-badge" class="mult-badge v4">x4</span><span class="mlabel">Multiply</span></button>
     </div>
 
     <div id="climb" class="screen" hidden>

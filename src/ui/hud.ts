@@ -112,6 +112,20 @@ export class Hud {
     on('btn-undo', a.undo, true);
     on('btn-hint', a.hint, true);
     on('btn-bomb', a.bomb, true);
+    // Every chunky button springs back with a little pop when released.
+    let pressed: HTMLElement | null = null;
+    document.addEventListener('pointerdown', (e) => {
+      pressed = (e.target as HTMLElement).closest?.('.gbtn') ?? null;
+    }, true);
+    document.addEventListener('pointerup', () => {
+      const b = pressed;
+      pressed = null;
+      if (!b) return;
+      b.classList.remove('pop');
+      void b.offsetWidth;
+      b.classList.add('pop');
+      window.setTimeout(() => b.classList.remove('pop'), 360);
+    }, true);
     on('btn-shop', () => {
       a.openShop();
       this.open('shop');
@@ -751,10 +765,14 @@ export class Hud {
     const needle = $('mult-needle');
     const arc = $('mult-arc');
     const segs = arc.querySelectorAll<SVGPathElement>('.arcseg');
+    const span = Number(arc.dataset.span ?? 64);
+    const gx = Number(arc.dataset.cx ?? 170);
+    const gy = Number(arc.dataset.cy ?? 300);
     const badge = $('mult-badge');
     const pop = $('mult-pop');
     const btn = $<HTMLButtonElement>('btn-multiply');
-    const values = [2, 3, 5, 3, 2];
+    const values = [3, 4, 7, 4, 3];
+    $('sr-coin-total').textContent = String(this.shownCoins);
     $('super-stars').textContent = String(stars);
     $('super-coins').textContent = String(coins);
     pop.hidden = true;
@@ -771,9 +789,9 @@ export class Hud {
     let pos = 0;
     const loop = (now: number) => {
       if (locked) return;
-      // Eases through the middle so x5 is catchable but not free.
+      // Eases through the middle so x7 is catchable but not free.
       pos = (Math.sin((now - t0) * 0.0042 - Math.PI / 2) + 1) / 2;
-      needle.setAttribute('transform', `rotate(${-86 + pos * 172} 160 168)`);
+      needle.setAttribute('transform', `rotate(${(pos - 0.5) * span} ${gx} ${gy})`);
       const i = Math.min(4, Math.floor(pos * 5));
       if (i !== seg) {
         segs[seg]?.classList.remove('on');
@@ -781,6 +799,8 @@ export class Hud {
         seg = i;
         badge.textContent = `x${values[i]}`;
         badge.className = `mult-badge v${values[i]}`;
+        void badge.offsetWidth;
+        badge.classList.add('flick');
         sound.tick();
       }
       requestAnimationFrame(loop);
@@ -816,8 +836,17 @@ export class Hud {
         }
         if (p >= 1)
           window.setTimeout(() => {
+            // Big stars and coins burst out of the screen and fly home.
+            const from = (sel: string) => {
+              const r = scr.querySelector(sel)!.getBoundingClientRect();
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            };
+            const coinFrom = from('.sr-pile');
+            const starFrom = from('.sr-stars');
             scr.classList.remove('show');
             window.setTimeout(() => (scr.hidden = true), 250);
+            this.flyTo(this.coinsLabel.parentElement!.querySelector('.coin')!, coinFrom, 8, 'ico ico-coin coin flyer big', () => {}, 120);
+            this.flyTo($('btn-league'), starFrom, 4, 'ico ico-star flyer star-flyer big', () => {}, 160);
             onDone();
           }, 900);
       };
