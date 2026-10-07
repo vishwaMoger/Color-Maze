@@ -3404,6 +3404,19 @@ body.landscape #tip {
   body.landscape #hud-top .group {
     top: 10px;
   }
+  /* One compact row for the level info, so the board gets the height. */
+  body.landscape .level-info {
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 10px;
+    padding-top: 2px;
+  }
+  body.landscape .level-info .chain {
+    display: none;
+  }
+  body.landscape #level-label {
+    font-size: 18px;
+  }
   body.landscape .keys,
   body.landscape .coins {
     top: 72px;

@@ -250,6 +250,22 @@ export class Hud {
     this.movesLabel.dataset.par = par ? String(par) : '';
   }
 
+  /** Coins picked up on the board fly to the coin counter. */
+  flyCoins(from: { x: number; y: number }, n: number, total: number) {
+    let landed = 0;
+    const start = this.shownCoins;
+    this.flyTo(this.coinsLabel.parentElement!.querySelector('.coin')!, from, n, 'ico ico-coin coin flyer', () => {
+      landed++;
+      this.bumpCoins(landed === n ? total : Math.round(start + ((total - start) / n) * landed));
+    }, 0);
+  }
+
+  /** A key picked up on the board flies into its slot. */
+  flyKey(from: { x: number; y: number }, have: number) {
+    const slot = document.querySelectorAll('#keys .key')[Math.min(2, have - 1)];
+    this.flyTo(slot, from, 1, 'key-flyer', () => this.setKeys(have, true), 0);
+  }
+
   /** Red flash at the screen edges when the ball is destroyed. */
   hurt() {
     const el = $('hurt');
