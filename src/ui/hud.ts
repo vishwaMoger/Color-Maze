@@ -1,10 +1,32 @@
-// DOM overlay: HUD, panels (shop, settings, league, chest) and the
+// DOM overlay: HUD, panels (shop, settings, league, key vault) and the
 // level-complete moments. The board itself is drawn by Pixi underneath.
 
 import { avatarUrl } from '../game/assets.ts';
 
 const avatarStyle = (r: { name: string; you?: boolean; avatar: string }) =>
   `background:url('${avatarUrl(r.name, !!r.you)}') center 60% / 84% no-repeat, ${r.avatar}`;
+
+export type VaultKind = 'hint' | 'item' | 'coins';
+
+export interface VaultSession {
+  dots: Record<VaultKind, number>;
+  keys: number;
+  /** What the next opened lock holds. */
+  pick: () => VaultKind;
+  /** A card reached three: grant it and return the label to show. */
+  win: (k: VaultKind) => string;
+  onDot: (k: VaultKind, dots: number) => void;
+  onDone: () => void;
+  sound: { click: () => void; thock: (s: number) => void; coin: () => void; star: (i: number) => void; complete: () => void };
+}
+
+const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
+const KEYHOLE_SVG =
+  '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="15.5" r="6.2"/><path d="M16.2 18.5h7.6l2 12.2a1.6 1.6 0 0 1-1.6 1.8h-8.4a1.6 1.6 0 0 1-1.6-1.8Z"/></svg>';
+
+const KEYHOLE_OUTLINE_SVG =
+  '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 8.6a6.9 6.9 0 0 0-4.4 12.2l-1.7 10.3a1.9 1.9 0 0 0 1.9 2.2h8.4a1.9 1.9 0 0 0 1.9-2.2l-1.7-10.3A6.9 6.9 0 0 0 20 8.6Z"/></svg>';
 
 export type ShopTab = 'ball' | 'paint' | 'board';
 
@@ -27,8 +49,6 @@ export interface HudActions {
   toggle: (what: 'sfx' | 'music' | 'vibe') => void;
   openShop: () => void;
   openLeague: () => void;
-  openChest: () => void;
-  collectChest: () => void;
   anyInput: () => void;
   click: () => void;
 }
@@ -106,13 +126,11 @@ export class Hud {
     on('tg-sfx', () => a.toggle('sfx'));
     on('tg-music', () => a.toggle('music'));
     on('tg-vibe', () => a.toggle('vibe'));
-    on('chest-box', a.openChest, true);
     on('btn-unlock-equip', () => {
       this.close('unlocked');
       this.onUnlockEquip?.();
     });
     on('btn-unlock-later', () => this.close('unlocked'));
-    on('btn-chest-ok', a.collectChest);
     for (const b of document.querySelectorAll<HTMLElement>('[data-close]'))
       b.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -143,7 +161,7 @@ export class Hud {
   }
 
   get modalOpen() {
-    return ['shop', 'settings', 'league', 'chest', 'super', 'climb', 'unlocked'].some((id) => !$(id).hidden);
+    return ['shop', 'settings', 'league', 'vault', 'super', 'climb', 'unlocked'].some((id) => !$(id).hidden);
   }
 
   open(id: string) {
@@ -204,7 +222,8 @@ export class Hud {
   // ------------------------------------------------------------ HUD values
 
   setLevel(n: number, bonus: boolean, par?: number) {
-    this.levelLabel.textContent = bonus ? `Bonus Level ${n}` : `Level ${n}`;
+    // Bonus levels get a floating badge so the title never widens the bar.
+    this.levelLabel.innerHTML = bonus ? `Level ${n}<span class="bonus-tag">Bonus</span>` : `Level ${n}`;
     this.levelLabel.classList.toggle('bonus', bonus);
     const inGroup = (n - 1) % 5;
     let html = '';
@@ -249,12 +268,45 @@ export class Hud {
     $('streak-count').textContent = String(n);
     const b = $('btn-streak');
     b.classList.toggle('lit', n >= 1);
-    b.classList.toggle('hot', n >= 5);
+    b.classList.toggle('hot', n >= 3);
+    b.classList.toggle('blaze', n >= 5);
     if (bump) {
-      b.classList.remove('bump');
+      b.classList.remove('bump', 'snuff');
       void b.offsetWidth;
       b.classList.add('bump');
+      // Shockwave, a ring of sparks and a floating +1.
+      const fx: HTMLElement[] = [];
+      const add = (cls: string, style = '', text = '') => {
+        const el = document.createElement('span');
+        el.className = `streak-fx ${cls}`;
+        el.setAttribute('style', style);
+        el.textContent = text;
+        b.appendChild(el);
+        fx.push(el);
+      };
+      add('ring');
+      for (let i = 0; i < 12; i++) add('spark', `--a:${i * 30 + Math.random() * 14}deg;--d:${34 + Math.random() * 24}px;animation-delay:${Math.random() * 60}ms`);
+      add('plus', '', '+1');
+      window.setTimeout(() => fx.forEach((el) => el.remove()), 1100);
     }
+  }
+
+  /** The streak is gone: the flame snuffs out in a puff of smoke. */
+  streakLost() {
+    const b = $('btn-streak');
+    this.setStreak(0);
+    b.classList.remove('bump', 'snuff');
+    void b.offsetWidth;
+    b.classList.add('snuff');
+    const fx: HTMLElement[] = [];
+    for (let i = 0; i < 4; i++) {
+      const el = document.createElement('span');
+      el.className = 'streak-fx smoke';
+      el.setAttribute('style', `--dx:${(i - 1.5) * 10}px;animation-delay:${i * 90}ms`);
+      b.appendChild(el);
+      fx.push(el);
+    }
+    window.setTimeout(() => fx.forEach((el) => el.remove()), 1400);
   }
 
   setPrices(p: { hint: string; bomb: string }) {
@@ -337,26 +389,151 @@ export class Hud {
     }, 60);
   }
 
-  // ------------------------------------------------------------ chest
+  // ------------------------------------------------------------ key vault
 
-  showChest() {
-    $('chest-box').classList.remove('open');
-    $('chest-text').textContent = 'You collected 3 keys! Tap the gift.';
-    $('chest-reward').hidden = true;
-    $('btn-chest-ok').hidden = true;
-    this.open('chest');
-  }
+  /**
+   * Key vault: three keys open three of twelve locks. Each lock hides a
+   * prize token that flies to its card; three of a kind wins the prize.
+   */
+  vault(v: VaultSession) {
+    const scr = $('vault');
+    const grid = $('vault-grid');
+    const keysEl = $('vault-keys');
+    const done = $<HTMLButtonElement>('btn-vault-done');
+    const hint = $('vault-hint');
+    const dots = { ...v.dots };
+    let keys = v.keys;
+    let pending = 0;
+    const cards = {} as Record<VaultKind, HTMLElement>;
+    for (const c of scr.querySelectorAll<HTMLElement>('.prize')) {
+      const k = c.dataset.kind as VaultKind;
+      cards[k] = c;
+      c.classList.remove('won', 'bump');
+      c.querySelectorAll('.dots i').forEach((d, i) => d.classList.toggle('on', i < dots[k]));
+    }
+    const renderKeys = () => {
+      keysEl.innerHTML = '';
+      for (let i = 0; i < 3; i++) {
+        const k = document.createElement('i');
+        k.className = `ico ico-key vkey${i < keys ? '' : ' used'}`;
+        keysEl.appendChild(k);
+      }
+    };
+    renderKeys();
+    grid.innerHTML = '';
+    for (let i = 0; i < 12; i++) {
+      const b = document.createElement('button');
+      b.className = 'lock';
+      b.style.setProperty('--i', String((i % 3) + Math.floor(i / 3)));
+      b.setAttribute('aria-label', 'Locked');
+      b.innerHTML = `<span class="ghost">${KEYHOLE_OUTLINE_SVG}</span><span class="medal">${KEYHOLE_SVG}</span>`;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        open(b);
+      });
+      grid.appendChild(b);
+    }
+    done.hidden = true;
+    hint.textContent = 'Open 3 Locks';
+    scr.hidden = false;
+    requestAnimationFrame(() => scr.classList.add('show'));
 
-  openChest(coins: number) {
-    $('chest-box').classList.add('open');
-    $('chest-text').textContent = 'Treasure!';
-    $('chest-coins').textContent = `+${coins}`;
-    $('chest-reward').hidden = false;
-    $('btn-chest-ok').hidden = false;
-  }
+    const center = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width };
+    };
+    /** Fly a copy of `cls` from one point to another along an arc. */
+    const fly = (cls: string, from: { x: number; y: number }, to: { x: number; y: number }, size: number, ms: number, lift: number) => {
+      const el = document.createElement('i');
+      el.className = `${cls} vfly`;
+      el.style.cssText = `left:${from.x - size / 2}px;top:${from.y - size / 2}px;width:${size}px;height:${size}px`;
+      document.body.appendChild(el);
+      const frames: Keyframe[] = [];
+      for (let i = 0; i <= 10; i++) {
+        const t = i / 10;
+        const x = (to.x - from.x) * t;
+        const y = (to.y - from.y) * t - Math.sin(t * Math.PI) * lift;
+        frames.push({ transform: `translate(${x}px, ${y}px) scale(${1 + Math.sin(t * Math.PI) * 0.35 - t * 0.25}) rotate(${t * 20}deg)` });
+      }
+      const anim = el.animate(frames, { duration: ms, easing: 'cubic-bezier(0.4, 0, 0.3, 1)' });
+      return anim.finished.then(() => el.remove());
+    };
 
-  closeChest() {
-    this.close('chest');
+    const open = async (lock: HTMLButtonElement) => {
+      if (keys <= 0 || lock.classList.contains('opening')) return;
+      lock.classList.add('opening');
+      pending++;
+      keys--;
+      const from = center(keysEl.children[keys]);
+      renderKeys();
+      hint.textContent = keys ? `Open ${keys} more lock${keys > 1 ? 's' : ''}` : 'Unlocking...';
+      v.sound.click();
+      const at = center(lock);
+      await fly('ico ico-key', from, at, 40, 320, 50);
+      // Key turns, tile flashes gold and shakes, then bursts open.
+      lock.classList.add('turn');
+      v.sound.thock(0.5);
+      await wait(200);
+      lock.classList.add('gold');
+      await wait(300);
+      const kind = v.pick();
+      lock.classList.add('opened');
+      lock.setAttribute('aria-label', 'Opened');
+      for (let i = 0; i < 4; i++) {
+        const sh = document.createElement('span');
+        sh.className = `shard s${i}`;
+        lock.appendChild(sh);
+      }
+      const flash = document.createElement('span');
+      flash.className = 'vflash';
+      lock.appendChild(flash);
+      const icon = { hint: 'ico-bulb', item: 'ico-star', coins: 'ico-coin' }[kind];
+      const item = document.createElement('i');
+      item.className = `ico ${icon} vitem`;
+      lock.appendChild(item);
+      v.sound.coin();
+      await wait(520);
+      // The token flies up to its prize card and fills a dot.
+      item.style.visibility = 'hidden';
+      const card = cards[kind];
+      await fly(`ico ${icon}`, center(item), center(card.querySelector('.ico')!), at.w * 0.62, 520, 90);
+      dots[kind]++;
+      card.classList.remove('bump');
+      void card.offsetWidth;
+      card.classList.add('bump');
+      card.querySelectorAll('.dots i')[dots[kind] - 1]?.classList.add('on');
+      v.sound.star(dots[kind] - 1);
+      v.onDot(kind, dots[kind]);
+      if (dots[kind] >= 3) {
+        await wait(250);
+        card.classList.add('won');
+        const label = v.win(kind);
+        const pop = document.createElement('span');
+        pop.className = 'won-pop';
+        pop.textContent = label;
+        card.appendChild(pop);
+        v.sound.complete();
+        window.setTimeout(() => pop.remove(), 1600);
+        dots[kind] = 0;
+        window.setTimeout(() => card.querySelectorAll('.dots i').forEach((d) => d.classList.remove('on')), 1400);
+      }
+      pending--;
+      if (keys === 0 && pending === 0) {
+        await wait(400);
+        hint.textContent = 'All keys used!';
+        done.hidden = false;
+      }
+    };
+
+    const finish = (e: Event) => {
+      e.stopPropagation();
+      done.removeEventListener('click', finish);
+      v.sound.click();
+      scr.classList.remove('show');
+      window.setTimeout(() => (scr.hidden = true), 250);
+      v.onDone();
+    };
+    done.addEventListener('click', finish);
   }
 
   // ------------------------------------------------------------ messages

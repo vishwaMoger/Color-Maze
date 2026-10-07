@@ -67,11 +67,13 @@
     <footer id="hud-bottom" class="hud">
       <div class="side col-left">
         <button id="btn-streak" class="streak" aria-label="Win streak">
+          <span class="streak-aura"></span>
+          <span class="embers"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
           <i class="ico ico-fire"></i>
           <span id="streak-count">0</span>
         </button>
-        <button id="btn-bomb" class="gbtn tool go" aria-label="Paint shooter: paints the trickiest tiles" title="Paint shooter">
-          <span class="ico ico-pistol tool-ico"></span>
+        <button id="btn-bomb" class="gbtn tool go" aria-label="Paint bomb: paints the trickiest tiles" title="Paint bomb">
+          <span class="ico ico-bomb tool-ico"></span>
           <span class="price" id="bomb-price"></span>
         </button>
       </div>
@@ -122,16 +124,20 @@
       </div>
     </div>
 
-    <div id="chest" class="modal" hidden>
-      <div class="panel" role="dialog" aria-labelledby="chest-title">
-        <div class="ribbon"><span id="chest-title">Key Reward</span></div>
-        <button id="chest-box" class="chest-box" aria-label="Open the gift">
-          <span class="ico ico-gift gift"></span>
-        </button>
-        <p id="chest-text">You collected 3 keys! Tap the chest.</p>
-        <div id="chest-reward" class="pill reward" hidden><span class="ico ico-coin coin"></span><span id="chest-coins">+0</span></div>
-        <button id="btn-chest-ok" class="gbtn go next" hidden>Collect</button>
+    <div id="vault" class="screen vault" hidden>
+      <div class="rays"></div>
+      <h2 class="vault-title">Match 3 to Get:</h2>
+      <div class="prizes">
+        <div class="prize p-hint" data-kind="hint"><i class="ico ico-bulb"></i><b>x1</b><span class="dots"><i></i><i></i><i></i></span><span class="check"></span></div>
+        <div class="prize p-item" data-kind="item"><i class="ico ico-star"></i><b>New!</b><span class="dots"><i></i><i></i><i></i></span><span class="check"></span></div>
+        <div class="prize p-coins" data-kind="coins"><i class="ico ico-coin"></i><b>x100</b><span class="dots"><i></i><i></i><i></i></span><span class="check"></span></div>
       </div>
+      <div class="safe">
+        <div class="safe-grid" id="vault-grid"></div>
+        <div class="safe-keys" id="vault-keys"></div>
+      </div>
+      <p class="vault-hint" id="vault-hint">Tap a lock to open it</p>
+      <button id="btn-vault-done" class="gbtn vault-done" hidden>Finish</button>
     </div>
 
     <div id="celebrate" hidden aria-live="polite">
