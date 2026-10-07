@@ -9,6 +9,7 @@ import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta
 import { Ball, renderSphere } from './Ball.ts';
 import { Board, type PaintStroke } from './Board.ts';
 import { Fx } from './fx.ts';
+import { boardLight, type BoardLight } from './shaders.ts';
 import { THEMES, type Theme } from './themes.ts';
 
 interface Slide {
@@ -119,6 +120,7 @@ export class Game {
   private queued: Dir | null = null;
   private lastDir: Point | null = null;
   private turnDamp = 1;
+  private light: BoardLight | null = null;
   private completeAt: number | null = null;
   private resultShown = false;
   private hint: { path: Point[]; dir: Point; until: number } | null = null;
@@ -577,6 +579,9 @@ export class Game {
     this.boardHolder.addChild(board);
     this.board = board;
     this.boardFx = new Fx(board.fxLayer);
+    // A soft pool of light follows the ball across the board.
+    this.light = boardLight(cell * 3.2 * res);
+    board.filters = [this.light];
     // Fresh bomb layer per board: the old one is destroyed with its board.
     this.bombG = new Graphics();
     board.fxLayer.addChild(this.bombG);
@@ -640,7 +645,7 @@ export class Game {
     this.hud.showTip(null);
     this.hint = null;
     const len = r.path.length;
-    this.slideState = { dir, endDir: r.dir, from: { ...this.pos }, path: r.path, turns: r.turns, saw: r.saw, t: 0, dur: 45 + 24 * Math.max(1, len) ** 0.9, done: 0 };
+    this.slideState = { dir, endDir: r.dir, from: { ...this.pos }, path: r.path, turns: r.turns, saw: r.saw, t: 0, dur: 40 + 19 * Math.max(1, len) ** 0.9, done: 0 };
     this.lastDir = d;
     this.cone = { from: { ...this.pos }, to: { ...this.pos }, endedAt: null };
     this.sound.launch(this.slideState.dur);
@@ -666,13 +671,8 @@ export class Game {
         this.painted.set(k, this.time);
         this.sound.paintTile();
         this.speckle(cellP);
-        if (Math.random() < 0.6) {
-          const c = this.board.cellCenter(cellP.x, cellP.y);
-          const side = Math.random() < 0.5 ? 1 : -1;
-          this.boardFx.splash(c.x, c.y, -d.y * side + d.x * 0.3, d.x * side + d.y * 0.3, 2, this.look.paintDark,
-            this.cell * 2.2, this.cell * 0.06, (x, y, r) => this.addDot(x, y, r));
-        }
       }
+      this.sprayTile(cellP, d);
       s.done++;
     }
     this.placeBall(sp.p);
@@ -762,6 +762,42 @@ export class Game {
     const cx = Math.floor(x / this.cell);
     const cy = Math.floor(y / this.cell);
     if (isFloor(this.level.grid, cx, cy)) this.dots.push({ x, y, r, t: this.time });
+  }
+
+  /**
+   * Wet spray as the ball rolls through a tile (painted or not): glossy
+   * droplets in three shades burst out to both sides of the path, plus a
+   * little glitter in the trail.
+   */
+  private sprayTile(p: Point, d: XY) {
+    const c = this.board.cellCenter(p.x, p.y);
+    const cell = this.cell;
+    const shades = [this.look.paint, this.look.paintDark, this.look.paintLight, this.look.paint];
+    const nx = -d.y;
+    const ny = d.x;
+    const n = 6 + Math.floor(Math.random() * 4);
+    // Droplets stay on the floor: next to a wall they hug the corridor.
+    const open = (side: number) => isFloor(this.level.grid, p.x + nx * side, p.y + ny * side);
+    for (let i = 0; i < n; i++) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const free = open(side);
+      const off = (0.16 + Math.random() * (free ? 0.55 : 0.16)) * side;
+      const along = (Math.random() - 0.5) * 0.9;
+      const big = Math.random() < 0.2;
+      const r = cell * (big ? 0.07 + Math.random() * 0.05 : 0.025 + Math.random() * 0.045);
+      const sp = cell * (free ? 1.2 + Math.random() * 2.2 : 0.2 + Math.random() * 0.4);
+      this.boardFx.blob(
+        c.x + nx * off * cell + d.x * along * cell,
+        c.y + ny * off * cell + d.y * along * cell,
+        nx * side * sp - d.x * sp * 0.3,
+        ny * side * sp - d.y * sp * 0.3,
+        r,
+        shades[Math.floor(Math.random() * shades.length)],
+        420 + Math.random() * 380,
+      );
+    }
+    for (let i = 0; i < 2; i++)
+      this.boardFx.glint(c.x + (Math.random() - 0.5) * cell * 0.5, c.y + (Math.random() - 0.5) * cell * 0.5, cell * 0.07, 0xffffff);
   }
 
   /** Dense wet splatter on a freshly painted tile. */
@@ -1336,6 +1372,13 @@ export class Game {
       const p = Math.min(1, st.t / st.dur);
       const dist = p * (0.6 + 0.4 * p) * st.path.length;
       stroke.active = this.slidePoint(st, dist).band;
+    }
+    if (this.light) {
+      const b = this.board.getBounds();
+      const p = this.ball.getGlobalPosition();
+      const res = this.app.renderer.resolution;
+      this.light.uniforms.uLight[0] = (p.x - b.x) * res;
+      this.light.uniforms.uLight[1] = (p.y - b.y) * res;
     }
     this.board.update(time, stroke, this.remaining);
     this.boardFx.update(dt);

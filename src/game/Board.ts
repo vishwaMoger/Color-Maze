@@ -1,6 +1,7 @@
 import { BlurFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture, UniformGroup } from 'pixi.js';
 import { CURVE_BL, CURVE_BR, CURVE_TL, CURVE_TR, isFloor, SAW, STOPPER, type Level, type Point } from '../levels/core.ts';
 import { dilate, fillRoundedCells, makeCanvas, softBlur, tint } from './shape.ts';
+import { paintGloss, type PaintGloss } from './shaders.ts';
 import type { Theme } from './themes.ts';
 
 const FILTER_VERT = `in vec2 aPosition;
@@ -178,6 +179,7 @@ export class Board extends Container {
   readonly pad: number;
   readonly paintLayer = new Container();
   readonly fxLayer = new Container();
+  private gloss: PaintGloss | null = null;
   private readonly sawLayer = new Container();
   private readonly saws: Sprite[] = [];
   private sawAngle = 0;
@@ -348,13 +350,22 @@ export class Board extends Container {
     const fctx = floorCanvas.getContext('2d')!;
     fctx.drawImage(tint(floorMask, theme.floor), 0, 0);
     fctx.globalCompositeOperation = 'source-atop';
-    const gap = Math.max(1, Math.round(res * 1.7));
+    // Hairline seams, about one CSS pixel, softened so tiles read as a
+    // clean grid rather than a drawn table.
+    const gap = Math.max(1, Math.round(res * 1.0));
+    fctx.globalAlpha = 0.55;
     this.drawGrout(fctx, theme.gridLine, c, off, gap);
+    fctx.globalAlpha = 1;
     this.addChild(this.sprite(floorCanvas));
 
     // Live paint, clipped to the floor.
     const paintMask = this.sprite(floorMask);
-    this.paintLayer.addChild(this.paintG, this.dotsG, this.wetG, this.waveG, paintMask);
+    // Paint and its wet speckles get the glossy paint shader.
+    const paintBody = new Container();
+    paintBody.addChild(this.paintG, this.dotsG);
+    this.gloss = paintGloss(this.cell * 0.14 * res);
+    paintBody.filters = [this.gloss];
+    this.paintLayer.addChild(paintBody, this.wetG, this.waveG, paintMask);
     this.paintLayer.mask = paintMask;
     const seams = makeCanvas(W, H);
     const gctx = seams.getContext('2d')!;
@@ -443,25 +454,35 @@ export class Board extends Container {
 
     // The walls' front faces, seen along the top edge of the floor, and the
     // shadow they cast just below. Drawn over the paint so it runs under them.
-    const faceH = c * 0.28;
-    const shadowH = c * 0.3;
+    // Raised walls: the front face sits inside the wall, above the floor's
+    // top edges, so no floor tile is covered (the top row stays whole). The
+    // wall casts one soft shadow onto the floor below it.
+    const faceH = c * 0.26;
+    const shadowH = c * 0.26;
+    const rise = (h: number) => {
+      const o = makeCanvas(W, H);
+      const octx = o.getContext('2d')!;
+      octx.drawImage(floorMask, 0, -h);
+      octx.globalCompositeOperation = 'destination-out';
+      octx.drawImage(floorMask, 0, 0);
+      return o;
+    };
     const walls = makeCanvas(W, H);
     const wctx = walls.getContext('2d')!;
-    // Cast shadow: a crisp core band plus a softer falloff below it.
-    wctx.drawImage(softBlur(tint(this.edgeBand(floorMask, faceH + shadowH * 1.35), theme.wallShadow), c * 0.1), 0, 0);
-    wctx.drawImage(tint(this.edgeBand(floorMask, faceH + shadowH * 0.8), theme.wallShadow), 0, 0);
-    const face = tint(this.edgeBand(floorMask, faceH), theme.wallFace);
-    wctx.drawImage(face, 0, 0);
-    // Darker base where the face meets the floor, lit lip at the top.
-    const base = makeCanvas(W, H);
-    const bctx = base.getContext('2d')!;
-    bctx.drawImage(this.edgeBand(floorMask, faceH), 0, 0);
-    bctx.globalCompositeOperation = 'destination-out';
-    bctx.drawImage(this.edgeBand(floorMask, faceH * 0.72), 0, 0);
-    wctx.drawImage(tint(base, theme.wallFaceDark), 0, 0);
-    wctx.drawImage(tint(this.edgeBand(floorMask, res * 1.4), theme.wallLip), 0, 0);
-    wctx.globalCompositeOperation = 'destination-in';
-    wctx.drawImage(floorMask, 0, 0);
+    const shade = makeCanvas(W, H);
+    const shctx = shade.getContext('2d')!;
+    shctx.drawImage(softBlur(tint(this.edgeBand(floorMask, shadowH), theme.wallShadow), c * 0.14), 0, 0);
+    shctx.globalCompositeOperation = 'destination-in';
+    shctx.drawImage(floorMask, 0, 0);
+    wctx.drawImage(shade, 0, 0);
+    wctx.drawImage(tint(rise(faceH), theme.wallFace), 0, 0);
+    // Darker foot where the face meets the floor, lit lip along its top.
+    wctx.drawImage(tint(rise(faceH * 0.3), theme.wallFaceDark), 0, 0);
+    const lip = rise(faceH);
+    const lctx = lip.getContext('2d')!;
+    lctx.globalCompositeOperation = 'destination-out';
+    lctx.drawImage(rise(faceH - res * 1.5), 0, 0);
+    wctx.drawImage(tint(lip, theme.wallLip), 0, 0);
     this.addChild(this.sprite(walls));
     if (hasMarks) this.addChild(this.sprite(marks));
 
@@ -500,6 +521,7 @@ export class Board extends Container {
 
   update(time: number, stroke: PaintStroke, remaining: Point[]) {
     if (this.caustics) this.caustics.uniforms.uTime = time * 0.00035;
+    if (this.gloss) this.gloss.uniforms.uTime = time * 0.001;
     // Saws spin; after a hit they whirr faster for a moment.
     const boost = Math.max(0, 1 - (time - this.sawHitAt) / 900);
     this.sawAngle += 0.16 * (1 + boost * 2.5);
@@ -633,12 +655,14 @@ export class Board extends Container {
     if (len < 2) return;
     const nx = -(by - ay) / len;
     const ny = (bx - ax) / len;
-    const wEnd = cell * 0.36;
-    const wStart = cell * 0.04;
+    // A pale, translucent streak behind the ball: wide at the ball, needle
+    // thin where the swipe began, with a brighter core.
+    const wEnd = cell * 0.3;
+    const wStart = cell * 0.02;
     g.poly([ax + nx * wStart, ay + ny * wStart, bx + nx * wEnd, by + ny * wEnd, bx - nx * wEnd, by - ny * wEnd, ax - nx * wStart, ay - ny * wStart])
-      .fill({ color: this.theme.cone, alpha: 0.55 * alpha });
-    g.poly([ax, ay, bx + nx * wEnd * 0.45, by + ny * wEnd * 0.45, bx - nx * wEnd * 0.45, by - ny * wEnd * 0.45])
-      .fill({ color: 0xffffff, alpha: 0.35 * alpha });
+      .fill({ color: 0xf4f1ff, alpha: 0.42 * alpha });
+    g.poly([ax, ay, bx + nx * wEnd * 0.5, by + ny * wEnd * 0.5, bx - nx * wEnd * 0.5, by - ny * wEnd * 0.5])
+      .fill({ color: 0xffffff, alpha: 0.4 * alpha });
   }
 
   /** Diagonal light sweep across the painted floor (level complete). */

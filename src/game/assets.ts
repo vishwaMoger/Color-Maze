@@ -20,12 +20,15 @@ export function avatarUrl(name: string, you: boolean): string {
   return AVATAR_URLS[FACES[h % FACES.length]];
 }
 
+const iconUrls = import.meta.glob('../assets/icons/{star,coin}.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+const ICON_URLS: Record<string, string> = byName(iconUrls);
+
 const images = new Map<string, HTMLImageElement>();
 
 /** Decode all ball textures up front so skins switch instantly. */
 export async function preloadAssets() {
   await Promise.all(
-    Object.entries(BALL_URLS).map(
+    [...Object.entries(BALL_URLS), ...Object.entries(ICON_URLS).map(([k, v]) => [`icon:${k}`, v] as [string, string])].map(
       ([name, url]) =>
         new Promise<void>((resolve) => {
           const img = new Image();
@@ -42,4 +45,9 @@ export async function preloadAssets() {
 
 export function ballImage(name: string): HTMLImageElement | undefined {
   return images.get(name);
+}
+
+/** Decoded icon art (star, coin) for particle effects. */
+export function iconImage(name: string): HTMLImageElement | undefined {
+  return images.get(`icon:${name}`);
 }

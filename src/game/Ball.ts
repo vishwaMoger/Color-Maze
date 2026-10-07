@@ -1,6 +1,7 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { ballImage } from './assets.ts';
 import type { BallSkin } from './cosmetics.ts';
+import { ballShine, type BallShine } from './shaders.ts';
 import { makeCanvas } from './shape.ts';
 
 const hexRgb = (h: string): [number, number, number] => {
@@ -84,6 +85,8 @@ export class Ball extends Container {
   private readonly shadowBase: number;
   readonly radius: number;
   /** Two halves flying apart after the ball is sliced by a saw. */
+  private readonly shine: BallShine;
+  private rollPhase = 0;
   private halves: { c: Container; vx: number; vy: number; vr: number }[] = [];
   private splitAge = 0;
 
@@ -107,6 +110,8 @@ export class Ball extends Container {
     this.shadowBase = 1 / res;
     this.shadow.scale.set(this.shadowBase, this.shadowBase * 0.75);
     this.shadow.position.set(cell * 0.05, cell * 0.14);
+    this.shine = ballShine(Math.max(1.5, this.radius * 0.16 * res));
+    this.body.filters = [this.shine];
     this.addChild(this.shadow, this.body);
     trailLayer.addChild(this.trail);
   }
@@ -124,9 +129,17 @@ export class Ball extends Container {
       this.squashV += (-420 * this.squash - 16 * this.squashV) * h;
       this.squash += this.squashV * h;
     }
-    const targetStretch = moving ? Math.min(1.1, 0.4 + speed * 0.65) : 0;
+    // A long capsule at speed, like a blob of paint flung across the board.
+    const targetStretch = moving ? Math.min(1.6, 0.6 + speed * 0.9) : 0;
     this.stretch += (targetStretch - this.stretch) * Math.min(1, dt * (moving ? 30 : 40));
     if (dir) this.heading = Math.atan2(dir.y, dir.x);
+    // Shine bands sweep across the ball in the direction it rolls.
+    const u = this.shine.uniforms;
+    u.uRoll += ((moving ? 1 : 0) - u.uRoll) * Math.min(1, dt * 10);
+    this.rollPhase += dt * (moving ? 3 + speed * 6 : 0.4);
+    u.uPhase = this.rollPhase % 1;
+    u.uDir[0] = -Math.cos(this.heading);
+    u.uDir[1] = -Math.sin(this.heading);
 
     if (this.halves.length) {
       this.splitAge += dt;
@@ -142,7 +155,7 @@ export class Ball extends Container {
     }
     const breathe = moving ? 0 : Math.sin(time * 0.003) * 0.02;
     const along = 1 + this.stretch + this.squash * 0.9 + breathe;
-    const across = Math.max(0.62, 1 - this.stretch * 0.3) - this.squash * 0.55 + breathe;
+    const across = Math.max(0.56, 1 - this.stretch * 0.28) - this.squash * 0.6 + breathe;
     const base = (this.radius * 2) / Math.max(this.body.texture.width, this.body.texture.height);
     // Moves are axis-aligned, so stretch on x or y without rotating the art
     // (keeps the light on the upper left and textures upright).
