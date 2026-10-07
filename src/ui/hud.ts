@@ -1,10 +1,18 @@
 // DOM overlay: HUD, panels (shop, settings, league, key vault) and the
 // level-complete moments. The board itself is drawn by Pixi underneath.
 
-import { avatarUrl } from '../game/assets.ts';
+import { BALL_URLS } from '../game/assets.ts';
 
-const avatarStyle = (r: { name: string; you?: boolean; avatar: string }) =>
-  `background:url('${avatarUrl(r.name, !!r.you)}') center 60% / 84% no-repeat, ${r.avatar}`;
+// Players are shown by their ball, like the original.
+const SPHERES = ['#ffd23a', '#ff4f7a', '#4fdca0', '#5aa8ff', '#b67bff', '#ff9a3d', '#3d3d55', '#f2f0ff'];
+const avatarStyle = (r: { name: string; you?: boolean; avatar: string }) => {
+  let h = 7;
+  for (const ch of r.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const balls = Object.values(BALL_URLS);
+  if (!r.you && h % 3 === 0 && balls.length) return `background:url('${balls[h % balls.length]}') center / cover no-repeat`;
+  const c = r.you ? '#ffc21a' : SPHERES[h % SPHERES.length];
+  return `background:radial-gradient(circle at 35% 30%, #fff 0 8%, ${c} 38%, color-mix(in srgb, ${c} 60%, #000) 100%)`;
+};
 
 export type VaultKind = 'hint' | 'item' | 'coins';
 
@@ -49,6 +57,9 @@ export interface HudActions {
   toggle: (what: 'sfx' | 'music' | 'vibe') => void;
   openShop: () => void;
   openLeague: () => void;
+  freeCoins: () => void;
+  /** A bottom sheet opened (its top edge in px) or closed (null). */
+  sheet: (top: number | null) => void;
   anyInput: () => void;
   click: () => void;
 }
@@ -75,7 +86,6 @@ export interface LeagueRow {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const CHEST_SVG = '<i class="ico ico-gift"></i>';
 
 export class Hud {
   private readonly top = $('hud-top');
@@ -131,6 +141,8 @@ export class Hud {
       this.open('shop');
     });
     on('btn-settings', () => this.open('settings'));
+    on('btn-league-info', () => ($('league-help').hidden = !$('league-help').hidden));
+    on('btn-free-coins', a.freeCoins);
     on('btn-league', () => {
       a.openLeague();
       this.open('league');
@@ -151,10 +163,9 @@ export class Hud {
         a.click();
         this.close(b.dataset.close!);
       });
-    for (const id of ['shop', 'settings', 'league'])
-      $(id).addEventListener('click', (e) => {
-        if (e.target === $(id)) this.close(id);
-      });
+    $('shop').addEventListener('click', (e) => {
+      if (e.target === $('shop')) this.close('shop');
+    });
     for (const t of document.querySelectorAll<HTMLElement>('.tab'))
       t.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -181,12 +192,22 @@ export class Hud {
   open(id: string) {
     const m = $(id);
     m.hidden = false;
-    requestAnimationFrame(() => m.classList.add('show'));
+    document.body.classList.toggle('sheet-open', id === 'shop' || document.body.classList.contains('sheet-open'));
+    document.body.classList.toggle('page-open', id === 'settings' || id === 'league' || document.body.classList.contains('page-open'));
+    requestAnimationFrame(() => {
+      m.classList.add('show');
+      if (id === 'shop') this.actions.sheet(m.querySelector<HTMLElement>('.sheet-panel')!.offsetTop);
+    });
   }
 
   close(id: string) {
     const m = $(id);
     m.classList.remove('show');
+    if (id === 'shop') {
+      document.body.classList.remove('sheet-open');
+      this.actions.sheet(null);
+    }
+    if (id === 'settings' || id === 'league') document.body.classList.remove('page-open');
     window.setTimeout(() => (m.hidden = true), 220);
   }
 
@@ -236,17 +257,23 @@ export class Hud {
   // ------------------------------------------------------------ HUD values
 
   setLevel(n: number, bonus: boolean, par?: number) {
-    // Bonus levels get a floating badge so the title never widens the bar.
-    this.levelLabel.innerHTML = bonus ? `Level ${n}<span class="bonus-tag">Bonus</span>` : `Level ${n}`;
+    this.levelLabel.textContent = bonus ? `Bonus level ${n}` : `Level ${n}`;
     this.levelLabel.classList.toggle('bonus', bonus);
-    const inGroup = (n - 1) % 5;
-    let html = '';
-    for (let i = 0; i < 4; i++) {
-      if (i > 0) html += `<i class="link${i <= inGroup ? ' done' : ''}"></i>`;
-      html += `<span class="dot${i < inGroup ? ' done' : ''}${i === inGroup ? ' current' : ''}"></span>`;
-    }
-    html += `<i class="link${inGroup >= 4 ? ' done' : ''}"></i><span class="chest${inGroup === 4 ? ' current' : ''}">${CHEST_SVG}</span>`;
-    this.chain.innerHTML = html;
+    // Five stops per group, the fifth is the bonus level. Finished stops
+    // join into one bar; the current one is a dot; the bonus is a ring.
+    const at = (n - 1) % 5;
+    const xs = [9, 27, 46, 65, 83];
+    let svg = '<rect class="track" x="1" y="1" width="90" height="14" rx="7" />';
+    if (at > 0) svg += `<rect class="done" x="${xs[0] - 5}" y="4" width="${xs[at - 1] - xs[0] + 10}" height="8" rx="4" />`;
+    xs.forEach((x, i) => {
+      if (i < at) svg += `<circle class="done" cx="${x}" cy="8" r="5.2" />`;
+      else if (i === at) svg += `<circle class="${i === 4 ? 'bonus now' : 'now'}" cx="${x}" cy="8" r="${i === 4 ? 4.6 : 4}" />`;
+      else if (i === 4) svg += `<circle class="bonus" cx="${x}" cy="8" r="4.2" />`;
+      else svg += `<circle class="next" cx="${x}" cy="8" r="3.2" />`;
+    });
+    this.chain.innerHTML = svg;
+    // The bonus reward above the bar fills in as the group progresses.
+    $('lvl-reward').dataset.stage = String(bonus ? 3 : at >= 3 ? 2 : at >= 1 ? 1 : 0);
     this.movesLabel.dataset.par = par ? String(par) : '';
   }
 
@@ -397,10 +424,15 @@ export class Hud {
     window.setTimeout(() => fx.forEach((el) => el.remove()), 1400);
   }
 
-  setPrices(p: { hint: string; bomb: string }) {
-    $('hint-price').innerHTML = p.hint;
-    $('bomb-price').innerHTML = p.bomb;
+  setPrices(p: { hint: { price: number; free: number }; bomb: { price: number; free: number } }) {
+    for (const [k, v] of [['hint', p.hint], ['bomb', p.bomb]] as const) {
+      $(`${k}-price`).innerHTML = `<i class="ico ico-coin"></i>${v.price}`;
+      const f = $(`${k}-free`);
+      f.hidden = v.free <= 0;
+      f.textContent = String(v.free);
+    }
   }
+
 
   setLeague(rank: number, timeLeft: string) {
     $('league-rank').textContent = String(rank);
@@ -427,28 +459,36 @@ export class Hud {
   }
 
   private renderShop() {
-    for (const t of document.querySelectorAll<HTMLElement>('.tab'))
+    for (const t of document.querySelectorAll<HTMLElement>('#shop .tab'))
       t.setAttribute('aria-selected', String(t.dataset.tab === this.shopTab));
     const grid = $('shop-grid');
     grid.innerHTML = '';
+    for (const el of document.querySelectorAll('.shop-coins')) el.textContent = String(this.shownCoins);
     const { items, equipped } = this.shopData[this.shopTab];
-    for (const it of items) {
+    // Pages of six (two rows of three), swiped sideways like the original.
+    let page: HTMLElement | null = null;
+    items.forEach((it, i) => {
+      if (i % 6 === 0) {
+        page = document.createElement('div');
+        page.className = 'spage';
+        grid.appendChild(page);
+      }
       const locked = this.unlockedTo < it.unlock;
       const b = document.createElement('button');
-      b.className = `item ${it.kind}${locked ? ' locked' : ''}`;
-      b.setAttribute('aria-pressed', String(it.id === equipped));
-      b.innerHTML = `<span class="swatch" style="${it.preview}"></span><span class="name">${it.name}</span>${
+      b.className = `tile ${it.kind}${locked ? ' locked' : ''}${it.id === equipped ? ' on' : ''}`;
+      b.setAttribute('aria-label', `${it.name}${locked ? `, unlocks at level ${it.unlock}` : ''}`);
+      b.innerHTML = `<span class="swatch" style="${it.preview}"></span>${
         locked
-          ? `<span class="tag lock">Level ${it.unlock}</span>`
+          ? `<span class="chip">${Math.min(this.unlockedTo, it.unlock)}/${it.unlock} lvls</span><span class="lockb"></span>`
           : it.id === equipped
-            ? '<span class="tag on">In use</span>'
-            : '<span class="tag use">Use</span>'
+            ? '<span class="tick"></span>'
+            : ''
       }`;
       b.addEventListener('click', (e) => {
         e.stopPropagation();
         this.actions.anyInput();
         if (locked) {
-          this.toast(`Unlocks at level ${it.unlock}`);
+          this.toast(`${it.name} unlocks at level ${it.unlock}`);
           return;
         }
         this.actions.click();
@@ -456,8 +496,16 @@ export class Hud {
         this.shopData[this.shopTab].equipped = it.id;
         this.renderShop();
       });
-      grid.appendChild(b);
-    }
+      page!.appendChild(b);
+    });
+    const dots = $('shop-dots');
+    const pages = grid.children.length;
+    dots.innerHTML = pages > 1 ? Array.from({ length: pages }, (_, i) => `<i${i === 0 ? ' class="on"' : ''}></i>`).join('') : '';
+    grid.scrollLeft = 0;
+    grid.onscroll = () => {
+      const i = Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth));
+      dots.querySelectorAll('i').forEach((d, k) => d.classList.toggle('on', k === i));
+    };
   }
 
   // ------------------------------------------------------------ league
@@ -465,16 +513,23 @@ export class Hud {
   renderLeague(rows: LeagueRow[]) {
     const list = $('league-list');
     list.innerHTML = '';
+    const row = (r: LeagueRow, i: number) =>
+      `<span class="pos">${i < 3 ? `<b>${i + 1}</b>` : `#${i + 1}`}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span>${
+        i < 3 ? '<i class="ico ico-gift gift"></i>' : ''
+      }<span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
+    // You are pinned below the list (like the original), not repeated in it.
     rows.forEach((r, i) => {
+      if (r.you) return;
       const li = document.createElement('li');
-      li.className = `${r.you ? 'you' : ''}${i < 3 ? ` top top${i + 1}` : ''}`;
-      li.innerHTML = `<span class="pos">${i < 3 ? `<i class="ico ico-medal${i + 1}"></i>` : i + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
+      li.className = i < 3 ? `top${i + 1}` : '';
+      li.innerHTML = row(r, i);
       list.appendChild(li);
     });
-    window.setTimeout(() => {
-      const me = list.querySelector<HTMLElement>('.you');
-      if (me) list.scrollTop = me.offsetTop - list.clientHeight / 2 + me.offsetHeight / 2;
-    }, 60);
+    const me = rows.findIndex((r) => r.you);
+    $('league-you').innerHTML = me >= 0 ? `<li class="you">${row(rows[me], me)}</li>` : '';
+    const tiers = ['bronze', 'silver', 'gold', 'ruby', 'emerald', 'diamond'];
+    $('league-tiers').innerHTML = tiers.map((t, i) => `<span class="tier ${t}${i === 0 ? ' now' : ''}"><i class="ico ico-trophy"></i></span>`).join('');
+    list.scrollTop = 0;
   }
 
   // ------------------------------------------------------------ key vault

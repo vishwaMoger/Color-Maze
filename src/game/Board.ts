@@ -113,6 +113,37 @@ function roundedCell(g: Graphics, x: number, y: number, cell: number, r: number,
   g.closePath();
 }
 
+const TRAIL_W = 256;
+const TRAIL_H = 64;
+let TRAIL_TEX: Texture | null = null;
+
+/** Feathered streak: alpha ramps up along x, gaussian across y, widening. */
+function trailTexture(): Texture {
+  if (TRAIL_TEX) return TRAIL_TEX;
+  const c = makeCanvas(TRAIL_W, TRAIL_H);
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(TRAIL_W, TRAIL_H);
+  for (let x = 0; x < TRAIL_W; x++) {
+    const t = x / (TRAIL_W - 1);
+    const along = Math.pow(t, 1.6) * (1 - Math.pow(Math.max(0, t - 0.94) / 0.06, 2));
+    const sigma = 0.06 + 0.32 * Math.pow(t, 0.8);
+    for (let y = 0; y < TRAIL_H; y++) {
+      const v = (y + 0.5) / TRAIL_H - 0.5;
+      const across = Math.exp(-(v * v) / (2 * sigma * sigma));
+      const core = Math.exp(-(v * v) / (2 * (sigma * 0.35) ** 2));
+      const a = along * (0.55 * across + 0.45 * core);
+      const i = (y * TRAIL_W + x) * 4;
+      img.data[i] = 255;
+      img.data[i + 1] = 250;
+      img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * Math.min(1, a));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  TRAIL_TEX = Texture.from(c);
+  return TRAIL_TEX;
+}
+
 /** A swirling portal: a glowing ring with spiral arms. */
 function portalTexture(r: number, res: number, cols: [string, string, string]): Texture {
   const R = r * res;
@@ -240,6 +271,7 @@ export class Board extends Container {
   readonly pad: number;
   readonly paintLayer = new Container();
   readonly fxLayer = new Container();
+  private readonly trail = new Sprite(trailTexture());
   private gloss: PaintGloss | null = null;
   private readonly sawLayer = new Container();
   private readonly saws: Sprite[] = [];
@@ -645,7 +677,9 @@ export class Board extends Container {
         this.sawLayer.addChild(glow, sp);
         this.pickups.set(y * cols + x, { s: sp, glow, base: sp.scale.x, y0: sp.y, at: -1 });
       }
-    this.addChild(this.sawLayer, this.glowG, this.hintG, this.coneG, this.fxLayer, this.ballLayer);
+    this.trail.anchor.set(1, 0.5);
+    this.trail.visible = false;
+    this.addChild(this.sawLayer, this.glowG, this.hintG, this.coneG, this.trail, this.fxLayer, this.ballLayer);
   }
 
   cellCenter(x: number, y: number): Point {
@@ -796,26 +830,28 @@ export class Board extends Container {
 
   /** Pale speed cone fanning from where the swipe started to the ball. */
   drawCone(from: Point | null, to: { x: number; y: number }, alpha: number) {
-    const g = this.coneG;
-    g.clear();
-    if (!from || alpha <= 0.01) return;
+    const sp = this.trail;
+    if (!from || alpha <= 0.01) {
+      sp.visible = false;
+      return;
+    }
     const { cell } = this;
     const ax = (from.x + 0.5) * cell;
     const ay = (from.y + 0.5) * cell;
     const bx = (to.x + 0.5) * cell;
     const by = (to.y + 0.5) * cell;
     const len = Math.hypot(bx - ax, by - ay);
-    if (len < 2) return;
-    const nx = -(by - ay) / len;
-    const ny = (bx - ax) / len;
-    // A pale, translucent streak behind the ball: wide at the ball, needle
-    // thin where the swipe began, with a brighter core.
-    const wEnd = cell * 0.3;
-    const wStart = cell * 0.02;
-    g.poly([ax + nx * wStart, ay + ny * wStart, bx + nx * wEnd, by + ny * wEnd, bx - nx * wEnd, by - ny * wEnd, ax - nx * wStart, ay - ny * wStart])
-      .fill({ color: 0xf4f1ff, alpha: 0.42 * alpha });
-    g.poly([ax, ay, bx + nx * wEnd * 0.5, by + ny * wEnd * 0.5, bx - nx * wEnd * 0.5, by - ny * wEnd * 0.5])
-      .fill({ color: 0xffffff, alpha: 0.4 * alpha });
+    if (len < 2) {
+      sp.visible = false;
+      return;
+    }
+    // A soft, feathered streak: transparent at the tail, a milky glow that
+    // widens toward the ball. Drawn from one blurred texture.
+    sp.visible = true;
+    sp.position.set(bx, by);
+    sp.rotation = Math.atan2(by - ay, bx - ax);
+    sp.scale.set((len + cell * 0.3) / TRAIL_W, (cell * 1.05) / TRAIL_H);
+    sp.alpha = alpha;
   }
 
   /** Diagonal light sweep across the painted floor (level complete). */

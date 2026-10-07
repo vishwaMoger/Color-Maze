@@ -30,7 +30,7 @@ export interface Save {
 
 const SAVE_KEY = 'colormaze.v1';
 
-export const PRICES = { hint: 60, bomb: 40 };
+export const PRICES = { hint: 400, bomb: 200 };
 
 export function loadSave(): Save {
   const fallback: Save = {
