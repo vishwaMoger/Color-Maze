@@ -187,6 +187,15 @@ export class Sound {
     this.note(110, ctx.currentTime, 0.12, 0.08, 'sine');
   }
 
+  /** Stopper studs clamping onto the ball: a short, firm double snap. */
+  grip() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.note(196, t, 0.07, 0.11, 'triangle');
+    this.note(this.scaleFreq(11), t + 0.035, 0.06, 0.04, 'sine');
+  }
+
   click() {
     const ctx = this.ready();
     if (!ctx) return;

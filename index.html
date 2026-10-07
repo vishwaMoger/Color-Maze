@@ -44,7 +44,7 @@
         </div>
         <div class="level-info" id="level-info">
           <span class="lvl-reward" id="lvl-reward"><i class="ico ico-coinstack"></i><i class="ico ico-star rstar"></i></span>
-          <svg id="level-progress" class="chain" viewBox="0 0 92 16" aria-hidden="true"></svg>
+          <svg id="level-progress" class="chain" viewBox="0 0 100 22" aria-hidden="true"></svg>
           <div id="level-label">Level 1</div>
           <div id="moves" class="moves" hidden></div>
         </div>
@@ -74,7 +74,8 @@
         <button id="btn-streak" class="streak" aria-label="Win streak">
           <span class="streak-aura"></span>
           <span class="embers"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-          <span class="can"><span class="cap top"></span><span class="glass"><span class="fire"></span><b id="streak-count">0</b></span><span class="cap bot"></span></span>
+          <span class="can"><span class="fire"><i></i><i></i><i></i></span><i class="ico canimg"></i><b id="streak-count">0</b></span>
+          <svg class="zap" viewBox="-20 -20 74 86" aria-hidden="true"><g id="zap-bolts"></g></svg>
         </button>
         <button id="btn-bomb" class="tbtn green" aria-label="Paint gun: paints the trickiest tiles" title="Paint gun">
           <span class="ico ico-paintgun tool-ico"></span>
@@ -197,13 +198,17 @@
       <button id="btn-multiply" class="gbtn multiply"><span id="mult-badge" class="mult-badge v4">x4</span><span class="mlabel">Multiply</span></button>
     </div>
 
-    <div id="climb" class="screen" hidden>
-      <div class="climb-head">
-        <i class="ico ico-trophy climb-cup"></i>
-        <h2 class="screen-title">Weekly League</h2>
-        <p class="league-sub"><span>Rookie League</span> · ends in <b id="climb-left">--</b></p>
+    <div id="climb" class="climb-screen" hidden>
+      <canvas id="climb-fx" aria-hidden="true"></canvas>
+      <div class="climb-tiers" id="climb-tiers"></div>
+      <div class="lcard climb-card">
+        <div class="lcard-head"><span>Rookie league</span><span class="lchip" id="climb-left">--</span></div>
+        <div class="climb-view" id="climb-view">
+          <div class="climb-inner" id="climb-list"></div>
+          <div class="climb-you" id="climb-you"></div>
+        </div>
       </div>
-      <div class="climb-list" id="climb-list"></div>
+      <div class="climb-gain" id="climb-gain" hidden></div>
       <p class="tap-continue">Tap to continue</p>
     </div>
 

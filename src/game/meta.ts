@@ -137,9 +137,14 @@ export interface Standing {
 export function league(week: number, yourStars: number, now = new Date()): { rows: Standing[]; rank: number } {
   const rng = seeded(week * 7907 + 13);
   const elapsed = 1 - (weekEnd(now).getTime() - now.getTime()) / WEEK;
-  const names = [...NAMES].sort(() => rng() - 0.5).slice(0, 29);
+  // 99 rivals: plain names plus gamer tags built from them.
+  const tags = ['Pro', 'X', '_7', '99', 'Star', 'Ace', '2010', 'Max', 'Fox', '_GG', 'Jet', '42'];
+  const pool = [...NAMES];
+  for (const n of NAMES) pool.push(n + tags[Math.floor(rng() * tags.length)]);
+  for (const n of NAMES) pool.push(n.toLowerCase() + Math.floor(10 + rng() * 989));
+  const names = pool.sort(() => rng() - 0.5).slice(0, 99);
   const rows: Standing[] = names.map((name, i) => {
-    const final = Math.round(30 + 260 * rng() ** 1.7);
+    const final = Math.round(20 + 300 * rng() ** 1.9);
     const pace = 0.75 + rng() * 0.5;
     return {
       name,
