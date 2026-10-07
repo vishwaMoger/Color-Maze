@@ -1,4 +1,5 @@
 import { parseLevel, solve, type Level } from './core.ts';
+import { LEVEL_DATA, LEVEL_DATA_FIRST } from './data.ts';
 import { crop, generateLevel } from './generator.ts';
 
 // Hand-picked opening levels. '#' wall, '.' floor, 'o' start.
@@ -97,6 +98,10 @@ export function getLevel(n: number): Level {
     const h = special ?? HANDMADE[n - 1];
     level = { ...h, ...crop(h.grid, h.start), bonus: h.bonus ?? n % 5 === 0 };
     level.par = solve(level.grid, level.start, undefined, 2_000_000)?.length;
+  } else if (n - LEVEL_DATA_FIRST < LEVEL_DATA.length) {
+    // Curated by scripts/build-levels.ts: searched offline for looks and fun.
+    const [name, bonus, par, rows] = LEVEL_DATA[n - LEVEL_DATA_FIRST].split('|');
+    level = parseLevel(rows.split('/'), { name, bonus: bonus === '1', par: Number(par) });
   } else {
     level = generateLevel(n, n % 5 === 0);
   }
