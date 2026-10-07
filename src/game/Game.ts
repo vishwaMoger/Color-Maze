@@ -1,6 +1,6 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import { Sound } from '../audio/sound.ts';
-import { DIRS, isFloor, slide, solve, WALL, type Dir, type Level, type Point } from '../levels/core.ts';
+import { DIRS, floorCount, isFloor, SAW, slide, solve, type Dir, type Level, type Point, isCurve } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
 import type { Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
 import { BALL_URLS } from './assets.ts';
@@ -13,12 +13,20 @@ import { THEMES, type Theme } from './themes.ts';
 
 interface Slide {
   dir: Dir;
+  /** Direction when the slide ends (curves can turn the ball). */
+  endDir: Dir;
   from: Point;
   path: Point[];
+  /** Indices into `path` of curve tiles that turned the ball. */
+  turns: number[];
+  /** The slide runs into a saw blade. */
+  saw?: Point;
   t: number;
   dur: number;
   done: number;
 }
+
+type XY = { x: number; y: number };
 
 interface Snapshot {
   pos: Point;
@@ -110,6 +118,7 @@ export class Game {
   private slideState: Slide | null = null;
   private queued: Dir | null = null;
   private lastDir: Point | null = null;
+  private turnDamp = 1;
   private completeAt: number | null = null;
   private resultShown = false;
   private hint: { path: Point[]; dir: Point; until: number } | null = null;
@@ -429,7 +438,7 @@ export class Game {
   }
 
   private input(dir: Dir) {
-    if (this.completeAt !== null || this.hud.modalOpen) return;
+    if (this.completeAt !== null || this.hud.modalOpen || this.dead) return;
     if (this.slideState) {
       this.queued = dir;
       return;
@@ -448,7 +457,7 @@ export class Game {
     this.restartedThisLevel = false;
     this.level = getLevel(n);
     this.floorTotal = 0;
-    for (const row of this.level.grid) for (const c of row) if (c !== WALL) this.floorTotal++;
+    this.floorTotal = floorCount(this.level.grid);
     this.resetState();
     const old = this.board;
     this.buildBoard();
@@ -505,7 +514,17 @@ export class Game {
     this.hud.setLevel(n, !!this.level.bonus, this.level.par);
     this.hud.setMoves(0);
     this.hud.hideResult();
-    this.hud.showTip(n === 1 ? 'Swipe to roll the ball' : null);
+    // First time a new tile type appears, say what it does.
+    const has = (f: (c: number) => boolean) => this.level.grid.some((row) => row.some(f));
+    const fresh = [
+      { id: 'curves', on: has(isCurve), text: 'Curved corners swing the ball around!' },
+      { id: 'saws', on: has((c) => c === SAW), text: 'Watch out for the saws!' },
+    ].find((t) => t.on && !this.save.tips.includes(t.id));
+    if (fresh) {
+      this.save.tips.push(fresh.id);
+      this.persist();
+    }
+    this.hud.showTip(n === 1 ? 'Swipe to roll the ball' : (fresh?.text ?? null));
     this.sound.setRoot(this.theme.root);
     this.persist();
   }
@@ -591,7 +610,7 @@ export class Game {
     const out: Point[] = [];
     this.level.grid.forEach((row, y) =>
       row.forEach((c, x) => {
-        if (c !== WALL && !this.painted.has(this.key({ x, y }))) out.push({ x, y });
+        if (isFloor(this.level.grid, x, y) && c !== undefined && !this.painted.has(this.key({ x, y }))) out.push({ x, y });
       }),
     );
     this.remaining = out;
@@ -602,7 +621,7 @@ export class Game {
   private startSlide(dir: Dir) {
     const r = slide(this.level.grid, this.pos, dir);
     const d = DIRS[dir];
-    if (!r.path.length) {
+    if (!r.path.length && !r.saw) {
       // Blocked: a small wobble toward the wall.
 
       this.ball.impact(0.25);
@@ -621,7 +640,7 @@ export class Game {
     this.hud.showTip(null);
     this.hint = null;
     const len = r.path.length;
-    this.slideState = { dir, from: { ...this.pos }, path: r.path, t: 0, dur: 45 + 24 * len ** 0.9, done: 0 };
+    this.slideState = { dir, endDir: r.dir, from: { ...this.pos }, path: r.path, turns: r.turns, saw: r.saw, t: 0, dur: 45 + 24 * Math.max(1, len) ** 0.9, done: 0 };
     this.lastDir = d;
     this.cone = { from: { ...this.pos }, to: { ...this.pos }, endedAt: null };
     this.sound.launch(this.slideState.dur);
@@ -635,9 +654,11 @@ export class Game {
     // Starts quick and keeps accelerating into the wall.
     const eased = p * (0.6 + 0.4 * p);
     const dist = eased * s.path.length;
-    const d = DIRS[s.dir];
-    const bx = s.from.x + d.x * dist;
-    const by = s.from.y + d.y * dist;
+    const sp = this.slidePoint(s, dist);
+    const d = sp.dir;
+    this.lastDir = d;
+    // Ease off the squash and stretch while swinging round a curve.
+    this.turnDamp += ((sp.turning ? 0.3 : 1) - this.turnDamp) * Math.min(1, dt / 40);
     while (s.done < s.path.length && dist >= s.done + 0.55) {
       const cellP = s.path[s.done];
       const k = this.key(cellP);
@@ -654,15 +675,60 @@ export class Game {
       }
       s.done++;
     }
-    this.placeBall({ x: bx, y: by });
-    if (this.cone) this.cone.to = { x: bx, y: by };
+    this.placeBall(sp.p);
+    if (this.cone) {
+      this.cone.from = sp.band.from;
+      this.cone.to = sp.p;
+    }
     if (p >= 1) this.arrive(s);
   }
 
+  /**
+   * Where the ball is `dist` cells into a slide. Straight runs are linear;
+   * through a curve tile the ball follows a quarter arc. Also returns the
+   * travel direction and the straight stretch of fresh paint behind it.
+   */
+  private slidePoint(s: Slide, dist: number): { p: XY; dir: XY; band: { from: XY; pos: XY }; turning?: boolean } {
+    const pts: XY[] = [s.from, ...s.path];
+    const end = pts.length - 1;
+    const dd = Math.max(0, Math.min(end, dist));
+    let segStart = s.from;
+    for (const ti of s.turns) {
+      const k = ti + 1;
+      if (k >= end) continue; // stopped on the curve itself
+      const c = pts[k];
+      const a = pts[k - 1];
+      const b = pts[k + 1];
+      const dIn = { x: c.x - a.x, y: c.y - a.y };
+      const dOut = { x: b.x - c.x, y: b.y - c.y };
+      if (dd >= k - 0.5 && dd <= k + 0.5) {
+        const t = dd - (k - 0.5);
+        const A = { x: c.x - dIn.x * 0.5, y: c.y - dIn.y * 0.5 };
+        const B = { x: c.x + dOut.x * 0.5, y: c.y + dOut.y * 0.5 };
+        const u = 1 - t;
+        const p = { x: u * u * A.x + 2 * u * t * c.x + t * t * B.x, y: u * u * A.y + 2 * u * t * c.y + t * t * B.y };
+        return { p, dir: t < 0.5 ? dIn : dOut, band: { from: c, pos: c }, turning: true };
+      }
+      if (dd > k + 0.5) segStart = c;
+    }
+    const i = Math.min(end - 1, Math.floor(dd));
+    const f = dd - i;
+    const a = pts[i];
+    const b = pts[Math.min(end, i + 1)];
+    const p = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+    const dir = end > 0 ? { x: b.x - a.x, y: b.y - a.y } : DIRS[s.dir];
+    return { p, dir, band: { from: segStart, pos: p } };
+  }
+
   private arrive(s: Slide) {
-    const d = DIRS[s.dir];
-    this.pos = s.path[s.path.length - 1];
+    const d = DIRS[s.endDir];
+    this.pos = s.path[s.path.length - 1] ?? s.from;
     this.slideState = null;
+    if (s.saw) {
+      this.updateRemaining();
+      this.die(s.saw, d);
+      return;
+    }
     // A glint runs back along the stroke from the start to where it landed.
     const now = this.time;
     this.shimmer = [this.key(s.from), ...s.path.map((p) => this.key(p))].map((k, i) => ({ k, t: now + i * 16 }));
@@ -713,9 +779,65 @@ export class Game {
     }
   }
 
+  private dead = false;
+
+  /**
+   * The ball rolled into a saw: it is pushed into the blade and sliced in
+   * two, sparks fly, the board shakes, then the revive offer appears.
+   */
+  private die(saw: Point, dir: Point) {
+    this.dead = true;
+    this.queued = null;
+    this.hint = null;
+    const from = { x: this.ball.x, y: this.ball.y };
+    const c = this.board.cellCenter(saw.x, saw.y);
+    this.tweens.push({
+      t: 0,
+      dur: 110,
+      step: (p) => this.ball.position.set(from.x + (c.x - from.x) * 0.5 * p, from.y + (c.y - from.y) * 0.5 * p),
+      done: () => {
+        const hx = (this.ball.x + c.x) / 2;
+        const hy = (this.ball.y + c.y) / 2;
+        this.ball.split(dir);
+        this.board.sawHit(this.time);
+        this.boardFx.sparkle(hx, hy, 16, this.cell * 1.8, 0xffd27a);
+        this.boardFx.flash(hx, hy, this.cell * 1.6, 0xff5a5a, 0.8);
+        this.boardFx.splash(hx, hy, -dir.x, -dir.y, 10, this.look.paint, this.cell * 3.4, this.cell * 0.08, (x, y, r) => this.addDot(x, y, r));
+        this.nudge.vx -= dir.x * 260 + 120;
+        this.nudge.vy -= dir.y * 260;
+        this.hud.hurt();
+        this.sound.thock(1.3);
+        this.sound.bump();
+        this.vibrate([40, 30, 60]);
+      },
+    });
+    window.setTimeout(() => {
+      if (!this.dead) return;
+      this.hud.revive({
+        level: this.levelNo,
+        streak: this.save.streak,
+        seconds: 9,
+        tick: () => this.sound.click(),
+        onRevive: () => {
+          // Undo the fatal move and drop the ball back in.
+          this.dead = false;
+          this.ball.unsplit();
+          this.undo();
+          this.introAt = this.time;
+          this.landed = false;
+        },
+        onGiveUp: () => {
+          this.dead = false;
+          this.ball.unsplit();
+          this.restart();
+        },
+      });
+    }, 950);
+  }
+
   undo() {
     this.sound.unlock();
-    if (this.slideState || this.completeAt !== null) return;
+    if (this.slideState || this.completeAt !== null || this.dead) return;
     const snap = this.history.pop();
     if (!snap) return;
     this.pos = snap.pos;
@@ -733,7 +855,7 @@ export class Game {
 
   restart() {
     this.sound.unlock();
-    if (this.completeAt !== null) return;
+    if (this.completeAt !== null || this.dead) return;
     if (this.moves === 0) return;
     this.restartedThisLevel = true;
     if (this.save.streak > 0) {
@@ -752,7 +874,7 @@ export class Game {
 
   private showHint() {
     this.sound.unlock();
-    if (this.slideState || this.completeAt !== null) return;
+    if (this.slideState || this.completeAt !== null || this.dead) return;
     const sol = solve(this.level.grid, this.pos, this.painted.keys(), 300000);
     if (!sol || !sol.length) {
       this.hud.toast('No way to finish from here. Tap Undo.');
@@ -962,7 +1084,7 @@ export class Game {
     this.persist();
   }
 
-  private vibrate(ms: number) {
+  private vibrate(ms: number | number[]) {
     if (!this.save.vibe || !('vibrate' in navigator)) return;
     try {
       navigator.vibrate(ms);
@@ -1050,7 +1172,7 @@ export class Game {
   }
 
   private paintBomb() {
-    if (this.slideState || this.completeAt !== null || this.bombAnim) return;
+    if (this.slideState || this.completeAt !== null || this.bombAnim || this.dead) return;
     const targets = this.bombTargets();
     if (!targets.length || !this.spend('bombs')) return;
     const o = this.hud.bombOrigin();
@@ -1170,7 +1292,7 @@ export class Game {
     }
 
     const moving = !!this.slideState;
-    const speed = this.slideState ? this.slideState.path.length / (this.slideState.dur / 1000) / 30 : 0;
+    const speed = this.slideState ? (this.slideState.path.length / (this.slideState.dur / 1000) / 30) * this.turnDamp : 0;
     this.ball.update(dt, time, moving, this.lastDir, speed);
     const intro = (time - this.introAt) / 470;
     if (intro < 1.2) {
@@ -1211,10 +1333,9 @@ export class Game {
     } else this.board.drawCone(null, { x: 0, y: 0 }, 0);
     if (this.slideState) {
       const st = this.slideState;
-      const d = DIRS[st.dir];
       const p = Math.min(1, st.t / st.dur);
       const dist = p * (0.6 + 0.4 * p) * st.path.length;
-      stroke.active = { from: st.from, pos: { x: st.from.x + d.x * dist, y: st.from.y + d.y * dist } };
+      stroke.active = this.slidePoint(st, dist).band;
     }
     this.board.update(time, stroke, this.remaining);
     this.boardFx.update(dt);

@@ -1,5 +1,5 @@
 import { BlurFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture, UniformGroup } from 'pixi.js';
-import { STOPPER, type Level, type Point } from '../levels/core.ts';
+import { CURVE_BL, CURVE_BR, CURVE_TL, CURVE_TR, isFloor, SAW, STOPPER, type Level, type Point } from '../levels/core.ts';
 import { dilate, fillRoundedCells, makeCanvas, softBlur, tint } from './shape.ts';
 import type { Theme } from './themes.ts';
 
@@ -93,6 +93,67 @@ function roundedCell(g: Graphics, x: number, y: number, cell: number, r: number,
   g.closePath();
 }
 
+/** A shiny circular saw blade with a dark hub. */
+function sawBlade(r: number, res: number): Texture {
+  const R = r * res;
+  const size = Math.ceil(R * 2 + 8);
+  const cv = makeCanvas(size, size);
+  const ctx = cv.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+  const teeth = 14;
+  // Soft shadow under the blade.
+  ctx.fillStyle = 'rgba(20, 10, 50, 0.35)';
+  ctx.beginPath();
+  ctx.arc(cx + R * 0.06, cy + R * 0.1, R * 0.95, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = (i / teeth) * Math.PI * 2;
+    const a1 = a0 + (Math.PI * 2) / teeth;
+    // Hooked tooth: rise along the arc, then drop straight to the gullet.
+    ctx.lineTo(cx + Math.cos(a0) * R * 0.78, cy + Math.sin(a0) * R * 0.78);
+    ctx.lineTo(cx + Math.cos(a0 + (a1 - a0) * 0.75) * R, cy + Math.sin(a0 + (a1 - a0) * 0.75) * R);
+    ctx.lineTo(cx + Math.cos(a1) * R * 0.78, cy + Math.sin(a1) * R * 0.78);
+  }
+  ctx.closePath();
+  const g = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(0.45, '#c9cedd');
+  g.addColorStop(0.55, '#e9edf5');
+  g.addColorStop(1, '#7c8398');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, R * 0.05);
+  ctx.strokeStyle = '#4b5068';
+  ctx.stroke();
+  // Inner disc and hub.
+  const d = ctx.createRadialGradient(cx - R * 0.15, cy - R * 0.2, R * 0.05, cx, cy, R * 0.6);
+  d.addColorStop(0, '#f4f6fb');
+  d.addColorStop(1, '#8b92a8');
+  ctx.fillStyle = d;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.56, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#3b3f55';
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * R * 0.34, cy + Math.sin(a) * R * 0.34, R * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#2b2e40';
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.17, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath();
+  ctx.arc(cx - R * 0.05, cy - R * 0.06, R * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  return Texture.from(cv);
+}
+
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
 export interface PaintStroke {
@@ -117,6 +178,15 @@ export class Board extends Container {
   readonly pad: number;
   readonly paintLayer = new Container();
   readonly fxLayer = new Container();
+  private readonly sawLayer = new Container();
+  private readonly saws: Sprite[] = [];
+  private sawAngle = 0;
+  private sawHitAt = -1e9;
+
+  /** The ball hit a saw: it whirrs faster for a moment. */
+  sawHit(time: number) {
+    this.sawHitAt = time;
+  }
   readonly ballLayer = new Container();
   private readonly paintG = new Graphics();
   private readonly wetG = new Graphics();
@@ -146,7 +216,7 @@ export class Board extends Container {
     this.cols = level.grid[0].length;
     this.pad = cell;
 
-    level.grid.forEach((row, y) => row.forEach((c, x) => c === 0 && this.floorCells.push({ x, y })));
+    level.grid.forEach((row, y) => row.forEach((_, x) => isFloor(level.grid, x, y) && this.floorCells.push({ x, y })));
     this.build();
   }
 
@@ -157,10 +227,8 @@ export class Board extends Container {
     return this.rows * this.cell;
   }
 
-  private isFloor = (x: number, y: number) => {
-    const c = this.level.grid[y]?.[x];
-    return c === 0 || c === STOPPER;
-  };
+  /** Floor for the board's shape: saw notches are part of the outline. */
+  private isFloor = (x: number, y: number) => isFloor(this.level.grid, x, y) || this.level.grid[y]?.[x] === SAW;
 
   /** Wall cells enclosed by floor (not connected to the outside) belong to the plate. */
   private interiorWalls(): (x: number, y: number) => boolean {
@@ -324,6 +392,45 @@ export class Board extends Container {
           tctx.fill();
         }
       }
+    // Curved corners: a white rounded bracket hugging the closed corner,
+    // showing the ball will be swung round it. Drawn above the walls so the
+    // wall shadow does not grey them out.
+    const marks = makeCanvas(W, H);
+    const mctx = marks.getContext('2d')!;
+    let hasMarks = false;
+    const corners: Record<number, [number, number, number, number]> = {
+      [CURVE_TL]: [0, 0, 1, 1],
+      [CURVE_TR]: [1, 0, -1, 1],
+      [CURVE_BL]: [0, 1, 1, -1],
+      [CURVE_BR]: [1, 1, -1, -1],
+    };
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++) {
+        const k = corners[this.level.grid[y][x]];
+        if (!k) continue;
+        hasMarks = true;
+        const [cx, cy, sx, sy] = k;
+        const x0 = off + (x + cx) * c;
+        const y0 = off + (y + cy) * c;
+        const ins = c * 0.15;
+        // A wall above shows its front face over the top of the cell.
+        const insY = sy > 0 ? ins + c * 0.24 : ins;
+        const len = c * 0.62;
+        const lenY = insY + (len - ins) * 0.85;
+        const r = c * 0.28;
+        const bracket = (dy: number, color: string, width: number) => {
+          mctx.strokeStyle = color;
+          mctx.lineWidth = width;
+          mctx.lineCap = 'round';
+          mctx.beginPath();
+          mctx.moveTo(x0 + sx * ins, y0 + sy * lenY + dy);
+          mctx.arcTo(x0 + sx * ins, y0 + sy * insY + dy, x0 + sx * len, y0 + sy * insY + dy, r);
+          mctx.lineTo(x0 + sx * len, y0 + sy * insY + dy);
+          mctx.stroke();
+        };
+        bracket(c * 0.035, 'rgba(20,10,50,0.28)', c * 0.12);
+        bracket(0, '#ffffff', c * 0.1);
+      }
     this.addChild(this.sprite(studs));
     if (theme.neon) {
       const glow = new Graphics();
@@ -356,8 +463,35 @@ export class Board extends Container {
     wctx.globalCompositeOperation = 'destination-in';
     wctx.drawImage(floorMask, 0, 0);
     this.addChild(this.sprite(walls));
+    if (hasMarks) this.addChild(this.sprite(marks));
 
-    this.addChild(this.glowG, this.hintG, this.coneG, this.fxLayer, this.ballLayer);
+    // Saw blades spin in their notches, nudged toward the wall behind them.
+    const cs = this.cell;
+    const sawTex = sawBlade(cs * 0.46, res);
+    this.textures.push(sawTex);
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++) {
+        if (this.level.grid[y][x] !== SAW) continue;
+        let ox = 0;
+        let oy = 0;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ])
+          if (isFloor(this.level.grid, x + dx, y + dy)) {
+            ox = -dx * cs * 0.12;
+            oy = -dy * cs * 0.12;
+          }
+        const blade = new Sprite(sawTex);
+        blade.anchor.set(0.5);
+        blade.scale.set(1 / res);
+        blade.position.set((x + 0.5) * cs + ox, (y + 0.5) * cs + oy);
+        this.saws.push(blade);
+        this.sawLayer.addChild(blade);
+      }
+    this.addChild(this.sawLayer, this.glowG, this.hintG, this.coneG, this.fxLayer, this.ballLayer);
   }
 
   cellCenter(x: number, y: number): Point {
@@ -366,6 +500,10 @@ export class Board extends Container {
 
   update(time: number, stroke: PaintStroke, remaining: Point[]) {
     if (this.caustics) this.caustics.uniforms.uTime = time * 0.00035;
+    // Saws spin; after a hit they whirr faster for a moment.
+    const boost = Math.max(0, 1 - (time - this.sawHitAt) / 900);
+    this.sawAngle += 0.16 * (1 + boost * 2.5);
+    for (const b of this.saws) b.rotation = this.sawAngle;
     this.drawPaint(time, stroke);
     this.drawGlow(time, remaining);
   }
@@ -557,8 +695,9 @@ export class Board extends Container {
       const cy = (p.y + 0.5) * cell;
       const wave = Math.max(0, Math.sin(time * 0.006 - i * 0.9));
       const s = cell * 0.17;
-      const ax = dir.x;
-      const ay = dir.y;
+      // Each chevron points the way the ball travels there (curves turn it).
+      const ax = i === 0 ? dir.x : p.x - path[i - 1].x;
+      const ay = i === 0 ? dir.y : p.y - path[i - 1].y;
       // Chevron pointing along (ax, ay).
       const tipX = cx + ax * s;
       const tipY = cy + ay * s;

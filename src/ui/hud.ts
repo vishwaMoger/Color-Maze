@@ -161,7 +161,7 @@ export class Hud {
   }
 
   get modalOpen() {
-    return ['shop', 'settings', 'league', 'vault', 'super', 'climb', 'unlocked'].some((id) => !$(id).hidden);
+    return ['shop', 'settings', 'league', 'vault', 'super', 'climb', 'unlocked', 'revive'].some((id) => !$(id).hidden);
   }
 
   open(id: string) {
@@ -234,6 +234,64 @@ export class Hud {
     html += `<i class="link${inGroup >= 4 ? ' done' : ''}"></i><span class="chest${inGroup === 4 ? ' current' : ''}">${CHEST_SVG}</span>`;
     this.chain.innerHTML = html;
     this.movesLabel.dataset.par = par ? String(par) : '';
+  }
+
+  /** Red flash at the screen edges when the ball is destroyed. */
+  hurt() {
+    const el = $('hurt');
+    el.classList.remove('on');
+    void el.offsetWidth;
+    el.classList.add('on');
+  }
+
+  /**
+   * "Don't give up": revive within the countdown, or give up (restart and
+   * lose the streak). Revive will become a rewarded ad on CrazyGames.
+   */
+  revive(o: { level: number; streak: number; seconds: number; onRevive: () => void; onGiveUp: () => void; tick: () => void }) {
+    $('revive-level').textContent = `Level ${o.level}`;
+    $('revive-streak').textContent = String(o.streak);
+    $('revive-sub').textContent = o.streak > 0 ? "You'll lose your win streak" : "You'll lose this level's progress";
+    const bar = $('revive-bar');
+    const count = $('revive-count');
+    const circ = 2 * Math.PI * 15;
+    bar.style.strokeDasharray = String(circ);
+    let left = o.seconds;
+    let done = false;
+    const t0 = performance.now();
+    const frame = (now: number) => {
+      if (done) return;
+      const el = (now - t0) / 1000;
+      bar.style.strokeDashoffset = String(circ * Math.min(1, el / o.seconds));
+      const n = Math.max(0, Math.ceil(o.seconds - el));
+      if (n !== left) {
+        left = n;
+        count.textContent = String(n);
+        count.classList.remove('tick');
+        void count.offsetWidth;
+        count.classList.add('tick');
+        o.tick();
+      }
+      if (el >= o.seconds) finish(false);
+      else requestAnimationFrame(frame);
+    };
+    count.textContent = String(o.seconds);
+    const finish = (revived: boolean) => {
+      if (done) return;
+      done = true;
+      for (const [id, fn] of handlers) $(id).removeEventListener('click', fn);
+      this.close('revive');
+      if (revived) o.onRevive();
+      else o.onGiveUp();
+    };
+    const handlers: [string, (e: Event) => void][] = [
+      ['btn-revive', (e) => (e.stopPropagation(), finish(true))],
+      ['btn-giveup', (e) => (e.stopPropagation(), finish(false))],
+      ['btn-revive-close', (e) => (e.stopPropagation(), finish(false))],
+    ];
+    for (const [id, fn] of handlers) $(id).addEventListener('click', fn);
+    this.open('revive');
+    requestAnimationFrame(frame);
   }
 
   /** Level title pops in as the next board arrives. */

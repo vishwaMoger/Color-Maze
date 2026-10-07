@@ -83,10 +83,15 @@ export function crop(grid: Grid, start: Point): { grid: Grid; start: Point } {
       maxY = Math.max(maxY, y);
     }),
   );
-  return {
-    grid: grid.slice(minY - 1, maxY + 2).map((row) => row.slice(minX - 1, maxX + 2)),
-    start: { x: start.x - minX + 1, y: start.y - minY + 1 },
-  };
+  // Rebuild with a one-cell wall border, padding where content touches the
+  // edge (saw notches can sit in the outer wall).
+  const out: Grid = [];
+  for (let y = minY - 1; y <= maxY + 1; y++) {
+    const row: number[] = [];
+    for (let x = minX - 1; x <= maxX + 1; x++) row.push(grid[y]?.[x] ?? 1);
+    out.push(row);
+  }
+  return { grid: out, start: { x: start.x - minX + 1, y: start.y - minY + 1 } };
 }
 
 /**

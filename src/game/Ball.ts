@@ -83,6 +83,9 @@ export class Ball extends Container {
   private heading = 0;
   private readonly shadowBase: number;
   readonly radius: number;
+  /** Two halves flying apart after the ball is sliced by a saw. */
+  private halves: { c: Container; vx: number; vy: number; vr: number }[] = [];
+  private splitAge = 0;
 
   constructor(cell: number, res: number, skin: BallSkin, trailLayer: Container) {
     super();
@@ -125,6 +128,18 @@ export class Ball extends Container {
     this.stretch += (targetStretch - this.stretch) * Math.min(1, dt * (moving ? 30 : 40));
     if (dir) this.heading = Math.atan2(dir.y, dir.x);
 
+    if (this.halves.length) {
+      this.splitAge += dt;
+      const fade = Math.max(0, 1 - Math.max(0, this.splitAge - 0.35) / 0.5);
+      for (const h of this.halves) {
+        h.vx *= Math.exp(-dt * 3);
+        h.vy *= Math.exp(-dt * 3);
+        h.c.x += h.vx * dt;
+        h.c.y += h.vy * dt;
+        h.c.rotation += h.vr * dt;
+        h.c.alpha = fade;
+      }
+    }
     const breathe = moving ? 0 : Math.sin(time * 0.003) * 0.02;
     const along = 1 + this.stretch + this.squash * 0.9 + breathe;
     const across = Math.max(0.62, 1 - this.stretch * 0.3) - this.squash * 0.55 + breathe;
@@ -134,6 +149,43 @@ export class Ball extends Container {
     const horizontal = Math.abs(Math.cos(this.heading)) > 0.5;
     this.body.scale.set(base * (horizontal ? along : across), base * (horizontal ? across : along));
     this.trail.clear();
+  }
+
+  /**
+   * Sliced in two along the travel direction: the halves spin apart and
+   * fade. `dir` is the direction the ball was rolling.
+   */
+  split(dir: { x: number; y: number }) {
+    this.unsplit();
+    const ang = Math.atan2(dir.y, dir.x);
+    const r = this.radius;
+    for (const side of [-1, 1]) {
+      const c = new Container();
+      c.rotation = ang;
+      const sp = new Sprite(this.body.texture);
+      sp.anchor.set(0.5);
+      sp.scale.copyFrom(this.body.scale);
+      sp.rotation = -ang;
+      const m = new Graphics().rect(-r * 1.6, side < 0 ? -r * 1.6 : 0, r * 3.2, r * 1.6).fill(0xffffff);
+      sp.mask = m;
+      c.addChild(m, sp);
+      // Fresh cut face: a pale sliver along the cut.
+      c.addChild(new Graphics().rect(-r * 0.95, side < 0 ? -r * 0.06 : 0, r * 1.9, r * 0.06).fill({ color: 0xffffff, alpha: 0.7 }));
+      const px = -Math.sin(ang) * side;
+      const py = Math.cos(ang) * side;
+      this.halves.push({ c, vx: px * r * 5 - dir.x * r * 1.5, vy: py * r * 5 - dir.y * r * 1.5, vr: side * 5 });
+      this.addChild(c);
+    }
+    this.body.visible = false;
+    this.shadow.visible = false;
+    this.splitAge = 0;
+  }
+
+  unsplit() {
+    for (const h of this.halves) h.c.destroy({ children: true });
+    this.halves = [];
+    this.body.visible = true;
+    this.shadow.visible = true;
   }
 
   /** Drop-in at level start: falls from above with a squashy landing. */

@@ -10,7 +10,7 @@
 //
 // Usage: node --experimental-strip-types scripts/build-levels.ts [count]
 import { writeFileSync } from 'node:fs';
-import { analyze, DIR_LIST, DIRS, slide, solve, STOPPER, type Grid, type Point } from '../src/levels/core.ts';
+import { analyze, CURVE_BL, CURVE_BR, CURVE_TL, CURVE_TR, DIR_LIST, DIRS, isCurve, isFloor, SAW, slide, solve, STOPPER, type Grid, type Point } from '../src/levels/core.ts';
 import { crop, mulberry32 } from '../src/levels/generator.ts';
 
 type Mask = boolean[][];
@@ -69,6 +69,7 @@ function paintable(grid: Grid, start: Point): Set<number> {
     const p = queue.pop()!;
     for (const d of DIR_LIST) {
       const r = slide(grid, p, d);
+      if (r.saw) continue;
       for (const c of r.path) painted.add(c.y * w + c.x);
       const k = r.end.y * w + r.end.x;
       if (!seen.has(k)) {
@@ -97,6 +98,94 @@ function prune(grid: Grid, start: Point, mirror: boolean): boolean {
     grid[b.y][b.x] = 1;
     if (mirror) grid[b.y][w - 1 - b.x] = 1;
     if (grid[start.y][start.x] === 1) return false;
+  }
+  return false;
+}
+
+/**
+ * Turn some corridor corners (floor with walls on two adjacent sides) into
+ * curved corners that swing the ball round. Mirrored levels stay mirrored.
+ */
+function addCurves(rng: () => number, grid: Grid, start: Point, mirror: boolean, share: number): number {
+  const h = grid.length;
+  const w = grid[0].length;
+  const wall = (x: number, y: number) => (grid[y]?.[x] ?? 1) === 1;
+  const kindAt = (x: number, y: number): number => {
+    if (grid[y][x] !== 0 || (x === start.x && y === start.y)) return 0;
+    const u = wall(x, y - 1), d = wall(x, y + 1), l = wall(x - 1, y), r = wall(x + 1, y);
+    if (+u + +d + +l + +r !== 2) return 0;
+    if (u && l) return CURVE_TL;
+    if (u && r) return CURVE_TR;
+    if (d && l) return CURVE_BL;
+    if (d && r) return CURVE_BR;
+    return 0;
+  };
+  const twin: Record<number, number> = { [CURVE_TL]: CURVE_TR, [CURVE_TR]: CURVE_TL, [CURVE_BL]: CURVE_BR, [CURVE_BR]: CURVE_BL };
+  let n = 0;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < (mirror ? Math.ceil(w / 2) : w); x++) {
+      const k = kindAt(x, y);
+      if (!k || rng() > share) continue;
+      grid[y][x] = k;
+      n++;
+      const mx = w - 1 - x;
+      if (mirror && mx !== x && kindAt(mx, y) === twin[k]) {
+        grid[y][mx] = twin[k];
+        n++;
+      }
+    }
+  return n;
+}
+
+/**
+ * Put saw blades in wall notches at the end of straight corridors, where a
+ * careless swipe runs into them. Returns how many saws were placed.
+ */
+function addSaws(rng: () => number, grid: Grid, mirror: boolean, count: number): number {
+  const h = grid.length;
+  const w = grid[0].length;
+  const cands: Point[] = [];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < (mirror ? Math.ceil(w / 2) : w); x++) {
+      if (grid[y][x] !== 1) continue;
+      const nb = DIR_LIST.map((d) => DIRS[d]).filter((d) => isFloor(grid, x + d.x, y + d.y));
+      if (nb.length !== 1) continue;
+      const d = nb[0];
+      // The floor cell next to the notch must sit on a straight run into it.
+      if (!isFloor(grid, x + d.x * 2, y + d.y * 2)) continue;
+      cands.push({ x, y });
+    }
+  let n = 0;
+  for (let i = 0; i < count && cands.length; i++) {
+    const c = cands.splice(Math.floor(rng() * cands.length), 1)[0];
+    grid[c.y][c.x] = SAW;
+    n++;
+    const mx = w - 1 - c.x;
+    if (mirror && mx !== c.x && grid[c.y][mx] === 1) {
+      grid[c.y][mx] = SAW;
+      n++;
+    }
+  }
+  return n;
+}
+
+/** True when some reachable stop has a swipe that runs into a saw. */
+function sawIsLive(grid: Grid, start: Point): boolean {
+  const w = grid[0].length;
+  const seen = new Set([start.y * w + start.x]);
+  const queue = [start];
+  while (queue.length) {
+    const p = queue.pop()!;
+    for (const d of DIR_LIST) {
+      const r = slide(grid, p, d);
+      if (r.saw) return true;
+      if (!r.path.length) continue;
+      const k = r.end.y * w + r.end.x;
+      if (!seen.has(k)) {
+        seen.add(k);
+        queue.push(r.end);
+      }
+    }
   }
   return false;
 }
@@ -224,9 +313,11 @@ function beauty(grid: Grid, m: Mask | null): number {
         run = 0;
       }
     }
+  let curveCount = 0;
+  for (const row of grid) for (const v of row) if (isCurve(v)) curveCount++;
   // Mostly one-wide corridors; a few wider spots are fine, slabs are not.
   if (blobs > floor * 0.18) return -1e9;
-  let score = -stubs * 2.5 - blobs * 2.5 + Math.min(junctions, 14) * 2.5 + Math.min(turns, 24) * 1.2 - longRuns * 2.5;
+  let score = Math.min(curveCount, 8) * 4 - stubs * 2.5 - blobs * 2.5 + Math.min(junctions, 14) * 2.5 + Math.min(turns, 24) * 1.2 - longRuns * 2.5;
   if (!m) score -= Math.abs(floor / ((w - 2) * (h - 2)) - 0.56) * 90;
   if (m) {
     // Picture: how much of the silhouette's edge is floor (the outline is
@@ -358,7 +449,7 @@ const count = Number(process.argv[2] ?? 200);
 const out: string[] = [];
 const enc = (c: Candidate, bonus: boolean) => {
   const rows = c.grid.map((row, y) =>
-    row.map((v, x) => (x === c.start.x && y === c.start.y ? 'o' : v === 1 ? '#' : v === STOPPER ? '*' : '.')).join(''),
+    row.map((v, x) => (x === c.start.x && y === c.start.y ? 'o' : v === 1 ? '#' : v === STOPPER ? '*' : isCurve(v) ? 'abcd'[v - CURVE_TL] : v === SAW ? 'x' : '.')).join(''),
   );
   return `${c.name}|${bonus ? 1 : 0}|${c.par}|${rows.join('/')}`;
 };
@@ -373,8 +464,39 @@ for (let n = FIRST + 1; n <= count; n++) {
   const rule = { neverStuck: bonus || n < 30, parMin, parMax: parMin + 6, maxTiles: Math.round(40 + t * 34), minTiles: Math.round(26 + t * 18) };
   let c: Candidate | null = null;
   const isPicture = !bonus && (n % 7 === 3 || n === 9);
-  const isRoom = !bonus && !isPicture && n >= 12 && n % 4 === 0;
-  if (isPicture) {
+  const isCurves = !bonus && !isPicture && n >= 22 && n % 6 === 4;
+  const isSaws = !bonus && !isPicture && !isCurves && n >= 35 && n % 6 === 1;
+  const isRoom = !bonus && !isPicture && !isCurves && n >= 12 && n % 4 === 0;
+  if (isSaws) {
+    // Saw levels: blades wait at the ends of corridors; the route has to
+    // stop short of them.
+    const w = 8 + Math.round(t * 3);
+    const h = 9 + Math.round(t * 3);
+    const frame = FRAMES[(n * 7) % FRAMES.length];
+    for (let attempt = 0; attempt < 3 && !c; attempt++)
+      c = search(n * 7177 + 5 + attempt, 3000, (rng) => {
+        const mirror = rng() < 0.7;
+        const g = carve(rng, frame.f(w, h), mirror, 0.55 + rng() * 0.15);
+        if (!g) return null;
+        if (!addSaws(rng, g.grid, mirror, 1 + (rng() < 0.4 ? 1 : 0))) return null;
+        if (n >= 90 && rng() < 0.5) addCurves(rng, g.grid, g.start, mirror, 0.3);
+        return sawIsLive(g.grid, g.start) ? g : null;
+      }, { ...rule, neverStuck: false, parMin: rule.parMin - 2 }, null, 'Saws');
+  } else if (isCurves) {
+    // Corner-push levels: curves swing the ball round corners, so routes
+    // that used to stop at a corner now carry on.
+    const w = 8 + Math.round(t * 3);
+    const h = 9 + Math.round(t * 3);
+    const frame = n < 30 ? FRAMES[0] : FRAMES[(n * 3) % FRAMES.length];
+    let curves = 0;
+    for (let attempt = 0; attempt < 3 && !c; attempt++)
+      c = search(n * 31337 + 9 + attempt, 3500, (rng) => {
+        const g = carve(rng, frame.f(w, h), rng() < 0.75, 0.55 + rng() * 0.15);
+        if (!g) return null;
+        curves = addCurves(rng, g.grid, g.start, true, 0.3 + rng() * 0.5);
+        return curves >= 2 ? g : null;
+      }, { ...rule, parMin: n < 30 ? 4 : rule.parMin - 3, parMax: rule.parMax + 2 }, null, 'Curves');
+  } else if (isPicture) {
     const p = PICTURES[pic++ % PICTURES.length];
     const ring = outline(p.m);
     c = search(n * 7919 + 13, 2500, (rng) => {

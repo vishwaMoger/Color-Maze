@@ -1,7 +1,8 @@
 // Grid rules shared by the game, the hint system and the level tools.
 // A grid is rows of cells: 1 = wall, 0 = floor, 2 = stopper (floor that the
-// ball halts on). The ball slides until the next cell is a wall or it rolls
-// onto a stopper, painting every floor cell it passes.
+// ball halts on), 3-6 = curved corners that turn the ball 90 degrees, 7 = a
+// saw blade (sliding into it is fatal). The ball slides until the next cell
+// is a wall or it rolls onto a stopper, painting every floor cell it passes.
 
 export type Grid = number[][];
 export interface Point {
@@ -21,6 +22,27 @@ export const DIR_LIST: Dir[] = ['U', 'D', 'L', 'R'];
 export const WALL = 1;
 export const STOPPER = 2;
 
+/**
+ * Curved corner tiles, named by the corner the curve sits in (its two
+ * closed sides). A ball entering through an open side follows the curve
+ * out of the other open side: e.g. the top-left curve turns a ball moving
+ * left to move down, and one moving up to move right.
+ */
+export const CURVE_TL = 3;
+export const CURVE_TR = 4;
+export const CURVE_BL = 5;
+export const CURVE_BR = 6;
+export const CURVES: Record<number, Partial<Record<Dir, Dir>>> = {
+  [CURVE_TL]: { L: 'D', U: 'R' },
+  [CURVE_TR]: { R: 'D', U: 'L' },
+  [CURVE_BL]: { L: 'U', D: 'R' },
+  [CURVE_BR]: { R: 'U', D: 'L' },
+};
+export const isCurve = (c: number | undefined) => c !== undefined && c >= CURVE_TL && c <= CURVE_BR;
+
+/** A spinning saw in a notch of the wall: rolling into it ends the attempt. */
+export const SAW = 7;
+
 export interface Level {
   grid: Grid;
   start: Point;
@@ -32,26 +54,57 @@ export interface Level {
 
 export function isFloor(grid: Grid, x: number, y: number): boolean {
   const c = grid[y]?.[x];
-  return c === 0 || c === STOPPER;
+  return c === 0 || c === STOPPER || isCurve(c);
 }
 
-export function slide(grid: Grid, from: Point, dir: Dir): { end: Point; path: Point[] } {
-  const d = DIRS[dir];
+export interface SlideResult {
+  end: Point;
+  /** Cells passed through, in order (the last one is `end`). */
+  path: Point[];
+  /** Direction of travel when the ball stopped. */
+  dir: Dir;
+  /** Indices into `path` where a curve turned the ball. */
+  turns: number[];
+  /** The slide ends in a saw blade (the saw cell is not in `path`). */
+  saw?: Point;
+}
+
+export function slide(grid: Grid, from: Point, dir: Dir): SlideResult {
+  let d = DIRS[dir];
   let x = from.x;
   let y = from.y;
   const path: Point[] = [];
-  while (isFloor(grid, x + d.x, y + d.y)) {
-    x += d.x;
-    y += d.y;
+  const turns: number[] = [];
+  const seen = new Set<string>();
+  for (;;) {
+    const nx = x + d.x;
+    const ny = y + d.y;
+    if (grid[ny]?.[nx] === SAW) return { end: { x, y }, path, dir, turns, saw: { x: nx, y: ny } };
+    if (!isFloor(grid, nx, ny)) break;
+    const c = grid[ny][nx];
+    const out = isCurve(c) ? CURVES[c][dir] : undefined;
+    // A curve's closed sides act like walls.
+    if (isCurve(c) && !out) break;
+    x = nx;
+    y = ny;
     path.push({ x, y });
-    if (grid[y][x] === STOPPER) break;
+    if (c === STOPPER) break;
+    if (out) {
+      // Curves in a ring could loop forever: stop if we come round again.
+      const k = `${x},${y},${out}`;
+      if (seen.has(k)) break;
+      seen.add(k);
+      turns.push(path.length - 1);
+      dir = out;
+      d = DIRS[dir];
+    }
   }
-  return { end: { x, y }, path };
+  return { end: { x, y }, path, dir, turns };
 }
 
 export function floorCount(grid: Grid): number {
   let n = 0;
-  for (const row of grid) for (const c of row) if (c !== WALL) n++;
+  for (const row of grid) for (const c of row) if (c !== WALL && c !== SAW) n++;
   return n;
 }
 
@@ -74,7 +127,7 @@ export function analyze(grid: Grid, start: Point): Analysis {
     const p = queue.shift()!;
     for (const dir of DIR_LIST) {
       const r = slide(grid, p, dir);
-      if (!r.path.length) continue;
+      if (!r.path.length || r.saw) continue;
       for (const c of r.path) covered.add(key(c));
       const to = key(r.end);
       if (!reverse.has(to)) reverse.set(to, []);
@@ -118,7 +171,7 @@ export function solve(
   const index = new Map<number, number>();
   grid.forEach((row, y) =>
     row.forEach((c, x) => {
-      if (c !== WALL) index.set(y * w + x, index.size);
+      if (c !== WALL && c !== SAW) index.set(y * w + x, index.size);
     }),
   );
   const full = (1n << BigInt(index.size)) - 1n;
@@ -137,7 +190,7 @@ export function solve(
     const p = { x: cell % w, y: Math.floor(cell / w) };
     for (const dir of DIR_LIST) {
       const r = slide(grid, p, dir);
-      if (!r.path.length) continue;
+      if (!r.path.length || r.saw) continue;
       let bits = 0n;
       for (const c of r.path) bits |= bit(c.y * w + c.x);
       list.push({ dir, end: r.end.y * w + r.end.x, bits });
@@ -182,13 +235,19 @@ export function solve(
   return null;
 }
 
-/** Parse rows where '#' is wall, '.' floor, '*' a stopper and 'o' the start. */
+/** Characters for curved corners in level text: a=TL, b=TR, c=BL, d=BR. */
+export const CURVE_CHARS: Record<string, number> = { a: CURVE_TL, b: CURVE_TR, c: CURVE_BL, d: CURVE_BR, x: SAW };
+
+/**
+ * Parse rows where '#' is wall, '.' floor, '*' a stopper, 'o' the start,
+ * a-d curved corners and 'x' a saw.
+ */
 export function parseLevel(rows: string[], extra: Partial<Level> = {}): Level {
   let start: Point | null = null;
   const grid = rows.map((row, y) =>
     [...row].map((ch, x) => {
       if (ch === 'o') start = { x, y };
-      return ch === '#' ? WALL : ch === '*' ? STOPPER : 0;
+      return ch === '#' ? WALL : ch === '*' ? STOPPER : CURVE_CHARS[ch] ?? 0;
     }),
   );
   if (!start) throw new Error('level has no start');
