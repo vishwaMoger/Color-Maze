@@ -44,6 +44,8 @@ export interface ShopItem {
   unlock: number;
   /** CSS for the preview swatch. */
   preview: string;
+  /** CSS for the tile's own background (ball tiles). */
+  bg?: string;
   kind: 'ball' | 'paint' | 'board';
 }
 
@@ -141,6 +143,7 @@ export class Hud {
       this.open('shop');
     });
     on('btn-settings', () => this.open('settings'));
+    this.startIdleZap();
     on('btn-league-info', () => ($('league-help').hidden = !$('league-help').hidden));
     on('btn-free-coins', a.freeCoins);
     on('btn-league', () => {
@@ -260,16 +263,26 @@ export class Hud {
     this.levelLabel.textContent = bonus ? `Bonus level ${n}` : `Level ${n}`;
     this.levelLabel.classList.toggle('bonus', bonus);
     // Five stops per group, the fifth is the bonus level. Finished stops
-    // join into one bar; the current one is a dot; the bonus is a ring.
+    // are fat bubbles joined by pinched necks (like the original); the
+    // current stop is a dot, the bonus a ring.
     const at = (n - 1) % 5;
-    const xs = [9, 27, 46, 65, 83];
-    let svg = '<rect class="track" x="1" y="1" width="90" height="14" rx="7" />';
-    if (at > 0) svg += `<rect class="done" x="${xs[0] - 5}" y="4" width="${xs[at - 1] - xs[0] + 10}" height="8" rx="4" />`;
+    const xs = [12, 31, 50, 69, 88];
+    const cy = 11;
+    const R = 7.2;
+    let svg = '<rect class="track" x="1" y="1" width="98" height="20" rx="10" />';
+    const k = Math.cos(Math.PI / 4.2);
+    const sn = Math.sin(Math.PI / 4.2);
+    for (let i = 0; i + 1 < at; i++) {
+      const a0 = xs[i] + R * k;
+      const b0 = xs[i + 1] - R * k;
+      const mid = (xs[i] + xs[i + 1]) / 2;
+      svg += `<path class="done" d="M${a0} ${cy - R * sn}Q${mid} ${cy - 2.4} ${b0} ${cy - R * sn}L${b0} ${cy + R * sn}Q${mid} ${cy + 2.4} ${a0} ${cy + R * sn}Z" />`;
+    }
     xs.forEach((x, i) => {
-      if (i < at) svg += `<circle class="done" cx="${x}" cy="8" r="5.2" />`;
-      else if (i === at) svg += `<circle class="${i === 4 ? 'bonus now' : 'now'}" cx="${x}" cy="8" r="${i === 4 ? 4.6 : 4}" />`;
-      else if (i === 4) svg += `<circle class="bonus" cx="${x}" cy="8" r="4.2" />`;
-      else svg += `<circle class="next" cx="${x}" cy="8" r="3.2" />`;
+      if (i < at) svg += `<circle class="done" cx="${x}" cy="${cy}" r="${R}" />`;
+      else if (i === at) svg += i === 4 ? `<circle class="bonus now" cx="${x}" cy="${cy}" r="5.6" />` : `<circle class="now" cx="${x}" cy="${cy}" r="4.4" />`;
+      else if (i === 4) svg += `<circle class="bonus" cx="${x}" cy="${cy}" r="5" />`;
+      else svg += `<circle class="next" cx="${x}" cy="${cy}" r="3.4" />`;
     });
     this.chain.innerHTML = svg;
     // The bonus reward above the bar fills in as the group progresses.
@@ -380,16 +393,24 @@ export class Hud {
   }
 
   setStreak(n: number, bump = false) {
-    $('streak-count').textContent = String(n);
     const b = $('btn-streak');
     b.classList.toggle('lit', n >= 1);
     b.classList.toggle('hot', n >= 3);
     b.classList.toggle('blaze', n >= 5);
-    if (bump) {
-      b.classList.remove('bump', 'snuff');
-      void b.offsetWidth;
+    if (!bump) {
+      $('streak-count').textContent = String(n);
+      return;
+    }
+    // Charging: the flame drops, electricity crackles around the can, the
+    // flame surges back up and the new number pops in.
+    b.classList.remove('bump', 'snuff', 'charge');
+    void b.offsetWidth;
+    b.classList.add('charge');
+    this.zap(900, true);
+    window.setTimeout(() => {
+      $('streak-count').textContent = String(n);
+      b.classList.remove('charge');
       b.classList.add('bump');
-      // Shockwave, a ring of sparks and a floating +1.
       const fx: HTMLElement[] = [];
       const add = (cls: string, style = '', text = '') => {
         const el = document.createElement('span');
@@ -400,10 +421,72 @@ export class Hud {
         fx.push(el);
       };
       add('ring');
-      for (let i = 0; i < 12; i++) add('spark', `--a:${i * 30 + Math.random() * 14}deg;--d:${34 + Math.random() * 24}px;animation-delay:${Math.random() * 60}ms`);
+      for (let i = 0; i < 12; i++) add('spark', `--a:${i * 30 + Math.random() * 14}deg;--d:${30 + Math.random() * 22}px;animation-delay:${Math.random() * 60}ms`);
       add('plus', '', '+1');
       window.setTimeout(() => fx.forEach((el) => el.remove()), 1100);
-    }
+    }, 650);
+  }
+
+  private zapTimer = 0;
+  private idleZap = 0;
+
+  /**
+   * Lightning around the streak can: jagged bolts redrawn every few frames
+   * between points on the can's edge and the air around it.
+   */
+  zap(ms: number, strong: boolean) {
+    const g = $('zap-bolts');
+    const b = $('btn-streak');
+    const blue = b.classList.contains('blaze');
+    window.clearInterval(this.zapTimer);
+    const end = performance.now() + ms;
+    const bolt = () => {
+      // From a point on the can outline to a point outside it.
+      const side = Math.floor(Math.random() * 4);
+      const pt = (out: number): [number, number] => {
+        const t = Math.random();
+        if (side === 0) return [-out, 10 + t * 30];
+        if (side === 1) return [34 + out, 10 + t * 30];
+        if (side === 2) return [4 + t * 26, -out];
+        return [4 + t * 26, 46 + out];
+      };
+      const [x0, y0] = pt(-2);
+      const [x1, y1] = pt(5 + Math.random() * 9);
+      let d = `M${x0.toFixed(1)} ${y0.toFixed(1)}`;
+      const n = 5;
+      for (let i = 1; i <= n; i++) {
+        const t = i / n;
+        const jx = i === n ? 0 : (Math.random() - 0.5) * 6;
+        const jy = i === n ? 0 : (Math.random() - 0.5) * 6;
+        d += `L${(x0 + (x1 - x0) * t + jx).toFixed(1)} ${(y0 + (y1 - y0) * t + jy).toFixed(1)}`;
+      }
+      return d;
+    };
+    const flick = () => {
+      if (performance.now() > end) {
+        window.clearInterval(this.zapTimer);
+        g.innerHTML = '';
+        return;
+      }
+      const count = strong ? 4 + Math.floor(Math.random() * 3) : 1 + Math.floor(Math.random() * 2);
+      let html = '';
+      for (let i = 0; i < count; i++) {
+        const d = bolt();
+        html += `<path class="glow${blue ? ' blue' : ''}" d="${d}"/><path class="core" d="${d}"/>`;
+      }
+      g.innerHTML = Math.random() < 0.15 ? '' : html;
+    };
+    flick();
+    this.zapTimer = window.setInterval(flick, 55);
+  }
+
+  /** Occasional crackle while the streak is hot. */
+  private startIdleZap() {
+    window.clearInterval(this.idleZap);
+    this.idleZap = window.setInterval(() => {
+      const b = $('btn-streak');
+      if (b.classList.contains('hot') && !document.hidden && Math.random() < 0.6) this.zap(260 + Math.random() * 200, false);
+    }, 2600);
   }
 
   /** The streak is gone: the flame snuffs out in a puff of smoke. */
@@ -477,12 +560,13 @@ export class Hud {
       const b = document.createElement('button');
       b.className = `tile ${it.kind}${locked ? ' locked' : ''}${it.id === equipped ? ' on' : ''}`;
       b.setAttribute('aria-label', `${it.name}${locked ? `, unlocks at level ${it.unlock}` : ''}`);
+      if (it.bg) b.setAttribute('style', it.bg);
       b.innerHTML = `<span class="swatch" style="${it.preview}"></span>${
         locked
           ? `<span class="chip">${Math.min(this.unlockedTo, it.unlock)}/${it.unlock} lvls</span><span class="lockb"></span>`
           : it.id === equipped
             ? '<span class="tick"></span>'
-            : ''
+            : '<span class="chip apply">Apply</span>'
       }`;
       b.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -933,65 +1017,128 @@ export class Hud {
    * Weekly league table that opens on your old rank, then slides your row up
    * past the players you overtook while they shift down.
    */
+  /**
+   * League climb, after the original: your row lifts out of the list (big,
+   * glowing border, light sweep), rises past the players you overtook while
+   * the rank counts down, trailing sparkles, then lands with a bounce and a
+   * burst. Rows you pass drop down one place.
+   */
   leagueClimb(before: LeagueRow[], after: LeagueRow[], left: string, onDone: () => void, onTick: () => void) {
     const scr = $('climb');
-    const list = $('climb-list');
+    const view = $('climb-view');
+    const inner = $('climb-list');
+    const you = $('climb-you');
+    const gain = $('climb-gain');
     $('climb-left').textContent = left;
-    const rowH = 54;
-    list.innerHTML = '';
-    const inner = document.createElement('div');
-    inner.className = 'climb-inner';
-    inner.style.height = `${after.length * rowH}px`;
-    list.appendChild(inner);
-    const youBefore = before.findIndex((r) => r.you);
-    const youAfter = after.findIndex((r) => r.you);
-    const els = new Map<string, HTMLElement>();
-    before.forEach((r, i) => {
-      const li = document.createElement('div');
-      li.className = `crow${r.you ? ' you' : ''}`;
-      li.style.transform = `translateY(${i * rowH}px)`;
-      li.innerHTML = `<span class="pos">${i + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i>★</i></span>`;
-      inner.appendChild(li);
-      els.set(r.you ? '@you' : r.name, li);
+    const tiers = ['bronze', 'silver', 'gold', 'ruby', 'emerald', 'diamond'];
+    $('climb-tiers').innerHTML = tiers.map((t, i) => `<span class="tier ${t}${i === 0 ? ' now' : ''}"><i class="ico ico-trophy"></i>${i === 1 ? '<i class="ico ico-gift tgift"></i>' : ''}</span>`).join('');
+    const from = before.findIndex((r) => r.you);
+    const to = after.findIndex((r) => r.you);
+    const meBefore = before[from];
+    const meAfter = after[to];
+    const others = after.filter((r) => !r.you);
+    const rowH = 48;
+    const rowHtml = (r: LeagueRow, rank: number) =>
+      `<span class="pos">#${rank + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
+    inner.innerHTML = '';
+    const rows = others.map((r) => {
+      const el = document.createElement('div');
+      el.className = 'crow';
+      inner.appendChild(el);
+      return { r, el };
     });
+    you.innerHTML = rowHtml(meBefore, from);
+    you.className = 'climb-you';
+    gain.hidden = true;
     scr.hidden = false;
     requestAnimationFrame(() => scr.classList.add('show'));
-    const viewH = () => list.clientHeight;
-    list.scrollTop = Math.max(0, youBefore * rowH - viewH() / 2 + rowH / 2);
-    const startScroll = list.scrollTop;
-    const endScroll = Math.max(0, youAfter * rowH - viewH() / 2 + rowH / 2);
-    window.setTimeout(() => {
-      const you = els.get('@you')!;
-      you.classList.add('lift');
-      after.forEach((r, i) => {
-        const el = els.get(r.you ? '@you' : r.name)!;
-        el.style.transform = `translateY(${i * rowH}px)`;
-        el.querySelector('.pos')!.textContent = String(i + 1);
-        if (r.you) el.querySelector('.score')!.innerHTML = `${r.stars}<i>★</i>`;
+
+    // Particles drawn on a canvas over the screen, additively.
+    const fx = new ClimbFx($<HTMLCanvasElement>('climb-fx'));
+    let gap = -1;
+    const place = (rank: number) => {
+      // Others sit in order with a gap at your current rank.
+      const g = Math.round(rank);
+      if (g === gap) return;
+      gap = g;
+      rows.forEach(({ r, el }, i) => {
+        const at = i >= g ? i + 1 : i;
+        el.style.transform = `translateY(${at * rowH}px)`;
+        el.innerHTML = rowHtml(r, at);
       });
-      const t0 = performance.now();
-      let lastRank = youBefore;
-      const scroll = (now: number) => {
-        const p = Math.min(1, (now - t0) / 1100);
-        const e = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
-        list.scrollTop = startScroll + (endScroll - startScroll) * e;
-        const rank = Math.round(youBefore + (youAfter - youBefore) * e);
-        if (rank !== lastRank) {
-          lastRank = rank;
+    };
+    const layout = (rank: number) => {
+      const vh = view.clientHeight;
+      const total = (others.length + 1) * rowH;
+      const scroll = Math.max(0, Math.min(total - vh, rank * rowH - vh / 2 + rowH / 2));
+      inner.style.transform = `translateY(${-scroll}px)`;
+      const y = rank * rowH - scroll;
+      you.style.transform = `translateY(${y}px)`;
+      return y;
+    };
+    place(from);
+    for (const { el } of rows) el.style.transition = 'none';
+    layout(from);
+    requestAnimationFrame(() => {
+      for (const { el } of rows) el.style.transition = '';
+    });
+
+    let alive = true;
+    const climbMs = from === to ? 0 : Math.min(2600, 700 + 160 * (from - to));
+    const tLift = 550;
+    const t0 = performance.now();
+    let lastRank = from;
+    let landed = false;
+    const frame = (now: number) => {
+      if (!alive) return;
+      const t = now - t0;
+      const vr = view.getBoundingClientRect();
+      let rank = from;
+      if (t > tLift) {
+        you.classList.add('lift');
+        const p = climbMs ? Math.min(1, (t - tLift) / climbMs) : 1;
+        const e = p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
+        rank = from + (to - from) * e;
+        const r = Math.round(rank);
+        if (r !== lastRank) {
+          lastRank = r;
+          you.querySelector('.pos')!.textContent = `#${r + 1}`;
           onTick();
         }
-        if (p < 1) requestAnimationFrame(scroll);
-        else you.classList.remove('lift');
-      };
-      requestAnimationFrame(scroll);
-    }, 650);
+        place(rank);
+        if (p >= 1 && !landed && t > tLift + Math.max(climbMs, 450)) {
+          landed = true;
+          you.innerHTML = rowHtml(meAfter, to);
+          you.classList.remove('lift');
+          you.classList.add('land');
+          const y = vr.top + layout(to) + rowH / 2;
+          fx.burst(vr.left + vr.width / 2, y, vr.width);
+          if (from > to) {
+            gain.innerHTML = `<i class="up"></i>${from - to} place${from - to > 1 ? 's' : ''} up!`;
+            gain.hidden = false;
+          } else {
+            gain.innerHTML = 'Keep painting to climb!';
+            gain.hidden = false;
+          }
+        }
+      }
+      const y = vr.top + layout(rank) + rowH / 2;
+      // Sparkles stream off the lifted row while it rises.
+      if (you.classList.contains('lift')) fx.trail(vr.left + 6, vr.right - 6, y, rowH, to < from ? 1 : 0.4);
+      fx.step();
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+
     const close = () => {
       scr.removeEventListener('click', close);
+      alive = false;
+      fx.clear();
       scr.classList.remove('show');
       window.setTimeout(() => (scr.hidden = true), 250);
       onDone();
     };
-    window.setTimeout(() => scr.addEventListener('click', close), 900);
+    window.setTimeout(() => scr.addEventListener('click', close), tLift + climbMs + 500);
   }
 
   // ------------------------------------------------------------ new item
@@ -1027,5 +1174,122 @@ export class Hud {
     $('unlocked-swatch').setAttribute('style', preview);
     this.onUnlockEquip = onEquip;
     this.open('unlocked');
+  }
+}
+
+/**
+ * Canvas particles for the league climb: glowing four-point sparkles and
+ * soft orbs, drawn additively so they read as light.
+ */
+class ClimbFx {
+  private readonly ctx: CanvasRenderingContext2D;
+  private parts: { x: number; y: number; vx: number; vy: number; r: number; life: number; max: number; c: string; star: boolean; rot: number }[] = [];
+  private last = performance.now();
+  private readonly dpr = Math.min(2, window.devicePixelRatio || 1);
+
+  constructor(private readonly cv: HTMLCanvasElement) {
+    this.ctx = cv.getContext('2d')!;
+    cv.width = Math.round(innerWidth * this.dpr);
+    cv.height = Math.round(innerHeight * this.dpr);
+  }
+
+  private static COLORS = ['#ffffff', '#ffe27a', '#ff9ad5', '#c4a6ff', '#8ff0ff'];
+
+  trail(x0: number, x1: number, y: number, h: number, rate: number) {
+    for (let i = 0; i < 3 * rate; i++) {
+      const side = Math.random();
+      const onEdge = Math.random() < 0.6;
+      this.parts.push({
+        x: onEdge ? (side < 0.5 ? x0 : x1) + (Math.random() - 0.5) * 8 : x0 + Math.random() * (x1 - x0),
+        y: y + (onEdge ? (Math.random() - 0.5) * h : (Math.random() < 0.5 ? -1 : 1) * h * 0.5),
+        vx: (Math.random() - 0.5) * 60,
+        vy: 40 + Math.random() * 90,
+        r: 2 + Math.random() * 4,
+        life: 0,
+        max: 500 + Math.random() * 500,
+        c: ClimbFx.COLORS[Math.floor(Math.random() * ClimbFx.COLORS.length)],
+        star: Math.random() < 0.55,
+        rot: Math.random() * 3,
+      });
+    }
+  }
+
+  burst(x: number, y: number, w: number) {
+    for (let i = 0; i < 70; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 120 + Math.random() * 380;
+      this.parts.push({
+        x: x + (Math.random() - 0.5) * w * 0.8,
+        y,
+        vx: Math.cos(a) * v,
+        vy: Math.sin(a) * v * 0.7 - 80,
+        r: 2.5 + Math.random() * 5.5,
+        life: 0,
+        max: 700 + Math.random() * 700,
+        c: ClimbFx.COLORS[i % ClimbFx.COLORS.length],
+        star: i % 2 === 0,
+        rot: Math.random() * 3,
+      });
+    }
+  }
+
+  step() {
+    const now = performance.now();
+    const dt = Math.min(50, now - this.last) / 1000;
+    this.last = now;
+    const { ctx, dpr } = this;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.cv.width, this.cv.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    this.parts = this.parts.filter((p) => {
+      p.life += dt * 1000;
+      const t = p.life / p.max;
+      if (t >= 1) return false;
+      p.vx *= Math.exp(-dt * 2);
+      p.vy = p.vy * Math.exp(-dt * 2) + 60 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rot += dt * 3;
+      const a = (1 - t) * (t < 0.1 ? t / 0.1 : 1);
+      const r = p.r * (1 - t * 0.4);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3);
+      g.addColorStop(0, p.c);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = a * 0.5;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.c;
+      if (p.star) {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.beginPath();
+        for (let k = 0; k < 8; k++) {
+          const rr = k % 2 === 0 ? r * 1.8 : r * 0.4;
+          const ang = (k / 8) * Math.PI * 2;
+          ctx.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return true;
+    });
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  clear() {
+    this.parts = [];
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.clearRect(0, 0, this.cv.width, this.cv.height);
   }
 }

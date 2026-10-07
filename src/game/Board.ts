@@ -19,7 +19,7 @@ import {
   type Point,
 } from '../levels/core.ts';
 import { iconImage } from './assets.ts';
-import { dilate, fillRoundedCells, makeCanvas, softBlur, tint } from './shape.ts';
+import { dilate, fillRoundedCells, makeCanvas, softBlur, texture, tint } from './shape.ts';
 import { paintGloss, type PaintGloss } from './shaders.ts';
 import type { Theme } from './themes.ts';
 
@@ -112,6 +112,22 @@ function roundedCell(g: Graphics, x: number, y: number, cell: number, r: number,
   if (tl) g.arcTo(x0, y0, x0 + r, y0, r);
   g.closePath();
 }
+
+/** Stud positions on a stopper tile, in cell units. */
+const STUD_POS = [
+  [0.22, 0.22],
+  [0.78, 0.22],
+  [0.22, 0.78],
+  [0.78, 0.78],
+];
+
+interface Grip {
+  at: number;
+  studs: { s: Sprite; x0: number; y0: number; cx: number; cy: number }[];
+}
+
+/** How long fresh paint takes to flow out and fill its tile (ms). */
+export const SPREAD_MS = 280;
 
 const TRAIL_W = 256;
 const TRAIL_H = 64;
@@ -252,6 +268,8 @@ const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 export interface PaintStroke {
   /** Cells painted, keyed y*w+x, with the time they were painted (ms). */
   painted: Map<number, number>;
+  /** Travel axis each tile was painted along: 0 across, 1 down, 2 both. */
+  axis?: Map<number, number>;
   /** Ball centre in cell units while a slide is in progress. */
   active?: { from: Point; pos: { x: number; y: number } };
   /** Wet splatter on fresh paint; each speck dries away over about a second. */
@@ -277,10 +295,21 @@ export class Board extends Container {
   private readonly saws: Sprite[] = [];
   private sawAngle = 0;
   private sawHitAt = -1e9;
+  private readonly studLayer = new Container();
+  private readonly studFront = new Container();
+  private readonly grips = new Map<number, Grip>();
 
   private readonly portals: { s: Sprite; dir: number }[] = [];
   private readonly pickups = new Map<number, { s: Sprite; glow: Graphics; base: number; y0: number; at: number }>();
   private lastTime = 0;
+
+  /** Where the board sits on screen, so paint patterns stay attached. */
+  setPaintSpace(x: number, y: number, cellPx: number) {
+    if (!this.gloss) return;
+    this.gloss.uniforms.uBoard[0] = x;
+    this.gloss.uniforms.uBoard[1] = y;
+    this.gloss.uniforms.uCell = cellPx;
+  }
 
   /** A coin or key was collected from this tile. */
   pickup(p: Point) {
@@ -385,16 +414,22 @@ export class Board extends Container {
    * floor reads as evenly laid tiles.
    */
   private drawGrout(ctx: CanvasRenderingContext2D, color: string, c: number, off: number, gap: number) {
+    // Lines sit on whole device pixels so they stay crisp and never fade
+    // out between two pixel columns.
     ctx.fillStyle = color;
+    const half = Math.floor(gap / 2);
     for (let y = 0; y < this.rows; y++)
       for (let x = 0; x < this.cols; x++) {
         if (!this.isFloor(x, y)) continue;
-        const x0 = off + x * c;
-        const y0 = off + y * c;
-        if (this.isFloor(x + 1, y)) ctx.fillRect(x0 + c - gap / 2, y0, gap, c);
-        if (this.isFloor(x, y + 1)) ctx.fillRect(x0, y0 + c - gap / 2, c, gap);
+        const x0 = Math.round(off + x * c);
+        const y0 = Math.round(off + y * c);
+        const x1 = Math.round(off + (x + 1) * c);
+        const y1 = Math.round(off + (y + 1) * c);
+        if (this.isFloor(x + 1, y)) ctx.fillRect(x1 - half, y0, gap, y1 - y0);
+        if (this.isFloor(x, y + 1)) ctx.fillRect(x0, y1 - half, x1 - x0, gap);
       }
   }
+
 
   private build() {
     const { cols, rows, theme } = this;
@@ -425,14 +460,21 @@ export class Board extends Container {
       '#fff',
     );
     const surfaceMask = dilate(slab, c * 0.85);
-    // Soft blend into the page, kept out of any surface effect (caustics).
-    this.addChild(this.sprite(softBlur(tint(surfaceMask, theme.wallTop), c * 0.5)));
+    // A wooden board is a frame of its own, set on the page with a soft
+    // shadow; other wall tops are the page itself and blend softly into it.
+    const framed = theme.texture === 'wood';
+    // Wide enough that frames around neighbouring arms close up.
+    const plateMask = dilate(slab, c * (framed ? 0.56 : 0.45));
+    if (framed) {
+      const sh = this.sprite(softBlur(tint(plateMask, '#5a2e10'), c * 0.35));
+      sh.alpha = 0.32;
+      sh.y += c * 0.12 / res;
+      this.addChild(sh);
+    } else this.addChild(this.sprite(softBlur(tint(surfaceMask, theme.wallTop), c * 0.5)));
     const surface = makeCanvas(W, H);
     const sctx = surface.getContext('2d')!;
-    sctx.drawImage(tint(dilate(slab, c * 0.45), theme.wallTop), 0, 0);
-    // Rounded top edge: wall tops darken softly as they curve down to the floor.
-    sctx.drawImage(softBlur(tint(floorMask, theme.bevel), c * 0.24), 0, 0);
-    sctx.drawImage(softBlur(tint(floorMask, theme.bevel), c * 0.1), 0, 0);
+    sctx.drawImage(tint(plateMask, theme.wallTop), 0, 0);
+    if (framed) texture(sctx, 'wood', W, H, c, false);
     this.plate = this.sprite(surface);
     if (theme.caustics) {
       this.caustics = causticFilter();
@@ -452,11 +494,12 @@ export class Board extends Container {
     const floorCanvas = makeCanvas(W, H);
     const fctx = floorCanvas.getContext('2d')!;
     fctx.drawImage(tint(floorMask, theme.floor), 0, 0);
+    if (theme.texture) texture(fctx, theme.texture, W, H, c, true);
     fctx.globalCompositeOperation = 'source-atop';
     // Hairline seams, about one CSS pixel, softened so tiles read as a
     // clean grid rather than a drawn table.
-    const gap = Math.max(1, Math.round(res * 1.0));
-    fctx.globalAlpha = 0.55;
+    const gap = Math.max(1, Math.round(res * 1.1));
+    fctx.globalAlpha = 0.6;
     this.drawGrout(fctx, theme.gridLine, c, off, gap);
     fctx.globalAlpha = 1;
     this.addChild(this.sprite(floorCanvas));
@@ -466,7 +509,12 @@ export class Board extends Container {
     // Paint and its wet speckles get the glossy paint shader.
     const paintBody = new Container();
     paintBody.addChild(this.paintG, this.dotsG);
-    this.gloss = paintGloss(this.cell * 0.14 * res);
+    this.gloss = paintGloss(this.cell * 0.07 * res);
+    this.gloss.uniforms.uMode = theme.paintMode ?? 0;
+    const alt = theme.paintAlt ?? theme.paintLight;
+    this.gloss.uniforms.uAlt[0] = ((alt >> 16) & 255) / 255;
+    this.gloss.uniforms.uAlt[1] = ((alt >> 8) & 255) / 255;
+    this.gloss.uniforms.uAlt[2] = (alt & 255) / 255;
     paintBody.filters = [this.gloss];
     this.paintLayer.addChild(paintBody, this.wetG, this.waveG, paintMask);
     this.paintLayer.mask = paintMask;
@@ -477,34 +525,36 @@ export class Board extends Container {
     gctx.drawImage(floorMask, 0, 0);
     this.gridOver = this.sprite(seams);
     this.addChild(this.paintLayer, this.gridOver);
-    // Stopper studs: four glossy white buttons that stay visible over paint.
+    // Stopper grips: four chunky glossy studs in sockets that stay visible
+    // over the paint and clamp onto the ball when it stops here.
     const studs = makeCanvas(W, H);
     const tctx = studs.getContext('2d')!;
+    const sr = c * 0.125;
+    const studTex = this.studTexture(sr / res, res);
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         if (this.level.grid[y][x] !== STOPPER) continue;
-        for (const [ux, uy] of [
-          [0.33, 0.33],
-          [0.67, 0.33],
-          [0.33, 0.67],
-          [0.67, 0.67],
-        ]) {
+        const grip: Grip = { at: -1e9, studs: [] };
+        for (const [ux, uy] of STUD_POS) {
           const sx = off + (x + ux) * c;
           const sy = off + (y + uy) * c;
-          const r = c * 0.11;
-          tctx.fillStyle = 'rgba(20,10,50,0.35)';
+          // Socket: a soft recess the stud sits in.
+          const rg = tctx.createRadialGradient(sx, sy + sr * 0.15, sr * 0.6, sx, sy + sr * 0.15, sr * 1.45);
+          rg.addColorStop(0, 'rgba(30,14,70,0.34)');
+          rg.addColorStop(1, 'rgba(30,14,70,0)');
+          tctx.fillStyle = rg;
           tctx.beginPath();
-          tctx.ellipse(sx, sy + r * 0.45, r, r * 0.9, 0, 0, Math.PI * 2);
+          tctx.arc(sx, sy + sr * 0.15, sr * 1.45, 0, Math.PI * 2);
           tctx.fill();
-          const sg = tctx.createRadialGradient(sx - r * 0.35, sy - r * 0.4, r * 0.1, sx, sy, r);
-          sg.addColorStop(0, '#ffffff');
-          sg.addColorStop(0.6, '#f2eefc');
-          sg.addColorStop(1, '#c9c1e6');
-          tctx.fillStyle = sg;
-          tctx.beginPath();
-          tctx.arc(sx, sy, r, 0, Math.PI * 2);
-          tctx.fill();
+          const s = new Sprite(studTex);
+          s.anchor.set(0.5);
+          s.scale.set(1 / res);
+          s.position.set((x + ux) * this.cell, (y + uy) * this.cell);
+          // The front pair stands in front of a ball held between them.
+          (uy > 0.5 ? this.studFront : this.studLayer).addChild(s);
+          grip.studs.push({ s, x0: s.x, y0: s.y, cx: (x + 0.5) * this.cell, cy: (y + 0.5) * this.cell });
         }
+        this.grips.set(y * cols + x, grip);
       }
     // Curved corners: a white rounded bracket hugging the closed corner,
     // showing the ball will be swung round it. Drawn above the walls so the
@@ -545,7 +595,7 @@ export class Board extends Container {
         bracket(c * 0.035, 'rgba(20,10,50,0.28)', c * 0.12);
         bracket(0, '#ffffff', c * 0.1);
       }
-    this.addChild(this.sprite(studs));
+    this.addChild(this.sprite(studs), this.studLayer);
     if (theme.neon) {
       const glow = new Graphics();
       glow.filters = [new BlurFilter({ strength: this.cell * 0.35, quality: 2 })];
@@ -679,7 +729,48 @@ export class Board extends Container {
       }
     this.trail.anchor.set(1, 0.5);
     this.trail.visible = false;
-    this.addChild(this.sawLayer, this.glowG, this.hintG, this.coneG, this.trail, this.fxLayer, this.ballLayer);
+    this.addChild(this.sawLayer, this.glowG, this.hintG, this.coneG, this.trail, this.fxLayer, this.ballLayer, this.studFront);
+  }
+
+  /** The ball stopped on the stopper at (x, y): its studs clamp onto it. */
+  grip(x: number, y: number) {
+    const g = this.grips.get(y * this.cols + x);
+    if (g) g.at = this.lastTime;
+    return !!g;
+  }
+
+  private studTexture(r: number, res: number): Texture {
+    const R = r * res;
+    const S = Math.ceil(R * 3);
+    const cv = makeCanvas(S, S);
+    const ctx = cv.getContext('2d')!;
+    const cx = S / 2;
+    const cy = S / 2 - R * 0.12;
+    // Contact shadow.
+    ctx.fillStyle = 'rgba(25,10,60,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + R * 0.42, R * 1.02, R * 0.92, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Side of the stud, then its domed top.
+    ctx.fillStyle = '#a597d6';
+    ctx.beginPath();
+    ctx.arc(cx, cy + R * 0.16, R, 0, Math.PI * 2);
+    ctx.fill();
+    const top = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.08, cx, cy, R);
+    top.addColorStop(0, '#ffffff');
+    top.addColorStop(0.55, '#f4f0ff');
+    top.addColorStop(1, '#cfc5ef');
+    ctx.fillStyle = top;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 0.94, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath();
+    ctx.ellipse(cx - R * 0.32, cy - R * 0.36, R * 0.3, R * 0.2, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+    const tex = Texture.from(cv);
+    this.textures.push(tex);
+    return tex;
   }
 
   cellCenter(x: number, y: number): Point {
@@ -713,6 +804,16 @@ export class Board extends Container {
         p.s.y = p.y0 - t * this.cell * 0.4;
       }
     }
+    for (const g of this.grips.values()) {
+      const t = (time - g.at) / 380;
+      if (t < 0 || t > 1.2) continue;
+      // Snap in toward the ball, hold, then ease back with a little give.
+      const k = t >= 1 ? 0 : t < 0.18 ? 1 - (1 - t / 0.18) ** 2 : Math.cos(((t - 0.18) / 0.82) * Math.PI * 1.5) * (1 - (t - 0.18) / 0.82);
+      for (const st of g.studs) {
+        st.s.position.set(st.x0 + (st.cx - st.x0) * 0.2 * k, st.y0 + (st.cy - st.y0) * 0.2 * k);
+        st.s.scale.set((1 + 0.2 * Math.max(0, k)) / this.res);
+      }
+    }
     this.drawPaint(time, stroke);
     this.drawGlow(time, remaining);
   }
@@ -725,11 +826,17 @@ export class Board extends Container {
     const wet = this.wetG;
     g.clear();
     wet.clear();
+    const has = (x: number, y: number) => {
+      if (x < 0 || x >= w) return false;
+      const t = stroke.painted.get(y * w + x);
+      return t !== undefined && time >= t;
+    };
+    // Settled paint: tiles whose paint has finished flowing out to the edges.
     const isPainted = (x: number, y: number) => {
       const k = y * w + x;
       if (x < 0 || x >= w || k === stroke.startRound) return false;
       const t = stroke.painted.get(k);
-      return t !== undefined && time >= t;
+      return t !== undefined && time >= t + SPREAD_MS;
     };
     // Painted tiles form one soft blob, like the floor itself: convex corners
     // are rounded and concave corners filleted wherever paint meets unpainted
@@ -739,10 +846,37 @@ export class Board extends Container {
       if (time < t) continue;
       const x = k % w;
       const y = Math.floor(k / w);
+      const age = time - t;
       if (k === stroke.startRound) {
-        const grow = Math.min(1, (time - t) / 200);
+        const grow = Math.min(1, age / 200);
         g.circle((x + 0.53) * cell, (y + 0.55) * cell, half * (0.4 + 0.66 * (1 - (1 - grow) ** 3)));
-      } else roundedCell(g, x, y, cell, r, isPainted);
+        continue;
+      }
+      if (age >= SPREAD_MS) {
+        roundedCell(g, x, y, cell, r, isPainted);
+        continue;
+      }
+      // Fresh paint flows out from under the ball: a narrow wet stream that
+      // swells sideways until it fills the tile, reaching into painted
+      // neighbours along the stroke so the stream stays continuous.
+      const f = age / SPREAD_MS;
+      const e = 1 - (1 - f) ** 3;
+      const wob = 1 + Math.sin(age * 0.045 + k * 1.7) * 0.05 * (1 - f);
+      const hw = half * Math.min(1.02, (0.38 + 0.64 * e) * wob);
+      const axis = stroke.axis?.get(k) ?? 2;
+      const cx = (x + 0.5) * cell;
+      const cy = (y + 0.5) * cell;
+      const reach = r + 0.5;
+      const L = axis !== 1 && has(x - 1, y) ? x * cell - reach : axis === 0 ? x * cell - 0.5 : cx - hw;
+      const R = axis !== 1 && has(x + 1, y) ? (x + 1) * cell + reach : axis === 0 ? (x + 1) * cell + 0.5 : cx + hw;
+      const T = axis !== 0 && has(x, y - 1) ? y * cell - reach : axis === 1 ? y * cell - 0.5 : cy - hw;
+      const B = axis !== 0 && has(x, y + 1) ? (y + 1) * cell + reach : axis === 1 ? (y + 1) * cell + 0.5 : cy + hw;
+      const x0 = axis === 1 ? cx - hw : L;
+      const x1 = axis === 1 ? cx + hw : R;
+      const y0 = axis === 0 ? cy - hw : T;
+      const y1 = axis === 0 ? cy + hw : B;
+      const rr = Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2);
+      g.roundRect(x0, y0, x1 - x0, y1 - y0, rr);
     }
     for (let j = 0; j <= this.rows; j++)
       for (let i = 0; i <= w; i++) {
@@ -773,35 +907,30 @@ export class Board extends Container {
       const age = time - sh.t;
       if (age < 0 || age > 220) continue;
       const a = Math.sin((age / 220) * Math.PI);
-      roundedCell(wet, sh.k % w, Math.floor(sh.k / w), cell, r, isPainted);
-      wet.fill({ color: 0xffffff, alpha: 0.32 * a });
+      // Rounded only where the stroke ends, so the glint runs as one band.
+      roundedCell(wet, sh.k % w, Math.floor(sh.k / w), cell, r, has);
+      wet.fill({ color: 0xffffff, alpha: 0.26 * a });
     }
     if (stroke.active) {
-      // The stroke behind the ball: a band from the slide start to the ball.
+      // The stream pouring out under the ball: a narrow rounded ribbon from
+      // the start of this run to just ahead of the ball, which the tiles
+      // behind it then swell out from.
       const { from, pos } = stroke.active;
       const ax = (from.x + 0.5) * cell;
       const ay = (from.y + 0.5) * cell;
       const bx = (pos.x + 0.5) * cell;
       const by = (pos.y + 0.5) * cell;
-      // Square tail (it joins the painted tiles), rounded head that leads
-      // the ball like a brush stroke.
       const sx = Math.sign(bx - ax);
       const sy = Math.sign(by - ay);
-      const hx = bx + sx * half;
-      const hy = by + sy * half;
-      const tx = ax - sx * half;
-      const ty = ay - sy * half;
-      const x0 = Math.min(tx, hx - sx * r, ax - half);
-      const y0 = Math.min(ty, hy - sy * r, ay - half);
-      const x1 = Math.max(tx, hx - sx * r, ax + half);
-      const y1 = Math.max(ty, hy - sy * r, ay + half);
-      g.rect(x0, y0, x1 - x0, y1 - y0);
-      if (sx || sy) {
-        const len = 2 * r;
-        const rx = sx ? (sx > 0 ? hx - len : hx) : bx - half;
-        const ry = sy ? (sy > 0 ? hy - len : hy) : by - half;
-        g.roundRect(rx, ry, sx ? len : cell, sy ? len : cell, r);
-      }
+      const hw = half * 0.4;
+      const lead = cell * 0.18;
+      const hx = bx + sx * lead;
+      const hy = by + sy * lead;
+      const x0 = Math.min(ax, hx) - hw;
+      const y0 = Math.min(ay, hy) - hw;
+      const x1 = Math.max(ax, hx) + hw;
+      const y1 = Math.max(ay, hy) + hw;
+      g.roundRect(x0, y0, x1 - x0, y1 - y0, hw);
     }
     for (const sp of stroke.splats) {
       const age = time - sp.t;
@@ -815,9 +944,9 @@ export class Board extends Container {
     for (const dot of stroke.dots) {
       const age = time - dot.t;
       if (age < 0) continue;
-      const fade = age < 260 ? 1 : Math.max(0, 1 - (age - 260) / 700);
+      const fade = age < 200 ? 1 : Math.max(0, 1 - (age - 200) / 550);
       if (fade <= 0) continue;
-      d.circle(dot.x, dot.y, dot.r * (0.55 + 0.45 * fade)).fill({ color: theme.paintDark, alpha: 0.95 * fade });
+      d.circle(dot.x, dot.y, dot.r * (0.6 + 0.4 * fade)).fill({ color: theme.paintLight, alpha: 0.85 * fade });
     }
 
     if (this.paintGlow) {

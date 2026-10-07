@@ -5,12 +5,13 @@ import { getLevel } from '../levels/list.ts';
 import { prefetchLevels } from '../levels/prefetch.ts';
 import type { Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
 import { BALL_URLS } from './assets.ts';
-import { BALLS, hexCss, PAINTS } from './cosmetics.ts';
+import { BALLS, PAINTS, PATTERN_MODE } from './cosmetics.ts';
 import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball, renderSphere } from './Ball.ts';
 import { Board, type PaintStroke } from './Board.ts';
 import { rewardedAd } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
+import { camoTile, mazeSwatch, paintSwatch } from './swatches.ts';
 import { boardLight, type BoardLight } from './shaders.ts';
 import { THEMES, type Theme } from './themes.ts';
 
@@ -96,6 +97,16 @@ class Ambient {
   }
 }
 
+/** Camouflage tile colours behind the balls in the shop (base, blobs). */
+const CAMO: [string, string][] = [
+  ['#ffd9ec', '#ffa9d0'],
+  ['#d6f5ff', '#9fdcf5'],
+  ['#e3dcff', '#bfaff7'],
+  ['#dcf8d2', '#a9e69a'],
+  ['#ffe9cc', '#ffc58a'],
+  ['#fff4bf', '#ffe17a'],
+];
+
 export class Game {
   readonly sound = new Sound();
   private readonly save: Save;
@@ -112,6 +123,8 @@ export class Game {
   private floorTotal = 0;
   private pos: Point = { x: 0, y: 0 };
   private painted = new Map<number, number>();
+  /** Which way the paint flowed into each tile (0 across, 1 down, 2 both). */
+  private paintAxis = new Map<number, number>();
   private dots: PaintStroke['dots'] = [];
   private splats: PaintStroke['splats'] = [];
   private introAt = 0;
@@ -214,7 +227,15 @@ export class Game {
 
   private makeLook(): Theme {
     const p = PAINTS.find((x) => x.id === this.save.paint) ?? PAINTS[0];
-    return { ...this.theme, paint: p.paint, paintDark: p.dark, paintLight: p.light, cone: p.cone };
+    return {
+      ...this.theme,
+      paint: p.paint,
+      paintDark: p.dark,
+      paintLight: p.light,
+      cone: p.cone,
+      paintMode: p.pattern ? PATTERN_MODE[p.pattern] : 0,
+      paintAlt: p.alt ?? p.light,
+    };
   }
 
   // ---------------------------------------------------------------- meta
@@ -252,26 +273,30 @@ export class Game {
 
   private shopItems(): Record<ShopTab, ShopItem[]> {
     return {
-      ball: BALLS.map((b) => ({
-        id: b.id,
-        name: b.name,
-        unlock: this.save.owned.includes(b.id) ? 1 : b.unlock,
-        kind: 'ball' as const,
-        preview: `background-image: url(${b.image ? BALL_URLS[b.image] : this.spherePreview(b.id, b.colors!, b.metal)})`,
-      })),
+      ball: BALLS.map((b, i) => {
+        const [base, blob] = CAMO[i % CAMO.length];
+        return {
+          id: b.id,
+          name: b.name,
+          unlock: this.save.owned.includes(b.id) ? 1 : b.unlock,
+          kind: 'ball' as const,
+          bg: `background-image: url(${camoTile(b.id, base, blob)})`,
+          preview: `background-image: url(${b.image ? BALL_URLS[b.image] : this.spherePreview(b.id, b.colors!, b.metal)})`,
+        };
+      }),
       paint: PAINTS.map((p) => ({
         id: p.id,
         name: p.name,
         unlock: this.save.owned.includes(p.id) ? 1 : p.unlock,
         kind: 'paint' as const,
-        preview: `--paint: ${hexCss(p.paint)}; --paint-dark: ${hexCss(p.dark)}`,
+        preview: `background-image: url(${paintSwatch(p)})`,
       })),
       board: THEMES.map((t) => ({
         id: t.id,
         name: t.name,
         unlock: t.unlock,
         kind: 'board' as const,
-        preview: `--slab: ${t.swatch.slab}; --side: ${t.swatch.side}; --floor: ${t.swatch.floor}; --paint: ${t.swatch.paint}`,
+        preview: `background-image: url(${mazeSwatch(t)})`,
       })),
     };
   }
@@ -702,6 +727,7 @@ export class Game {
       const k = this.key(cellP);
       if (!this.painted.has(k)) {
         this.painted.set(k, this.time);
+        this.paintAxis.set(k, sp.turning || this.isCurveAt(cellP) ? 2 : d.x !== 0 ? 0 : 1);
         this.sound.paintTile();
         this.speckle(cellP);
       }
@@ -783,9 +809,13 @@ export class Game {
     if (this.cone) this.cone.endedAt = this.time;
     this.updateRemaining();
     const speed = Math.min(1.3, s.path.length / 6);
-    this.ball.impact(0.6 + speed * 0.5);
-    this.sound.thock(0.6 + speed * 0.4);
-    this.vibrate(8);
+    // Stopped by a stopper's studs: they clamp on, the ball squashes hard
+    // into the grip and lands with a firmer, clickier thud.
+    const gripped = this.board.grip(this.pos.x, this.pos.y);
+    this.ball.impact(0.6 + speed * 0.5 + (gripped ? 0.45 : 0));
+    this.sound.thock(0.6 + speed * 0.4 + (gripped ? 0.3 : 0));
+    if (gripped) this.sound.grip();
+    this.vibrate(gripped ? 16 : 8);
 
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
     const hitX = c.x + d.x * this.cell * 0.45;
@@ -804,6 +834,11 @@ export class Game {
       this.queued = null;
       this.startSlide(q);
     }
+  }
+
+  private isCurveAt(p: Point) {
+    const v = this.level.grid[p.y][p.x];
+    return isCurve(v);
   }
 
   private addDot(x: number, y: number, r: number) {
@@ -869,13 +904,14 @@ export class Game {
   /** Dense wet splatter on a freshly painted tile. */
   private speckle(p: Point) {
     const c = this.cell;
-    const n = 5 + Math.floor(Math.random() * 5);
+    // Fine wet flecks, like the original: small, light and short-lived.
+    const n = 7 + Math.floor(Math.random() * 6);
     for (let i = 0; i < n; i++) {
-      const big = Math.random() < 0.25;
+      const big = Math.random() < 0.12;
       this.dots.push({
         x: (p.x + 0.05 + Math.random() * 0.9) * c,
         y: (p.y + 0.05 + Math.random() * 0.9) * c,
-        r: c * (big ? 0.07 + Math.random() * 0.05 : 0.025 + Math.random() * 0.035),
+        r: c * (big ? 0.04 + Math.random() * 0.025 : 0.014 + Math.random() * 0.02),
         t: this.time + Math.random() * 60,
       });
     }
@@ -1329,6 +1365,7 @@ export class Game {
         g.circle(x - r * 0.3, y - r * 0.35, r * 0.28).fill({ color: 0xffffff, alpha: 0.55 });
       } else if (!this.painted.has(this.key(tp))) {
         this.painted.set(this.key(tp), this.time);
+        this.paintAxis.set(this.key(tp), 2);
         this.speckle(tp);
         this.boardFx.splash(to.x, to.y, 0, -1, 8, this.look.paint, this.cell * 3, this.cell * 0.08, (x, y, rr) => this.addDot(x, y, rr));
         this.boardFx.ring(to.x, to.y, this.cell * 0.6, 0xffffff);
@@ -1393,6 +1430,14 @@ export class Game {
     this.board.scale.set(e.s * v.s * (1 + this.scaleKick * 0.05));
     this.board.rotation = e.rot;
     this.board.position.set(cx + n.x + e.x, cy + n.y + v.dy);
+    // At rest, put the board's corner on a whole device pixel so the tile
+    // lines and edges are razor sharp.
+    if (e.rot === 0 && Math.abs(this.board.scale.x - 1) < 1e-3) {
+      const dpr = this.app.renderer.resolution;
+      const bx = this.board.position.x - this.board.pivot.x;
+      const by = this.board.position.y - this.board.pivot.y;
+      this.board.position.set(Math.round(bx * dpr) / dpr + this.board.pivot.x, Math.round(by * dpr) / dpr + this.board.pivot.y);
+    }
     if (this.completeAt === null) {
       const sweep = (time - this.introSweepAt) / 750;
       if (sweep >= 0 && sweep < 1.5) this.board.drawSweep(sweep, 0.6);
@@ -1428,6 +1473,7 @@ export class Game {
     if (this.dots.length > 40 && time - this.dots[0].t > 1100) this.dots = this.dots.filter((d) => time - d.t < 1100);
     const stroke: PaintStroke = {
       painted: this.painted,
+      axis: this.paintAxis,
       dots: this.dots,
       splats: this.splats,
       startRound: this.moves === 0 && !this.slideState ? this.key(this.level.start) : undefined,
@@ -1451,6 +1497,11 @@ export class Game {
       this.light.uniforms.uLight[0] = (p.x - b.x) * res;
       this.light.uniforms.uLight[1] = (p.y - b.y) * res;
     }
+    {
+      const res = this.app.renderer.resolution;
+      const o = this.board.toGlobal({ x: 0, y: 0 });
+      this.board.setPaintSpace(o.x * res, o.y * res, this.board.cell * this.board.scale.x * res);
+    }
     this.board.update(time, stroke, this.remaining);
     this.boardFx.update(dt);
     this.screenFx.update(rawDt);
@@ -1460,6 +1511,11 @@ export class Game {
   private layoutCache: { cx: number; cy: number } | null = null;
 
   private view = { dy: 0, s: 1, tdy: 0, ts: 1 };
+
+  /** League standings for a given star count (used by tests and the HUD). */
+  leagueRows(stars: number) {
+    return league(this.save.week, stars).rows;
+  }
 
   /** Fit the board in the space above `top` (screen px), or restore it. */
   focusAbove(top: number | null) {
