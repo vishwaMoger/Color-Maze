@@ -84,8 +84,8 @@ body {
 .ico-bulb {
   background-image: url('../assets/icons/bulb.webp');
 }
-.ico-pistol {
-  background-image: url('../assets/icons/pistol.webp');
+.ico-bomb {
+  background-image: url('../assets/icons/bomb.webp');
 }
 .ico-fire {
   background-image: url('../assets/icons/fire.webp');
@@ -342,6 +342,32 @@ body {
   }
   100% {
     transform: none;
+  }
+}
+
+#level-label {
+  position: relative;
+}
+.bonus-tag {
+  position: absolute;
+  left: 100%;
+  top: -12px;
+  margin-left: -10px;
+  padding: 2px 7px 3px;
+  border-radius: 8px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: none;
+  background: linear-gradient(180deg, #ff6fae, #e3247a);
+  box-shadow: 0 2px 0 #a3104f;
+  transform: rotate(8deg);
+  animation: tagwiggle 2.4s ease-in-out infinite;
+}
+@keyframes tagwiggle {
+  50% {
+    transform: rotate(-4deg) scale(1.08);
   }
 }
 
@@ -635,60 +661,295 @@ body {
   height: 26px;
 }
 
-/* Win streak can */
+/* Win streak: a flame that grows hotter with every win in a row.
+   0 cold, 1+ lit, 3+ hot, 5+ blazing (blue). */
 .streak {
   position: relative;
-  width: 50px;
-  height: 54px;
+  width: 56px;
+  height: 60px;
   border: 0;
   padding: 0;
   background: none;
   cursor: pointer;
   pointer-events: auto;
+  --glow: 255, 150, 40;
+}
+.streak.blaze {
+  --glow: 90, 170, 255;
 }
 
 .streak .ico-fire {
-  width: 46px;
-  height: 52px;
-  filter: drop-shadow(0 3px 2px rgba(120, 40, 0, 0.3));
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 48px;
+  height: 56px;
+  margin: 0 auto;
+  transform-origin: 50% 92%;
+  filter: grayscale(0.85) brightness(1.1) opacity(0.7);
+  transition: filter 0.3s;
+}
+.streak.lit .ico-fire {
+  filter: drop-shadow(0 3px 2px rgba(120, 40, 0, 0.3)) drop-shadow(0 0 6px rgba(var(--glow), 0.6));
+  animation: flame 1.1s ease-in-out infinite;
+}
+.streak.hot .ico-fire {
+  filter: drop-shadow(0 0 10px rgba(var(--glow), 0.95)) saturate(1.25);
+  animation: flame 0.7s ease-in-out infinite;
+}
+.streak.blaze .ico-fire {
+  filter: hue-rotate(185deg) saturate(1.4) brightness(1.1) drop-shadow(0 0 12px rgba(var(--glow), 1));
+  animation: flame 0.55s ease-in-out infinite;
+}
+@keyframes flame {
+  0%,
+  100% {
+    transform: scale(1, 1) rotate(0);
+  }
+  30% {
+    transform: scale(0.96, 1.07) rotate(-2.5deg);
+  }
+  65% {
+    transform: scale(1.04, 0.96) rotate(2deg);
+  }
+}
+
+/* Soft pulsing aura behind the flame. */
+.streak-aura {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: 70px;
+  height: 70px;
+  margin: -35px 0 0 -35px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--glow), 0.55) 0 22%, rgba(var(--glow), 0.18) 48%, transparent 70%);
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 0.4s,
+    transform 0.4s;
+  pointer-events: none;
+}
+.streak.lit .streak-aura {
+  opacity: 0.6;
+  transform: scale(0.85);
+}
+.streak.hot .streak-aura {
+  opacity: 1;
+  animation: aura 1.4s ease-in-out infinite;
+}
+@keyframes aura {
+  50% {
+    transform: scale(1.12);
+    opacity: 0.75;
+  }
+}
+
+/* Embers drifting up from the flame; more of them the hotter it burns. */
+.embers {
+  position: absolute;
+  inset: -30px -6px 14px;
+  z-index: 3;
+  pointer-events: none;
+}
+.embers i {
+  position: absolute;
+  bottom: 0;
+  left: calc(30% + var(--x, 0px));
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff7c2 0 30%, rgb(var(--glow)) 70%);
+  box-shadow: 0 0 6px rgba(var(--glow), 0.9);
+  opacity: 0;
+  display: none;
+}
+.streak.lit .embers i:nth-child(-n + 3),
+.streak.hot .embers i:nth-child(-n + 6),
+.streak.blaze .embers i {
+  display: block;
+  animation: ember 1.6s ease-out infinite;
+}
+.embers i:nth-child(1) { --x: 6px; --dx: -8px; animation-delay: 0s !important; }
+.embers i:nth-child(2) { --x: 20px; --dx: 6px; animation-delay: 0.55s !important; }
+.embers i:nth-child(3) { --x: 12px; --dx: 10px; animation-delay: 1.1s !important; }
+.embers i:nth-child(4) { --x: 2px; --dx: -12px; animation-delay: 0.3s !important; }
+.embers i:nth-child(5) { --x: 24px; --dx: -4px; animation-delay: 0.85s !important; }
+.embers i:nth-child(6) { --x: 15px; --dx: 14px; animation-delay: 1.35s !important; }
+.embers i:nth-child(7) { --x: 8px; --dx: 4px; animation-delay: 0.15s !important; }
+.embers i:nth-child(8) { --x: 18px; --dx: -10px; animation-delay: 0.7s !important; }
+.embers i:nth-child(9) { --x: 4px; --dx: 12px; animation-delay: 1.2s !important; }
+.embers i:nth-child(10) { --x: 22px; --dx: -14px; animation-delay: 0.45s !important; }
+@keyframes ember {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(1);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), -58px) scale(0.3);
+  }
 }
 
 .streak #streak-count {
   position: absolute;
-  right: -6px;
-  bottom: -2px;
-  min-width: 24px;
-  padding: 1px 6px;
+  z-index: 4;
+  left: 50%;
+  bottom: -6px;
+  min-width: 26px;
+  padding: 1px 7px;
   border-radius: 999px;
-  background: #fff;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, #fff, #f1ecff);
   color: var(--deep);
   font-weight: 700;
   font-size: 14px;
   text-align: center;
-  box-shadow: 0 2px 0 rgba(90, 60, 190, 0.2);
+  box-shadow: 0 2px 0 rgba(90, 60, 190, 0.25);
+}
+.streak.lit #streak-count {
+  color: #fff;
+  background: linear-gradient(180deg, #ffb340, #ff6a00);
+  box-shadow: 0 2px 0 #c44a00, 0 0 8px rgba(var(--glow), 0.6);
+  text-shadow: 0 1px 0 rgba(120, 40, 0, 0.5);
+}
+.streak.blaze #streak-count {
+  background: linear-gradient(180deg, #7cc4ff, #3a6dff);
+  box-shadow: 0 2px 0 #2442b8, 0 0 10px rgba(var(--glow), 0.8);
+  text-shadow: 0 1px 0 rgba(10, 30, 120, 0.5);
 }
 
-.streak .ico-fire {
-  filter: grayscale(0.6) opacity(0.75);
+/* A win: the flame flares up, a shockwave and sparks burst out, +1 floats up. */
+.streak.bump .ico-fire {
+  animation: flare 0.7s cubic-bezier(0.3, 1.6, 0.5, 1);
 }
-
-.streak.lit .ico-fire {
-  filter: drop-shadow(0 3px 2px rgba(120, 40, 0, 0.3));
+.streak.bump #streak-count {
+  animation: countpop 0.6s cubic-bezier(0.3, 1.8, 0.5, 1);
 }
-
-.streak.hot .ico-fire {
-  filter: drop-shadow(0 0 10px rgba(255, 150, 30, 0.9));
-  animation: flicker 1.2s ease-in-out infinite;
-}
-
-@keyframes flicker {
-  50% {
-    transform: scale(1.08) rotate(-3deg);
+@keyframes flare {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.55, 1.7) translateY(-6px);
+  }
+  100% {
+    transform: scale(1);
   }
 }
-
-.streak.bump {
-  animation: bump 0.45s cubic-bezier(0.3, 1.8, 0.5, 1);
+@keyframes countpop {
+  0% {
+    transform: translateX(-50%) scale(1);
+  }
+  35% {
+    transform: translateX(-50%) scale(1.5) rotate(-6deg);
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+}
+.streak-fx {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  z-index: 5;
+  pointer-events: none;
+}
+.streak-fx.ring {
+  width: 80px;
+  height: 80px;
+  margin: -40px 0 0 -40px;
+  border-radius: 50%;
+  border: 4px solid rgba(var(--glow), 0.9);
+  box-shadow: 0 0 14px rgba(var(--glow), 0.8), inset 0 0 10px rgba(var(--glow), 0.6);
+  animation: shock 0.6s ease-out forwards;
+}
+@keyframes shock {
+  0% {
+    transform: scale(0.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+.streak-fx.spark {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: #fff8d0;
+  box-shadow: 0 0 8px 2px rgba(var(--glow), 0.95);
+  animation: sparkfly 0.75s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+@keyframes sparkfly {
+  0% {
+    transform: rotate(var(--a)) translateX(4px) scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--a)) translateX(var(--d)) scale(0.2);
+    opacity: 0;
+  }
+}
+.streak-fx.plus {
+  margin: -30px 0 0 -14px;
+  font-weight: 700;
+  font-size: 22px;
+  color: #fff;
+  -webkit-text-stroke: 1px rgba(150, 50, 0, 0.6);
+  text-shadow: 0 2px 0 rgba(150, 50, 0, 0.5), 0 0 10px rgba(var(--glow), 0.9);
+  animation: plusup 1s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+@keyframes plusup {
+  0% {
+    transform: translateY(10px) scale(0.4);
+    opacity: 0;
+  }
+  25% {
+    transform: translateY(-14px) scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-46px) scale(1);
+    opacity: 0;
+  }
+}
+/* Losing the streak: the flame snuffs out into a puff of smoke. */
+.streak-fx.smoke {
+  width: 26px;
+  height: 26px;
+  margin: -24px 0 0 -13px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(170, 160, 190, 0.85), rgba(170, 160, 190, 0));
+  animation: smoke 1s ease-out forwards;
+}
+@keyframes smoke {
+  0% {
+    transform: translate(0, 0) scale(0.5);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--dx), -40px) scale(1.8);
+    opacity: 0;
+  }
+}
+.streak.snuff .ico-fire {
+  animation: snuff 0.6s ease-in;
+}
+@keyframes snuff {
+  40% {
+    transform: scale(0.6, 0.4) translateY(10px);
+  }
+  100% {
+    transform: none;
+  }
 }
 
 .coin.sm {
@@ -1184,43 +1445,6 @@ body {
 
 .ranking li.you .score i {
   color: #ffe066;
-}
-
-/* ------------------------------------------------------------ chest */
-.chest-box {
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 0;
-  margin: 4px auto 6px;
-  display: block;
-  width: 150px;
-  height: 150px;
-  cursor: pointer;
-  border-radius: 50%;
-  animation: wobble 1.4s ease-in-out infinite;
-}
-
-.chest-box .gift {
-  width: 130px;
-  height: 130px;
-  filter: drop-shadow(0 10px 12px rgba(120, 30, 60, 0.3));
-  transition: transform 0.35s cubic-bezier(0.3, 1.8, 0.5, 1);
-}
-
-.chest-box.open {
-  animation: none;
-  background: radial-gradient(circle, rgba(255, 225, 120, 0.9) 0 22%, rgba(255, 225, 120, 0) 66%);
-}
-
-.chest-box.open .gift {
-  transform: scale(1.18) rotate(-6deg);
-}
-
-#chest-text {
-  font-weight: 600;
-  font-size: 17px;
-  color: var(--deep);
 }
 
 /* ------------------------------------------------------------ result */
@@ -1964,6 +2188,580 @@ body {
   }
 }
 
+/* ------------------------------------------------------------ key vault */
+#vault {
+  gap: 14px;
+  background: linear-gradient(180deg, #f3f0ff, #e6e0ff);
+}
+#vault .rays {
+  display: none;
+}
+.vault-title {
+  position: relative;
+  margin: 0;
+  font-weight: 700;
+  font-size: clamp(24px, 6.4vw, 32px);
+  color: var(--ink);
+  text-shadow: 0 2px 0 #fff, 0 4px 0 rgba(90, 60, 190, 0.18);
+  animation: titlepop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.prizes {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+}
+.prize {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 78px;
+  padding: 8px 6px 7px;
+  border-radius: 16px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.22);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.12),
+    0 5px 0 var(--edge),
+    0 12px 18px rgba(60, 30, 150, 0.25);
+  animation: titlepop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+.prize .ico {
+  width: 44px;
+  height: 44px;
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.25));
+}
+.p-hint {
+  --edge: #c98100;
+  background: linear-gradient(180deg, #ffe066, #ffb300);
+  animation-delay: 0.05s;
+}
+.p-item {
+  --edge: #3a1596;
+  width: 86px;
+  padding-top: 12px;
+  margin-bottom: 10px;
+  background: linear-gradient(180deg, #8b5cff, #5226d6);
+  animation-delay: 0.12s;
+}
+.p-coins {
+  --edge: #8f2bbf;
+  background: linear-gradient(180deg, #f39bff, #c254f0);
+  animation-delay: 0.19s;
+}
+.prize .dots {
+  display: flex;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(30, 10, 80, 0.35);
+}
+.prize .dots i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 2px 2px rgba(0, 0, 0, 0.25);
+  transition: background 0.2s;
+}
+.prize .dots i.on {
+  background: radial-gradient(circle at 35% 30%, #fffbe0, #ffd23a 45%, #e08a00);
+  box-shadow: 0 0 6px rgba(255, 210, 60, 0.9);
+  animation: dotpop 0.4s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+.prize.bump {
+  animation: cardbump 0.4s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+@keyframes cardbump {
+  40% {
+    transform: scale(1.14) rotate(-3deg);
+  }
+}
+.prize .check {
+  position: absolute;
+  right: -8px;
+  top: -8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: #2fbf4a
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M9.5 16.2 5.3 12l-1.8 1.8 6 6L20.7 8.6l-1.8-1.8Z"/></svg>')
+    center / 70% no-repeat;
+  box-shadow: 0 3px 0 #1d8a33;
+  transform: scale(0);
+}
+.prize.won {
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    0 5px 0 var(--edge),
+    0 0 0 4px #fff,
+    0 0 30px 8px rgba(255, 220, 90, 0.85);
+  animation: wonglow 1.2s ease-in-out infinite;
+}
+.prize.won .check {
+  animation: checkpop 0.45s 0.1s cubic-bezier(0.3, 1.8, 0.5, 1) forwards;
+}
+@keyframes checkpop {
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes wonglow {
+  50% {
+    transform: scale(1.05);
+  }
+}
+.won-pop {
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  white-space: nowrap;
+  font-size: 20px;
+  color: #fff;
+  -webkit-text-stroke: 1px rgba(80, 30, 0, 0.5);
+  text-shadow: 0 2px 0 rgba(120, 50, 0, 0.5), 0 0 12px rgba(255, 210, 70, 0.9);
+  pointer-events: none;
+  animation: wonpop 1.6s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+@keyframes wonpop {
+  0% {
+    transform: translate(-50%, 10px) scale(0.4);
+    opacity: 0;
+  }
+  20% {
+    transform: translate(-50%, -18px) scale(1.25);
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -44px) scale(1);
+    opacity: 0;
+  }
+}
+
+/* The safe: a chunky purple box of locks. */
+.safe {
+  position: relative;
+  padding: 16px 16px 22px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, #6a3df0, #4a20c4 60%, #3c179f);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -6px 0 rgba(0, 0, 0, 0.18),
+    0 10px 0 #2a0f78,
+    0 24px 36px rgba(40, 15, 120, 0.35);
+  animation: titlepop 0.55s 0.1s cubic-bezier(0.3, 1.5, 0.5, 1) both;
+}
+.safe::before,
+.safe::after {
+  /* Little feet. */
+  content: '';
+  position: absolute;
+  bottom: -18px;
+  width: 34px;
+  height: 14px;
+  border-radius: 0 0 10px 10px;
+  background: #2a0f78;
+}
+.safe::before {
+  left: 26px;
+}
+.safe::after {
+  right: 26px;
+}
+.safe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, var(--lock, 72px));
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  background: #2b0e7e;
+  box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.45);
+}
+.lock {
+  position: relative;
+  width: var(--lock, 72px);
+  height: var(--lock, 72px);
+  border: 0;
+  padding: 0;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #4d24c4, #3a179e);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.2),
+    0 3px 0 #23086a;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Shimmer wave that rolls across the locks, inviting a tap. */
+.lock::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  background: linear-gradient(120deg, transparent 34%, rgba(255, 255, 255, 0.32) 48%, transparent 62%);
+  opacity: 0;
+  animation: lockshine 2.6s calc(var(--i) * 0.12s) ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes lockshine {
+  0%,
+  55%,
+  100% {
+    opacity: 0;
+    transform: translateX(-30%);
+  }
+  70% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 0;
+    transform: translateX(30%);
+  }
+}
+/* Dim lock: a glowing cyan keyhole outline on a dark tile. */
+.lock .ghost {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  animation: ghostwave 3.2s calc(var(--i) * 0.2s) ease-in-out infinite;
+}
+.lock .ghost svg {
+  width: 46%;
+  height: 46%;
+  fill: none;
+  stroke: #49e3ff;
+  stroke-width: 2.4px;
+  filter: drop-shadow(0 0 4px rgba(73, 227, 255, 0.8));
+}
+/* A wave rolls across the safe, lighting locks up into silver medallions. */
+.lock .medal {
+  animation: litwave 3.2s calc(var(--i) * 0.2s) ease-in-out infinite;
+}
+@keyframes litwave {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  45%,
+  70% {
+    opacity: 0;
+    transform: scale(0.75);
+  }
+}
+@keyframes ghostwave {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  45%,
+  70% {
+    opacity: 1;
+  }
+}
+.lock.opening .medal,
+.lock.gold .medal {
+  animation: none;
+  opacity: 1;
+}
+.lock.opening .ghost {
+  display: none;
+}
+.lock .medal {
+  display: grid;
+  place-items: center;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #dcd8f4 45%, #9f97d4 100%);
+  box-shadow:
+    0 0 0 3px #4b23c7,
+    0 0 0 5px rgba(255, 255, 255, 0.35),
+    inset 0 -3px 4px rgba(60, 30, 140, 0.35);
+  transition: transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.lock .medal svg {
+  width: 72%;
+  height: 72%;
+  fill: #3a148f;
+  transition: transform 0.2s;
+}
+.lock:hover .medal {
+  transform: scale(1.07);
+}
+.lock:active .medal {
+  transform: scale(0.94);
+}
+.lock.turn .medal svg {
+  transform: rotate(90deg);
+}
+.lock.gold {
+  background: linear-gradient(180deg, #ffe27a, #ffad14);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.6),
+    0 3px 0 #b86a00,
+    0 0 24px 6px rgba(255, 210, 80, 0.9);
+  animation: lockshake 0.3s ease-in-out;
+}
+.lock.gold .medal {
+  background: radial-gradient(circle at 35% 30%, #fffbe6, #ffd54a 50%, #e39200);
+  box-shadow: 0 0 0 3px #b86a00;
+}
+@keyframes lockshake {
+  20% {
+    transform: rotate(-7deg) scale(1.06);
+  }
+  45% {
+    transform: rotate(6deg) scale(1.1);
+  }
+  70% {
+    transform: rotate(-4deg) scale(1.05);
+  }
+}
+/* Opened: the tile shatters, leaving an empty slot. */
+.lock.opened {
+  background: rgba(20, 0, 60, 0.35);
+  box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.4);
+  cursor: default;
+  animation: none;
+}
+.lock.opened::after,
+.lock.opened .medal,
+.lock.opened .ghost {
+  display: none;
+}
+.shard {
+  position: absolute;
+  width: 50%;
+  height: 50%;
+  background: linear-gradient(180deg, #ffe27a, #ffad14);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  animation: shard 0.6s cubic-bezier(0.2, 0.7, 0.4, 1) forwards;
+}
+.shard.s0 {
+  left: 0;
+  top: 0;
+  border-radius: 14px 4px 4px 4px;
+  --sx: -46px;
+  --sy: -38px;
+  --r: -70deg;
+}
+.shard.s1 {
+  right: 0;
+  top: 0;
+  border-radius: 4px 14px 4px 4px;
+  --sx: 46px;
+  --sy: -42px;
+  --r: 80deg;
+}
+.shard.s2 {
+  left: 0;
+  bottom: 0;
+  border-radius: 4px 4px 4px 14px;
+  --sx: -40px;
+  --sy: 40px;
+  --r: -50deg;
+}
+.shard.s3 {
+  right: 0;
+  bottom: 0;
+  border-radius: 4px 4px 14px 4px;
+  --sx: 44px;
+  --sy: 36px;
+  --r: 60deg;
+}
+@keyframes shard {
+  to {
+    transform: translate(var(--sx), var(--sy)) rotate(var(--r)) scale(0.5);
+    opacity: 0;
+  }
+}
+.vflash {
+  position: absolute;
+  inset: -50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 20%, rgba(255, 240, 180, 0.7) 40%, transparent 68%);
+  pointer-events: none;
+  animation: vflash 0.55s ease-out forwards;
+}
+@keyframes vflash {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+.vitem {
+  position: relative;
+  z-index: 2;
+  width: 64%;
+  height: 64%;
+  filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.3)) drop-shadow(0 0 8px rgba(255, 230, 140, 0.9));
+  animation: itempop 0.5s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+@keyframes itempop {
+  0% {
+    transform: scale(0) rotate(-30deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+.vfly {
+  position: fixed;
+  z-index: 20;
+  pointer-events: none;
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.3)) drop-shadow(0 0 10px rgba(255, 230, 140, 0.9));
+}
+.vfly.ico-key {
+  background-image: url('../assets/icons/key.webp');
+}
+
+.safe-keys {
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  display: flex;
+  gap: 2px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: #fff;
+  box-shadow: 0 3px 0 rgba(60, 30, 150, 0.3);
+  z-index: 2;
+}
+.vkey {
+  width: 26px;
+  height: 26px;
+  filter: drop-shadow(0 2px 1px rgba(120, 70, 0, 0.3));
+  transition:
+    filter 0.3s,
+    opacity 0.3s;
+}
+.vkey.used {
+  filter: grayscale(1) brightness(0.85);
+  opacity: 0.32;
+}
+.vault-hint {
+  position: relative;
+  margin: 10px 0 0;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+  opacity: 0.8;
+}
+.vault-done {
+  position: relative;
+  width: min(240px, 70vw);
+  height: 56px;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 24px;
+  text-shadow: 0 2px 0 var(--b3);
+  animation: titlepop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+/* Short screens: smaller locks; landscape puts prizes beside the safe. */
+@media (max-height: 740px) {
+  #vault {
+    --lock: 60px;
+    gap: 10px;
+  }
+}
+@media (max-height: 560px) and (min-aspect-ratio: 1/1) {
+  #vault {
+    --lock: 54px;
+    grid-template-columns: auto auto;
+    grid-template-areas:
+      'title safe'
+      'prizes safe'
+      'hint safe'
+      'done safe';
+    column-gap: 48px;
+    row-gap: 10px;
+    align-items: center;
+  }
+  .vault-title {
+    grid-area: title;
+  }
+  .prizes {
+    grid-area: prizes;
+  }
+  .safe {
+    grid-area: safe;
+  }
+  .vault-hint {
+    grid-area: hint;
+    margin: 0;
+    justify-self: center;
+  }
+  .vault-done {
+    grid-area: done;
+    justify-self: center;
+  }
+}
+@media (min-width: 900px) and (min-height: 700px) {
+  #vault {
+    --lock: clamp(72px, 9vh, 96px);
+    gap: 18px;
+  }
+  .vault-title {
+    font-size: 38px;
+  }
+  .prize {
+    width: 104px;
+    font-size: 19px;
+  }
+  .p-item {
+    width: 114px;
+  }
+  .prize .ico {
+    width: 58px;
+    height: 58px;
+  }
+  .vkey {
+    width: 32px;
+    height: 32px;
+  }
+  .vault-hint {
+    font-size: 19px;
+  }
+  .vault-done {
+    width: 280px;
+    height: 64px;
+    font-size: 28px;
+  }
+}
+@media (max-width: 360px) {
+  #vault {
+    --lock: 58px;
+  }
+  .prize {
+    width: 70px;
+  }
+}
+
 /* League climb */
 #climb {
   place-content: stretch;
@@ -2382,12 +3180,12 @@ body.landscape #tip {
     right: 40px;
   }
   body.landscape .streak {
-    width: 42px;
-    height: 44px;
+    width: 46px;
+    height: 48px;
   }
   body.landscape .streak .ico-fire {
     width: 38px;
-    height: 42px;
+    height: 44px;
   }
 }
 

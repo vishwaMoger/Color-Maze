@@ -2,7 +2,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import { Sound } from '../audio/sound.ts';
 import { DIRS, isFloor, slide, solve, WALL, type Dir, type Level, type Point } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
-import type { Hud, ShopItem, ShopTab } from '../ui/hud.ts';
+import type { Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
 import { BALL_URLS } from './assets.ts';
 import { BALLS, hexCss, PAINTS } from './cosmetics.ts';
 import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
@@ -147,8 +147,6 @@ export class Game {
       toggle: (what) => this.toggle(what),
       openShop: () => this.refreshShop(),
       openLeague: () => this.refreshLeague(true),
-      openChest: () => this.openChest(),
-      collectChest: () => this.collectChest(),
       anyInput: () => this.sound.unlock(),
       click: () => this.sound.click(),
     });
@@ -228,14 +226,14 @@ export class Game {
       ball: BALLS.map((b) => ({
         id: b.id,
         name: b.name,
-        unlock: b.unlock,
+        unlock: this.save.owned.includes(b.id) ? 1 : b.unlock,
         kind: 'ball' as const,
         preview: `background-image: url(${b.image ? BALL_URLS[b.image] : this.spherePreview(b.id, b.colors!, b.metal)})`,
       })),
       paint: PAINTS.map((p) => ({
         id: p.id,
         name: p.name,
-        unlock: p.unlock,
+        unlock: this.save.owned.includes(p.id) ? 1 : p.unlock,
         kind: 'paint' as const,
         preview: `--paint: ${hexCss(p.paint)}; --paint-dark: ${hexCss(p.dark)}`,
       })),
@@ -294,29 +292,84 @@ export class Game {
 
   private chestPending = false;
 
-  private openChest() {
-    if (!this.chestPending) return;
-    const coins = 80 + Math.floor(Math.random() * 5) * 20;
-    this.chestCoins = coins;
-    this.hud.openChest(coins);
-    this.sound.complete();
-    this.vibrate(20);
+  /**
+   * Three keys open the key vault. Every visit is guaranteed one prize: the
+   * card closest to complete is the target, and locks reveal it until it is
+   * won; later locks give near misses that carry over to the next visit.
+   */
+  private openVault() {
+    this.chestPending = true;
+    const v = this.save.vault;
+    const kinds: VaultKind[] = ['hint', 'item', 'coins'];
+    const top = Math.max(...kinds.map((k) => v[k]));
+    const best = kinds.filter((k) => v[k] === top);
+    const target = best[Math.floor(Math.random() * best.length)];
+    let won = false;
+    this.hud.vault({
+      dots: { ...v },
+      keys: 3,
+      pick: () => {
+        if (!won) return target;
+        const near = kinds.filter((k) => this.save.vault[k] < 2);
+        const pool = near.length ? near : kinds;
+        return pool[Math.floor(Math.random() * pool.length)];
+      },
+      onDot: (k, n) => {
+        this.save.vault[k] = n;
+        this.persist();
+      },
+      win: (k) => {
+        won = true;
+        this.save.vault[k] = 0;
+        let label = '';
+        if (k === 'hint') {
+          this.save.hints += 1;
+          label = '+1 Hint';
+        } else if (k === 'coins') {
+          this.save.coins += 100;
+          label = '+100';
+        } else {
+          const next = this.nextLockedItem();
+          if (next) {
+            this.save.owned.push(next.id);
+            label = `${next.name}!`;
+            this.hud.setShopDot(true);
+          } else {
+            this.save.coins += 150;
+            label = '+150';
+          }
+        }
+        this.hud.setCoins(this.save.coins);
+        this.refreshPrices();
+        this.persist();
+        return label;
+      },
+      onDone: () => {
+        this.chestPending = false;
+        this.save.keys = 0;
+        this.hud.setKeys(0);
+        this.persist();
+        this.autoNextAt = this.time + 250;
+      },
+      sound: {
+        click: () => this.sound.click(),
+        thock: (x) => this.sound.thock(x),
+        coin: () => this.sound.coin(),
+        star: (i) => this.sound.star(i),
+        complete: () => this.sound.complete(),
+      },
+    });
   }
 
-  private chestCoins = 0;
-
-  private collectChest() {
-    if (!this.chestPending || !this.chestCoins) return;
-    this.chestPending = false;
-    this.save.coins += this.chestCoins;
-    this.save.keys = 0;
-    this.chestCoins = 0;
-    this.hud.setCoins(this.save.coins);
-    this.hud.setKeys(0);
-    this.hud.closeChest();
-    this.persist();
-    this.autoNextAt = this.time + 300;
+  /** The next ball or paint the player has not unlocked yet. */
+  private nextLockedItem(): { id: string; name: string } | null {
+    const owned = new Set(this.save.owned);
+    const pool = [...BALLS, ...PAINTS]
+      .filter((x) => x.unlock > this.save.best && !owned.has(x.id))
+      .sort((a, b) => a.unlock - b.unlock);
+    return pool[0] ?? null;
   }
+
 
   // ---------------------------------------------------------------- input
 
@@ -686,7 +739,7 @@ export class Game {
     if (this.save.streak > 0) {
       this.hud.toast('Streak lost');
       this.save.streak = 0;
-      this.hud.setStreak(0);
+      this.hud.streakLost();
       this.persist();
     }
     this.resetState();
@@ -757,7 +810,7 @@ export class Game {
       const key = this.save.keys < 3 && (this.level.bonus || Math.random() < 0.34);
       if (key) this.save.keys++;
       this.persist();
-      this.hud.setStreak(this.save.streak, true);
+      this.hud.setStreak(this.save.streak, this.save.streak > 0);
       this.refreshLeague(false);
       const info = {
         level: this.levelNo,
@@ -852,11 +905,10 @@ export class Game {
     if (!this.resultShown || this.time - this.resultAt < 450) return;
     // Three keys: open the treasure chest before moving on.
     if (this.save.keys >= 3 && !this.chestPending) {
-      this.chestPending = true;
       this.autoNextAt = null;
       this.hud.endCelebrate();
       this.hud.hideResult();
-      this.hud.showChest();
+      this.openVault();
       return;
     }
     if (this.chestPending) return;
@@ -1072,7 +1124,8 @@ export class Game {
   // ---------------------------------------------------------------- frame
 
   private tick(rawDt: number) {
-    const dt = Math.min(rawDt, 50) * this.timeScale;
+    // Cap long frames so slow devices skip ahead rather than crawl.
+    const dt = Math.min(rawDt, 90) * this.timeScale;
     this.lastFrameDt = rawDt;
     this.time += rawDt;
     const time = this.time;

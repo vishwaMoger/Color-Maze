@@ -21,6 +21,9 @@ export interface Save {
   weekStars: number;
   /** Highest level whose unlocks the player has seen in the shop. */
   seenUnlock: number;
+  /** Key vault: progress dots per prize (0-2), and items won early. */
+  vault: { hint: number; item: number; coins: number };
+  owned: string[];
 }
 
 const SAVE_KEY = 'colormaze.v1';
@@ -45,6 +48,8 @@ export function loadSave(): Save {
     week: weekIndex(),
     weekStars: 0,
     seenUnlock: 1,
+    vault: { hint: 0, item: 0, coins: 0 },
+    owned: [],
   };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
