@@ -5,7 +5,7 @@ import { getLevel } from '../levels/list.ts';
 import { prefetchLevels } from '../levels/prefetch.ts';
 import type { Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
 import { BALLS, PAINTS, PATTERN_MODE } from './cosmetics.ts';
-import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
+import { eraseSave, league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball, ballCanvas, ballPreview } from './Ball.ts';
 import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
 import { adsAvailable, gameplayStart, getPlayer, onPlayerChange, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
@@ -242,6 +242,10 @@ export class Game {
           }
           this.refreshShop();
         });
+      },
+      startOver: () => {
+        eraseSave();
+        location.reload();
       },
       freeCoins: () => {
         this.sound.click();

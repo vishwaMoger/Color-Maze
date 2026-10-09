@@ -84,6 +84,8 @@ export interface ShopItem {
 }
 
 export interface HudActions {
+  /** Erase all progress and begin again as a new player. */
+  startOver: () => void;
   restart: () => void;
   undo: () => void;
   hint: () => void;
@@ -181,6 +183,24 @@ export class Hud {
       this.open('shop');
     });
     on('btn-settings', () => this.open('settings'));
+    // Start over: the first tap asks, a second tap within a few seconds
+    // erases everything (no browser confirm dialog: it is not always shown).
+    let armTimer = 0;
+    on('btn-start-over', () => {
+      const btn = $('btn-start-over');
+      if (!btn.classList.contains('armed')) {
+        btn.classList.add('armed');
+        $('start-over-label').textContent = 'Tap again to erase all progress';
+        window.clearTimeout(armTimer);
+        armTimer = window.setTimeout(() => {
+          btn.classList.remove('armed');
+          $('start-over-label').textContent = 'Start over from level 1';
+        }, 4000);
+        return;
+      }
+      window.clearTimeout(armTimer);
+      a.startOver();
+    });
     this.startIdleZap();
     // How the weekly ranking works, after the original: three steps on a
     // bright screen; any tap closes it.
