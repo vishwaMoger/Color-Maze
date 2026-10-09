@@ -66,6 +66,8 @@ export class Ball extends Container {
   private dropY = 0;
   private squashV = 0;
   private stretch = 0;
+  /** Distance rolled since the ball last set off or changed direction. */
+  private run = 0;
   /** Offset of the stretched body, so its front stays at the ball's front. */
   private offX = 0;
   private offY = 0;
@@ -128,11 +130,30 @@ export class Ball extends Container {
     // ellipse (up to about 2.7 tiles) whose front stays at the ball's front;
     // when it stops against a wall the back draws in after it, settling
     // round in about a fifth of a second with no bounce.
+    // A new direction starts a fresh run: drop any leftover stretch at once,
+    // or its tail would swing round and poke into the wall just left.
+    if (dir) {
+      const h = Math.atan2(dir.y, dir.x);
+      if (Math.abs(Math.atan2(Math.sin(h - this.heading), Math.cos(h - this.heading))) > 0.3) {
+        this.stretch = 0;
+        this.offX = 0;
+        this.offY = 0;
+        this.run = 0;
+      }
+      this.heading = h;
+    }
     if (moving) {
-      const target = Math.min(2, speed * 1.6);
+      const step = Math.hypot(this.x - this.lastX, this.y - this.lastY);
+      if (step < this.radius * 4) this.run += step;
+      const target = Math.min(1.5, speed * 1.4);
       this.stretch += (target - this.stretch) * (1 - Math.exp(-dt * 14));
-    } else this.stretch *= Math.exp(-dt * 16.5);
-    if (dir) this.heading = Math.atan2(dir.y, dir.x);
+    } else {
+      this.stretch *= Math.exp(-dt * 16.5);
+      this.run = 0;
+    }
+    // The tail never reaches back past where this run began, so it always
+    // lies on the floor just rolled over, never through a wall.
+    if (moving) this.stretch = Math.min(this.stretch, this.run / (2 * this.radius));
     // Roll for real: turn the sphere by the distance travelled over the
     // radius, about the axis lying flat on the board across the motion.
     const mx = this.x - this.lastX;
