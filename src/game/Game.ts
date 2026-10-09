@@ -8,7 +8,7 @@ import { BALLS, PAINTS, PATTERN_MODE } from './cosmetics.ts';
 import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball, ballCanvas, ballPreview } from './Ball.ts';
 import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
-import { adsAvailable, gameplayStart, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
+import { adsAvailable, gameplayStart, getPlayer, onPlayerChange, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
 import { boardKey, boardPreview, paintKey, paintPreview, peekPreview } from './previews.ts';
 import { boardLight, type BoardLight } from './shaders.ts';
@@ -294,6 +294,14 @@ export class Game {
       this.sound.setMuted(muted || document.hidden);
     });
     hud.setAdsAvailable(adsAvailable());
+    // The league shows the player's CrazyGames name and picture when they
+    // are logged in (and updates if they log in or out mid-game).
+    const usePlayer = (p: Awaited<ReturnType<typeof getPlayer>>) => {
+      this.hud.setPlayer(p);
+      this.refreshLeague(false);
+    };
+    void getPlayer().then(usePlayer);
+    onPlayerChange(usePlayer);
     // Shop previews and the league's ball avatars are drawn in idle moments
     // after the start, so neither the first frame nor the shop waits.
     window.setTimeout(() => {
@@ -798,7 +806,23 @@ export class Game {
       this.save.tips.push(fresh.id);
       this.persist();
     }
-    this.hud.showTip(n === 1 ? 'Swipe to roll the ball' : (fresh?.text ?? null));
+    // A short lesson for new players: swiping on level 1, the goal on 2,
+    // the hint bulb on 4 (each once); otherwise new tile types.
+    const lesson = (id: string, text: string) => {
+      if (this.save.tips.includes(id)) return null;
+      this.save.tips.push(id);
+      return text;
+    };
+    let tip = n === 1 ? 'Swipe to roll the ball' : (fresh?.text ?? null);
+    if (!tip && n === 2) tip = lesson('tut-plan', 'Plan your route: paint every tile!');
+    if (!tip && n === 4) {
+      tip = lesson('tut-hint', 'Stuck? Tap the bulb for a hint!');
+      if (tip) window.setTimeout(() => this.hud.pulse('btn-hint', 5000), 700);
+    }
+    this.hud.showTip(tip);
+    this.lastMoveAt = this.time;
+    this.handKey = '';
+    this.hud.showHand(null);
     this.sound.setRoot(this.theme.root);
     this.persist();
   }
@@ -940,6 +964,8 @@ export class Game {
     this.moves++;
     this.hud.setMoves(this.moves);
     this.hud.showTip(null);
+    this.lastMoveAt = this.time;
+    this.hud.showHand(null);
     this.hint = null;
     this.dots = this.dots.filter((dt) => !dt.top);
     let longest = 0;
@@ -1268,6 +1294,9 @@ export class Game {
     if (!REDUCED_MOTION) this.wave = { x: hitX, y: hitY, t: 0, power: Math.min(1, 0.45 + speed * 0.45 + (gripped ? 0.15 : 0)) };
     this.wallLumps(this.pos, d, speed);
     this.settle();
+    // First-level lesson, one step per move.
+    if (this.levelNo === 1 && !this.save.tips.includes('tut-basics') && this.completeAt === null)
+      this.hud.showTip(this.moves === 1 ? 'It rolls until it hits a wall!' : 'Paint every tile to win!');
   }
 
   /**
@@ -1329,13 +1358,18 @@ export class Game {
    */
   private speckle(p: Point, amount = 1) {
     const c = this.cell;
-    const n = Math.round((12 + Math.floor(Math.random() * 5)) * amount);
+    // On patterned paints (marble, slime, lava, water) a lighter, finer
+    // scatter, so the smooth pattern shows through instead of being
+    // broken up into a busy, blocky look.
+    const patterned = (this.look.paintMode ?? 0) > 0;
+    const k = patterned ? 0.75 : 1;
+    const n = Math.round((12 + Math.floor(Math.random() * 5)) * amount * (patterned ? 0.45 : 1));
     for (let i = 0; i < n; i++) {
       const red = Math.random() < 0.42;
       this.dots.push({
         x: (p.x + 0.04 + Math.random() * 0.92) * c,
         y: (p.y - 0.12 + Math.random() * 1.04) * c,
-        r: c * (red ? 0.03 + Math.random() * 0.035 : 0.055 + Math.random() * 0.075),
+        r: c * k * (red ? 0.03 + Math.random() * 0.035 : 0.055 + Math.random() * 0.075),
         t: this.time + Math.random() * 70,
         life: red ? 850 + Math.random() * 300 : 700 + Math.random() * 200,
         red,
@@ -1638,6 +1672,42 @@ export class Game {
    * optimal move (re-solved from wherever the player is, so straying from
    * the route just plots a new one).
    */
+  /** When the player last moved (or the level started): drives the hand. */
+  private lastMoveAt = 0;
+  private handKey = '';
+  private handMove: Point | null = null;
+
+  /**
+   * The tutorial hand. On level 1 it shows every swipe (right away for the
+   * first two, then if the player pauses); on levels 2 and 3 it shows the
+   * next good move after five idle seconds.
+   */
+  private stepHand() {
+    let dir: Point | null = null;
+    const free = !this.slideState && this.completeAt === null && !this.dead && !this.busy && !this.bombAnim && !this.hud.modalOpen;
+    if (free && this.levelNo <= 3) {
+      const wait = this.levelNo === 1 ? (this.moves < 2 ? 450 : 3500) : 5000;
+      if (this.time - this.lastMoveAt > wait) dir = this.handDir();
+    }
+    if (!dir) {
+      this.hud.showHand(null);
+      return;
+    }
+    const p = this.ball.getGlobalPosition();
+    this.hud.showHand({ x: p.x, y: p.y, dx: dir.x, dy: dir.y });
+  }
+
+  private handDir(): Point | null {
+    if (this.hintGuide && this.hint) return this.hint.dir;
+    const key = `${this.pos.x},${this.pos.y}|${this.moves}|${this.painted.size}`;
+    if (key !== this.handKey) {
+      this.handKey = key;
+      const sol = solveMulti(this.level.grid, this.pos, this.painted.keys(), 20000, this.extras.map((e) => e.pos), this.splitUsed);
+      this.handMove = sol?.[0] ? DIRS[sol[0]] : null;
+    }
+    return this.handMove;
+  }
+
   private updateGuide() {
     if (this.busy || this.completeAt !== null || this.dead || this.bombAnim) return;
     // Anything that changes the board (a move, undo, restart, a bomb) clears
@@ -1658,6 +1728,12 @@ export class Game {
       if (sol === null && !this.neverStuck) {
         if (this.hintGuide) this.hud.toast('Dead end! Tap Undo or Hint');
         this.hud.undoNudge(true);
+        if (!this.save.tips.includes('tut-undo')) {
+          this.save.tips.push('tut-undo');
+          this.hud.showTip('Dead end! Tap Undo to go back');
+          this.hud.pulse('btn-undo', 5000);
+          this.persist();
+        }
       }
       return;
     }
@@ -1670,6 +1746,11 @@ export class Game {
 
   private beginComplete() {
     this.completeAt = this.time;
+    this.hud.showHand(null);
+    if (this.levelNo === 1 && !this.save.tips.includes('tut-basics')) {
+      this.save.tips.push('tut-basics');
+      this.hud.showTip(null);
+    }
     // Celebration in the hand: da-da-DAA.
     this.vibrate([40, 70, 40, 70, 90]);
     this.timeScale = REDUCED_MOTION ? 1 : 0.3;
@@ -2236,6 +2317,7 @@ export class Game {
     }
 
     this.updateGuide();
+    this.stepHand();
     this.board.drawHint(time, this.hint);
 
     if (this.dots.length > 40 && time - this.dots[0].t > 1200) this.dots = this.dots.filter((d) => time - d.t < (d.life ?? 900));

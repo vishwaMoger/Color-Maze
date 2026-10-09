@@ -58,11 +58,16 @@ vec3 faceDir(float i) {
   return normalize(cyc(vec3(0.0, mod(m, 2.0) < 0.5 ? PHI : -PHI, m < 1.5 ? 0.618034 : -0.618034), k));
 }
 
-// Kept small enough (under 44,000) to stay finite even on GPUs that only
-// offer 16-bit floats: an overflow there turns the whole ball black.
+// With full precision (nearly every GPU) the original pattern; on GPUs that
+// only offer 16-bit floats a smaller range (under 44,000) so it stays
+// finite, as an overflow there would turn the whole ball black.
 float hash3(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+  p *= 17.0;
+#else
   p *= 11.0;
+#endif
   return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
 }
 vec3 hash33(vec3 p) {

@@ -29,11 +29,25 @@ interface CrazySdk {
   };
   /** Like localStorage, synced to the player's account when logged in. */
   data?: KeyStore;
+  /** The player's CrazyGames account, when they are logged in. */
+  user?: {
+    isUserAccountAvailable?: boolean;
+    getUser: () => Promise<CrazyUser | null>;
+    addAuthListener?: (cb: (user: CrazyUser | null) => void) => void;
+  };
   banner?: {
     requestResponsiveBanner: (containerId: string) => Promise<void> | void;
     clearBanner?: (containerId: string) => void;
     clearAllBanners?: () => void;
   };
+}
+
+type CrazyUser = { username: string; profilePictureUrl?: string };
+
+/** The player as shown in the league: their CrazyGames name and picture. */
+export interface Player {
+  name: string;
+  avatar?: string;
 }
 
 const ENABLED = import.meta.env.VITE_CRAZYGAMES === '1';
@@ -193,6 +207,28 @@ export function saveStore(): KeyStore | null {
     return window.localStorage;
   } catch {
     return null;
+  }
+}
+
+const toPlayer = (u: CrazyUser | null | undefined): Player | null =>
+  u && u.username ? { name: u.username, avatar: u.profilePictureUrl || undefined } : null;
+
+/** The logged-in CrazyGames player, or null (logged out, or no SDK). */
+export async function getPlayer(): Promise<Player | null> {
+  try {
+    if (!sdk?.user || sdk.user.isUserAccountAvailable === false) return null;
+    return toPlayer(await sdk.user.getUser());
+  } catch {
+    return null;
+  }
+}
+
+/** Called when the player logs in or out during the game. */
+export function onPlayerChange(cb: (p: Player | null) => void) {
+  try {
+    sdk?.user?.addAuthListener?.((u) => cb(toPlayer(u)));
+  } catch {
+    /* no account system */
   }
 }
 
