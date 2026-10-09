@@ -21,6 +21,7 @@ export const SPHERE_MODE = {
   metal: 10,
   gem: 11,
   toy: 12,
+  pumpkin: 13,
 } as const;
 export type SphereMode = keyof typeof SPHERE_MODE;
 
@@ -130,6 +131,7 @@ void main(void) {
   float shine = 90.0;
   float metal = 0.0;
   vec3 ln = n;
+  float glow = 0.0;
 
   if (mode == 0) {
     // Toy ball: a bold white star on each side and a ring round the middle.
@@ -246,6 +248,39 @@ void main(void) {
     float w = sin(a * 5.0 + o.y * 5.0);
     alb = mix(uC1, uC2, smoothstep(-uAA * 4.0 - 0.04, uAA * 4.0 + 0.04, w));
     shine = 110.0;
+  } else if (mode == 13) {
+    // Jack-o'-lantern: ribbed orange rind, a stubby stem on top and a
+    // carved face on one side that glows candle-yellow from within.
+    float lon = atan(o.z, o.x);
+    float rib = 0.5 + 0.5 * cos(lon * 9.0);
+    alb = mix(uC3, uC2, smoothstep(0.0, 0.75, rib) * 0.75 + 0.25);
+    alb *= 0.93 + 0.1 * fbm3(o * vec3(3.0, 14.0, 3.0));
+    alb = mix(alb, uC3 * 0.8, smoothstep(0.6, 0.98, abs(o.y)) * 0.5);
+    alb = mix(alb, vec3(0.32, 0.4, 0.12), aaLess(1.0 - o.y, 0.035));
+    // Lighting follows the ribs a little, so the rind looks lobed.
+    ln = normalize(n + (vec3(-o.z, 0.0, o.x) * sin(lon * 9.0) * uRot) * 0.06);
+    if (o.z > 0.15) {
+      vec2 t = o.xy;
+      // Two triangle eyes, a small nose, and a grin with three teeth.
+      float eyes = 0.0;
+      for (int k = 0; k < 2; k++) {
+        float cx = k == 0 ? -0.27 : 0.27;
+        float base = 0.1;
+        float apex = 0.34;
+        float hw = 0.12 * clamp((apex - t.y) / (apex - base), 0.0, 1.0);
+        eyes = max(eyes, aaLess(max(base - t.y, abs(t.x - cx) - hw), 0.0));
+      }
+      float nose = aaLess(max(-0.02 - t.y, abs(t.x) - 0.06 * clamp((0.1 - t.y) / 0.12, 0.0, 1.0)), 0.0);
+      float up = -0.1 + 0.55 * t.x * t.x;
+      float lo = -0.36 + 0.8 * t.x * t.x;
+      float mouth = aaLess(max(max(t.y - up, lo - t.y), abs(t.x) - 0.4), 0.0);
+      float teeth = max(aaLess(max(abs(t.x) - 0.05, up - 0.07 - t.y), 0.0),
+                        aaLess(max(abs(abs(t.x) - 0.19) - 0.045, t.y - lo - 0.07), 0.0));
+      mouth *= 1.0 - teeth;
+      glow = max(max(eyes, nose), mouth) * smoothstep(0.15, 0.35, o.z);
+    }
+    gloss = 0.45;
+    shine = 45.0;
   } else if (mode == 10) {
     // Polished metal with an engraved ring.
     metal = 1.0;
@@ -295,6 +330,8 @@ void main(void) {
   // Contact occlusion at the bottom and a soft terminator for depth.
   col *= 1.0 - 0.28 * smoothstep(0.35, 1.0, -n.y) * (1.0 - n.z);
   col *= 0.86 + 0.14 * smoothstep(0.0, 0.45, n.z);
+  // Carved openings glow from inside (unlit by the studio light).
+  col = mix(col, uC1 * 1.15 + vec3(0.1, 0.02, 0.0), glow);
   finalColor = vec4(clamp(col, 0.0, 1.0) * alpha, alpha);
 }`;
 

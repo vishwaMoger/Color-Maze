@@ -1,4 +1,5 @@
 import type { SlabStyle } from './slabs.ts';
+import type { EventPrize } from './events.ts';
 
 export type Ambient = 'bokeh' | 'bubbles' | 'stars' | 'none';
 /** The finish of the floor tiles (see tileFinish in Board). */
@@ -51,8 +52,8 @@ export interface Theme {
   root: number;
   /** Level at which this board unlocks in the shop. */
   unlock: number;
-  /** Special: unlocked by watching this many rewarded ads (where ads run). */
-  ads?: number;
+  /** Limited-time board: won by finishing levels during its event. */
+  event?: EventPrize;
 }
 
 /**
@@ -75,7 +76,7 @@ function board(o: {
   swatchPaint: string;
   root: number;
   unlock: number;
-  ads?: number;
+  event?: EventPrize;
   ambient?: Ambient;
   tiles?: TileStyle;
   slab?: SlabStyle;
@@ -107,7 +108,7 @@ function board(o: {
     swatch: { slab: o.page, side: o.face, floor: o.floor, paint: o.swatchPaint },
     root: o.root,
     unlock: o.unlock,
-    ads: o.ads,
+    event: o.event,
   };
 }
 
@@ -194,6 +195,14 @@ const BASE_THEMES: Theme[] = [
     shade: 'rgba(10, 20, 0, 0.36)', slab: 'grass',
     ui: { ink: '#3f7a12', deep: '#24500a', p1: '#8fd84a', p2: '#5fb22a', p3: '#3f8a18', panelEdge: '#cdeea8' },
     swatchPaint: '#ff2d8b', root: 185, unlock: 310,
+  }),
+  // Halloween: a haunted night with bats, under an orange lantern glow.
+  board({
+    id: 'spooky', name: 'Spooky',
+    page: '#3b1d6e', face: '#24104a', floor: '#1b0d36', grid: '#140829', glow: '#ff8a1f',
+    shade: 'rgba(5, 0, 20, 0.5)', slab: 'spooky',
+    ui: { ink: '#4a1fa0', deep: '#2a0e66', p1: '#ffa040', p2: '#f27a12', p3: '#c25800', panelEdge: '#d8c4ff', pageInk: '#ffffff' },
+    swatchPaint: '#9dff3a', root: 207.65, unlock: 99999, event: { id: 'halloween26', levels: 30 },
   }),
 ];
 

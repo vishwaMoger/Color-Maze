@@ -7,7 +7,7 @@ import { makeCanvas } from './shape.ts';
  * Each is a seamless square tile (`TILE` CSS px) drawn once per screen
  * density and repeated over the whole page.
  */
-export type SlabStyle = 'birch' | 'walnut' | 'terrazzo' | 'grass' | 'stars' | 'knit';
+export type SlabStyle = 'birch' | 'walnut' | 'terrazzo' | 'grass' | 'stars' | 'knit' | 'spooky';
 
 export const TILE = 256;
 
@@ -165,6 +165,74 @@ export function slabCanvas(style: SlabStyle, res: number): HTMLCanvasElement {
           ctx.beginPath();
           ctx.arc(px, py, s, 0, Math.PI * 2);
           ctx.fill();
+        });
+      }
+      break;
+    }
+    case 'spooky': {
+      // A haunted night: violet sky, drifting glows, pale stars and a
+      // scatter of bats, all wrapped so the tile repeats seamlessly.
+      fill('#3b1d6e');
+      for (let i = 0; i < 6; i++) {
+        const x = r() * TILE;
+        const y = r() * TILE;
+        const rad = 40 + r() * 55;
+        const warm = r() < 0.35;
+        wrap(x, y, rad, (px, py) => {
+          const g = ctx.createRadialGradient(px, py, 0, px, py, rad);
+          g.addColorStop(0, warm ? 'rgba(255, 130, 40, 0.16)' : 'rgba(140, 90, 255, 0.2)');
+          g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+        });
+      }
+      for (let i = 0; i < 70; i++) {
+        const x = r() * TILE;
+        const y = r() * TILE;
+        const s = r() < 0.1 ? 1.4 : 0.5 + r() * 0.6;
+        const a = 0.3 + r() * 0.5;
+        wrap(x, y, 3, (px, py) => {
+          ctx.fillStyle = `rgba(235, 220, 255, ${a})`;
+          ctx.beginPath();
+          ctx.arc(px, py, s, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+      for (let i = 0; i < 7; i++) {
+        const x = r() * TILE;
+        const y = r() * TILE;
+        const k = 0.6 + r() * 0.7;
+        const tilt = (r() - 0.5) * 0.6;
+        wrap(x, y, 24, (px, py) => {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(tilt);
+          ctx.scale(k, k);
+          ctx.fillStyle = 'rgba(20, 6, 40, 0.75)';
+          ctx.beginPath();
+          // Wings: a top edge rising to the tips, a scalloped trailing edge.
+          ctx.moveTo(0, -2);
+          ctx.quadraticCurveTo(-8, -9, -20, -6);
+          ctx.quadraticCurveTo(-16, -2, -15, 3);
+          ctx.quadraticCurveTo(-11, 0, -9, 4);
+          ctx.quadraticCurveTo(-6, 1, -3, 5);
+          ctx.lineTo(3, 5);
+          ctx.quadraticCurveTo(6, 1, 9, 4);
+          ctx.quadraticCurveTo(11, 0, 15, 3);
+          ctx.quadraticCurveTo(16, -2, 20, -6);
+          ctx.quadraticCurveTo(8, -9, 0, -2);
+          ctx.fill();
+          // Body and ears.
+          ctx.beginPath();
+          ctx.ellipse(0, 1, 3, 4.5, 0, 0, Math.PI * 2);
+          ctx.moveTo(-2.5, -2);
+          ctx.lineTo(-2, -6);
+          ctx.lineTo(-0.5, -3);
+          ctx.moveTo(2.5, -2);
+          ctx.lineTo(2, -6);
+          ctx.lineTo(0.5, -3);
+          ctx.fill();
+          ctx.restore();
         });
       }
       break;

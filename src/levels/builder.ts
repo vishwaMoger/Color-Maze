@@ -625,7 +625,10 @@ let salt = 0;
 
 function buildWith(n: number, effort: number): { c: Candidate; bonus: boolean } {
   const tries = (k: number) => Math.max(60, Math.round(k * effort));
-  const kind = levelKind(n);
+  // A picture or room only fits so many mazes: if rerolls keep landing on
+  // ones already met, build a free-form maze instead.
+  const planned = levelKind(n);
+  const kind = salt >= 3 && (planned === 'picture' || planned === 'room') ? 'maze' : planned;
   const bonus = kind === 'bonus';
   const t = Math.min(1, (n - 6) / 90);
   const parMin = Math.round(6 + t * 9);
