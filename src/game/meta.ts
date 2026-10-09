@@ -100,7 +100,26 @@ export function dayIndex(now = new Date()): number {
   return Math.floor((now.getTime() - now.getTimezoneOffset() * 60000) / 86400000);
 }
 
+/** Set once progress is erased: nothing may write the old save back. */
+let erased = false;
+
+/** Wipe all progress (Settings > Start over); the game then reloads fresh. */
+export function eraseSave() {
+  erased = true;
+  try {
+    saveStore()?.removeItem(SAVE_KEY);
+  } catch {
+    /* nothing stored */
+  }
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    /* no local storage */
+  }
+}
+
 export function storeSave(s: Save) {
+  if (erased) return;
   const text = JSON.stringify(s);
   try {
     saveStore()?.setItem(SAVE_KEY, text);
