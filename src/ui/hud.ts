@@ -411,14 +411,21 @@ export class Hud {
     onRevive: () => Promise<boolean> | boolean;
     onGiveUp: () => void;
     tick: () => void;
+    /** The player's ball, shown cut in two at the heart of the popup. */
+    art?: string;
   }) {
+    const panel = $('revive').querySelector<HTMLElement>('.revive-panel')!;
+    if (o.art) panel.style.setProperty('--rv-ball', `url(${o.art})`);
+    panel.classList.remove('urgent');
     $('revive-level').textContent = `Level ${o.level}`;
     $('revive-video').hidden = false;
     $('revive-streak').textContent = String(o.streak);
-    $('revive-sub').textContent = o.streak > 0 ? "You'll lose your win streak" : "You'll lose this level's progress";
+    // The streak chip only matters when there is a streak to lose.
+    ($('revive-streak').parentElement as HTMLElement).hidden = o.streak <= 0;
+    $('revive-sub').textContent = o.streak > 0 ? `You'll lose your ${o.streak}-win streak!` : "You'll lose this level's stars";
     const bar = $('revive-bar');
     const count = $('revive-count');
-    const circ = 2 * Math.PI * 15;
+    const circ = 2 * Math.PI * 52;
     bar.style.strokeDasharray = String(circ);
     let left = o.seconds;
     let done = false;
@@ -434,6 +441,8 @@ export class Hud {
         count.classList.remove('tick');
         void count.offsetWidth;
         count.classList.add('tick');
+        // Last seconds: the ring turns red and the panel urges a little.
+        panel.classList.toggle('urgent', n <= 3);
         o.tick();
       }
       if (el >= o.seconds) finish(false);

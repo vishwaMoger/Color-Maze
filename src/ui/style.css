@@ -3814,18 +3814,30 @@ body.page-open .hud {
   }
 }
 
+/* Revive: the player's ball, cut in two, glows at the top of the card
+   inside a big countdown ring, light rays turning behind it. Below: what
+   would be lost, then a big green Revive with its video badge. The last
+   three seconds turn the ring red and nudge the card. */
 .revive-panel {
   position: relative;
   display: grid;
   justify-items: center;
-  gap: 8px;
-  width: min(330px, 86vw);
-  padding: 26px 22px 18px;
+  gap: 6px;
+  box-sizing: border-box;
+  width: min(352px, 100%);
+  margin-top: 84px;
+  padding: 100px 22px 16px;
+  border-radius: 32px;
+  background:
+    radial-gradient(120% 60% at 50% 0%, #ffe9fb 0%, rgba(255, 233, 251, 0) 60%),
+    linear-gradient(180deg, #ffffff 30%, #f3edff 100%);
+  overflow: visible;
 }
 .revive-x {
   position: absolute;
   right: 12px;
   top: 12px;
+  z-index: 3;
   width: 34px;
   height: 34px;
   border: 0;
@@ -3836,143 +3848,317 @@ body.page-open .hud {
   cursor: pointer;
   box-shadow: 0 2px 0 rgba(90, 60, 190, 0.2);
 }
+.rv-hero {
+  position: absolute;
+  left: 50%;
+  top: -86px;
+  width: 172px;
+  height: 172px;
+  margin-left: -86px;
+}
+.rv-rays {
+  position: absolute;
+  inset: -46px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.55) 0 8deg, rgba(255, 255, 255, 0) 8deg 24deg);
+  -webkit-mask: radial-gradient(circle, #000 25%, transparent 68%);
+  mask: radial-gradient(circle, #000 25%, transparent 68%);
+  animation: rvspin 14s linear infinite;
+}
+.rv-glow {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #fff 0%, #ffd6f6 38%, #c27bff 72%, #8f4cf0 100%);
+  box-shadow: 0 10px 26px rgba(120, 40, 200, 0.45), inset 0 -8px 16px rgba(80, 0, 160, 0.35), inset 0 6px 10px rgba(255, 255, 255, 0.8);
+}
+@keyframes rvspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.rv-timer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+.rv-timer circle {
+  fill: none;
+  stroke-width: 9;
+}
+.rv-timer .track {
+  stroke: rgba(255, 255, 255, 0.85);
+  filter: drop-shadow(0 2px 2px rgba(80, 0, 140, 0.25));
+}
+.rv-timer .bar {
+  stroke: url(#rv-grad);
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 5px rgba(255, 140, 60, 0.8));
+  transition: stroke 0.3s;
+}
+.urgent .rv-timer .bar {
+  stroke: #ff3b5c;
+  filter: drop-shadow(0 0 7px rgba(255, 40, 80, 0.95));
+}
+/* The ball in two halves that drift apart and keep trying to rejoin. */
+.rv-ball {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 92px;
+  height: 92px;
+  margin: -46px 0 0 -46px;
+}
+.rv-ball .half {
+  position: absolute;
+  inset: 0;
+  background: var(--rv-ball, radial-gradient(circle at 35% 30%, #fffbe0, #ffd23a 50%, #e98a10)) center / cover no-repeat;
+  border-radius: 50%;
+  filter: drop-shadow(0 6px 6px rgba(60, 0, 110, 0.4));
+}
+.rv-ball .half.l {
+  clip-path: inset(0 50% 0 0);
+  animation: rvhalfl 1.8s ease-in-out infinite;
+}
+.rv-ball .half.r {
+  clip-path: inset(0 0 0 50%);
+  animation: rvhalfr 1.8s ease-in-out infinite;
+}
+@keyframes rvhalfl {
+  0%,
+  100% {
+    transform: translate(-9px, 3px) rotate(-12deg);
+  }
+  50% {
+    transform: translate(-3px, 0) rotate(-4deg);
+  }
+}
+@keyframes rvhalfr {
+  0%,
+  100% {
+    transform: translate(9px, -3px) rotate(12deg);
+  }
+  50% {
+    transform: translate(3px, 0) rotate(4deg);
+  }
+}
+.rv-ball .crack {
+  position: absolute;
+  left: 50%;
+  top: 6%;
+  width: 6px;
+  height: 88%;
+  margin-left: -3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, transparent, #fff 20%, #fff 80%, transparent);
+  box-shadow: 0 0 10px 4px rgba(255, 220, 255, 0.95);
+  animation: rvcrack 1.8s ease-in-out infinite;
+}
+@keyframes rvcrack {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scaleY(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+.rv-spark {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  filter: drop-shadow(0 0 4px #ffe36b);
+  animation: rvtwinkle 1.4s ease-in-out infinite;
+}
+.rv-spark.p1 { left: 8px; top: 30px; }
+.rv-spark.p2 { right: 4px; top: 54px; width: 13px; height: 13px; animation-delay: 0.4s; }
+.rv-spark.p3 { left: 22px; bottom: 18px; width: 12px; height: 12px; animation-delay: 0.8s; }
+.rv-spark.p4 { right: 20px; top: 6px; width: 15px; height: 15px; animation-delay: 1.1s; }
+@keyframes rvtwinkle {
+  0%,
+  100% {
+    transform: scale(0.4) rotate(0deg);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.1) rotate(45deg);
+    opacity: 1;
+  }
+}
+.rv-count {
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-left: -23px;
+  border-radius: 50%;
+  border: 4px solid #fff;
+  background: linear-gradient(180deg, #ffd84a, #ff9a1f);
+  color: #fff;
+  font: 700 24px/1 var(--font);
+  text-shadow: 0 2px 0 rgba(150, 60, 0, 0.45);
+  box-shadow: 0 4px 0 #d9700b, 0 8px 14px rgba(120, 40, 0, 0.3);
+  font-variant-numeric: tabular-nums;
+}
+.rv-count.tick {
+  animation: countpop2 0.35s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+.urgent .rv-count {
+  background: linear-gradient(180deg, #ff6b7d, #ee2f4a);
+  box-shadow: 0 4px 0 #b81d3a, 0 0 18px rgba(255, 40, 80, 0.7);
+  text-shadow: 0 2px 0 rgba(120, 0, 20, 0.45);
+}
+@keyframes countpop2 {
+  40% {
+    transform: scale(1.35);
+  }
+}
+.urgent.revive-panel {
+  animation: rvurge 0.5s ease-in-out infinite alternate;
+}
+@keyframes rvurge {
+  to {
+    transform: rotate(-1deg) scale(1.01);
+  }
+}
+.rv-level {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: #efe8ff;
+  color: #6a45d8;
+  font: 700 13px var(--font);
+  letter-spacing: 0.02em;
+}
 .revive-title {
-  margin: 4px 0 0;
-  font-weight: 700;
-  font-size: 28px;
-  color: var(--ink);
+  margin: 2px 0 0;
+  font: 700 30px/1.1 var(--font);
+  background: linear-gradient(180deg, #a14bff, #6a2be0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(106, 43, 224, 0.15));
 }
 .revive-sub {
   margin: 0;
-  font-weight: 600;
-  font-size: 15px;
+  font: 600 15px var(--font);
   color: var(--deep);
-  opacity: 0.75;
+  opacity: 0.8;
 }
-.revive-art {
+.rv-lose {
   display: flex;
-  gap: 18px;
-  margin: 8px 0 2px;
+  gap: 12px;
+  margin: 8px 0 4px;
 }
-.rv-item {
+.rv-chip {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 78px;
-  height: 78px;
-  border-radius: 20px;
-  background: linear-gradient(180deg, #f6f2ff, #e6dcff);
-  box-shadow: inset 0 -3px 0 rgba(90, 60, 190, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbf8ff, #ece4ff);
+  box-shadow: inset 0 -3px 0 rgba(90, 60, 190, 0.14), 0 2px 4px rgba(60, 30, 140, 0.12);
+  color: var(--deep);
+  font: 700 17px var(--font);
 }
-.rv-item .ico {
-  width: 52px;
-  height: 52px;
-  filter: drop-shadow(0 3px 2px rgba(80, 30, 0, 0.25));
-  animation: rvwobble 1.6s ease-in-out infinite;
+.rv-chip[hidden] {
+  display: none;
 }
-.rv-item b {
+.rv-chip .ico {
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 2px 2px rgba(80, 30, 0, 0.25)) grayscale(0.15);
+}
+.rv-chip .rv-x {
   position: absolute;
-  bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 0 7px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #ffb340, #ff6a00);
-  color: #fff;
-  font-size: 13px;
-}
-.rv-x {
-  position: absolute;
-  right: -6px;
-  bottom: -6px;
-  width: 26px;
-  height: 26px;
+  right: -8px;
+  top: -8px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  border: 3px solid #fff;
+  border: 2.5px solid #fff;
   background: #ff3d5e
     url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path stroke="white" stroke-width="3.4" stroke-linecap="round" d="M7 7l10 10M17 7 7 17"/></svg>')
     center / 70% no-repeat;
-  box-shadow: 0 3px 0 #b81d3a;
+  box-shadow: 0 2px 0 #b81d3a;
   animation: rvpulse 1s ease-in-out infinite;
-}
-@keyframes rvwobble {
-  50% {
-    transform: rotate(-6deg) scale(0.94);
-  }
 }
 @keyframes rvpulse {
   50% {
     transform: scale(1.15);
   }
 }
-.revive-level {
-  margin: 0;
-  font-weight: 700;
-  font-size: 17px;
-  color: var(--deep);
-}
 .revive-btn {
+  --b1: #7fe04a;
+  --b2: #43c22c;
+  --b3: #2a8f1c;
   width: 100%;
-  height: 62px;
-  margin-top: 6px;
+  height: 64px;
+  margin-top: 10px;
   grid-auto-flow: column;
   justify-content: center;
-  gap: 12px;
-  font-family: var(--font);
-  font-weight: 700;
-  font-size: 26px;
-  text-shadow: 0 2px 0 var(--b3);
+  align-items: center;
+  gap: 10px;
+  overflow: visible;
+  font: 700 28px var(--font);
+  text-shadow: 0 2px 0 rgba(20, 90, 10, 0.5);
   animation: btnpulse 1.2s ease-in-out infinite;
+}
+.revive-btn::after {
+  /* A sheen sweeping across the button now and then. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.5) 50%, transparent 65%) 0 0 / 250% 100% no-repeat;
+  animation: rvsheen 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes rvsheen {
+  0% {
+    background-position: 130% 0;
+  }
+  60%,
+  100% {
+    background-position: -30% 0;
+  }
 }
 .revive-btn > span {
   position: relative;
   z-index: 1;
 }
-.rv-ring {
-  position: relative;
+.rv-play {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 0 rgba(20, 90, 10, 0.35);
 }
-.rv-ring svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-.rv-ring circle {
-  fill: rgba(0, 0, 0, 0.15);
-  stroke-width: 4px;
-}
-.rv-ring .track {
-  stroke: rgba(255, 255, 255, 0.3);
-}
-.rv-ring .bar {
-  fill: none;
-  stroke: #fff;
-  stroke-linecap: round;
-}
-.rv-ring b {
-  position: relative;
-  font-size: 18px;
-}
-.rv-ring b.tick {
-  animation: countpop2 0.35s cubic-bezier(0.3, 1.8, 0.5, 1);
-}
-@keyframes countpop2 {
-  40% {
-    transform: scale(1.4);
-  }
+.rv-play svg {
+  width: 20px;
+  height: 20px;
+  margin-left: 3px;
+  fill: #3fb32a;
 }
 .revive-giveup {
   border: 0;
   background: none;
-  padding: 6px 12px;
-  font: 600 16px var(--font);
+  padding: 8px 12px 2px;
+  font: 600 15px var(--font);
   color: var(--deep);
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: pointer;
 }
 .revive-giveup:hover {

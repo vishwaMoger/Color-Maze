@@ -319,19 +319,33 @@
     <div id="revive" class="modal" hidden>
       <div class="panel revive-panel" role="dialog" aria-labelledby="revive-title">
         <button id="btn-revive-close" class="revive-x" aria-label="Give up">&times;</button>
+        <div class="rv-hero" aria-hidden="true">
+          <span class="rv-rays"></span>
+          <span class="rv-glow"></span>
+          <svg class="rv-timer" viewBox="0 0 120 120">
+            <defs>
+              <linearGradient id="rv-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe35c" /><stop offset="0.55" stop-color="#ff8a3d" /><stop offset="1" stop-color="#ff3d8e" /></linearGradient>
+            </defs>
+            <circle class="track" cx="60" cy="60" r="52" />
+            <circle class="bar" id="revive-bar" cx="60" cy="60" r="52" />
+          </svg>
+          <span class="rv-ball"><i class="half l"></i><i class="half r"></i><i class="crack"></i></span>
+          <i class="rv-spark p1"></i><i class="rv-spark p2"></i><i class="rv-spark p3"></i><i class="rv-spark p4"></i>
+          <b class="rv-count" id="revive-count">9</b>
+        </div>
+        <span class="rv-level" id="revive-level">Level 1</span>
         <h2 id="revive-title" class="revive-title">Don't give up!</h2>
         <p class="revive-sub" id="revive-sub">You'll lose your win streak</p>
-        <div class="revive-art">
-          <span class="rv-item"><i class="ico ico-fire"></i><b id="revive-streak">0</b><i class="rv-x"></i></span>
-          <span class="rv-item"><i class="ico ico-star"></i><i class="rv-x"></i></span>
+        <div class="rv-lose">
+          <span class="rv-chip"><i class="ico ico-fire"></i><b id="revive-streak">0</b><i class="rv-x"></i></span>
+          <span class="rv-chip"><i class="ico ico-star"></i><b>x3</b><i class="rv-x"></i></span>
         </div>
-        <p class="revive-level" id="revive-level">Level 1</p>
         <button id="btn-revive" class="gbtn revive-btn">
-          <span class="rv-ring"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="track" cx="18" cy="18" r="15" /><circle class="bar" id="revive-bar" cx="18" cy="18" r="15" /></svg><b id="revive-count">9</b></span>
+          <span class="rv-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5Z" /></svg></span>
           <span id="revive-label">Revive</span>
           <span class="mvideo" id="revive-video" hidden aria-label="Watch an ad"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" /><path d="m4.2 8.2-.5-2a1.5 1.5 0 0 1 1.1-1.8l12.6-3a1.5 1.5 0 0 1 1.8 1.1l.4 1.6Z" /><path d="M10 11.5v6l5-3Z" class="play" /></svg></span>
         </button>
-        <button id="btn-giveup" class="revive-giveup">Give up</button>
+        <button id="btn-giveup" class="revive-giveup">No thanks</button>
       </div>
     </div>
 

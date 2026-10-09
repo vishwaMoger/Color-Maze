@@ -868,6 +868,7 @@ export class Game {
       // Blocked: a small wobble toward the wall.
       this.ball.impact(0.25);
       this.sound.bump();
+      this.vibrate(12);
       return;
     }
     this.history.push({
@@ -898,6 +899,15 @@ export class Game {
       this.wet.set(this.key(this.pos), { t: this.time, axis: d.x !== 0 ? 0 : 1 });
     }
     this.sound.launch(longest);
+    // Felt in the hand: a kick as the ball leaves, then a rolling buzz while
+    // fresh paint fills tiles (the landing thud in arrive cuts it off).
+    const fresh = r.path.filter((p) => !this.painted.has(this.key(p))).length;
+    if (fresh === 0) this.vibrate(12);
+    else {
+      const pattern = [16];
+      for (let t = 16; t < longest - 20; t += 22) pattern.push(12, 10);
+      this.vibrate(pattern);
+    }
   }
 
   private makeSlide(dir: Dir, from: Point, r: SlideResult): Slide {
@@ -968,7 +978,7 @@ export class Game {
     this.boardFx.ring(c.x, c.y, this.cell * 0.75, 0xffffff);
     this.boardFx.flash(c.x, c.y, this.cell * 1.4, this.look.paintLight, 0.45);
     this.sound.star(2);
-    this.vibrate(14);
+    this.vibrate([16, 30, 16]);
     for (const sd of dirs) {
       const r = slide(this.level.grid, p, sd);
       const ball = this.makeBall();
@@ -1192,7 +1202,8 @@ export class Game {
     this.splatBall(d);
     this.sound.thock(0.6 + speed * 0.4 + (gripped ? 0.3 : 0));
     if (gripped) this.sound.grip();
-    this.vibrate(gripped ? 16 : 8);
+    // Landing thud, heavier the longer the run; a stopper's grip snaps twice.
+    this.vibrate(gripped ? [26, 40, 34] : Math.round(24 + speed * 16));
 
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
     const hitX = c.x + d.x * this.cell * 0.45;
@@ -1335,7 +1346,7 @@ export class Game {
         this.hud.hurt();
         this.sound.slice();
         this.sound.thock(0.8);
-        this.vibrate([40, 30, 60]);
+        this.vibrate([70, 40, 110, 60, 50]);
       },
     });
     window.setTimeout(() => {
@@ -1366,6 +1377,7 @@ export class Game {
         level: this.levelNo,
         streak: this.save.streak,
         seconds: 9,
+        art: this.spherePreview(this.save.ball),
         tick: () => this.sound.click(),
         onRevive: () => {
           return rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
@@ -1584,6 +1596,8 @@ export class Game {
 
   private beginComplete() {
     this.completeAt = this.time;
+    // Celebration in the hand: da-da-DAA.
+    this.vibrate([40, 70, 40, 70, 90]);
     this.timeScale = REDUCED_MOTION ? 1 : 0.3;
     this.hint = null;
   }
@@ -1740,7 +1754,7 @@ export class Game {
         this.save.coins += coins * m;
         this.save.weekStars += stars * m;
         this.persist();
-        this.vibrate(25);
+        this.vibrate([30, 50, 30]);
         window.setTimeout(() => {
           this.hud.setCoins(this.save.coins);
           this.sound.coin();
@@ -2019,7 +2033,7 @@ export class Game {
         this.boardFx.ring(to.x, to.y, this.cell * 0.6, 0xffffff);
         this.sound.thock(0.7);
         this.sound.paintTile();
-        this.vibrate(10);
+        this.vibrate(18);
         this.updateRemaining();
       }
     });
