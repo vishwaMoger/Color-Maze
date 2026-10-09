@@ -16,9 +16,6 @@ const source = readFileSync('index.html', 'utf8');
 const markup = source.slice(source.indexOf('<!--APP-START-->') + 16, source.indexOf('<!--APP-END-->'));
 
 const page = `<title>Color Maze</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 ${css}
 </style>

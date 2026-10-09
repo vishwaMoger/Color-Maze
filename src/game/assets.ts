@@ -1,12 +1,8 @@
 // Image assets (MIT Fluent 3D art, see src/assets/LICENSE-fluent-emoji.txt).
 // Vite inlines them, so the build stays a self-contained bundle.
 
-const ballUrls = import.meta.glob('../assets/balls/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
-
 const byName = (urls: Record<string, string>) =>
   Object.fromEntries(Object.entries(urls).map(([path, url]) => [path.split('/').pop()!.replace('.webp', ''), url]));
-
-export const BALL_URLS: Record<string, string> = byName(ballUrls);
 
 const avatarUrls = import.meta.glob('../assets/avatars/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 const AVATAR_URLS: Record<string, string> = byName(avatarUrls);
@@ -25,10 +21,10 @@ const ICON_URLS: Record<string, string> = byName(iconUrls);
 
 const images = new Map<string, HTMLImageElement>();
 
-/** Decode all ball textures up front so skins switch instantly. */
+/** Decode the icon art used by particle effects up front. */
 export async function preloadAssets() {
   await Promise.all(
-    [...Object.entries(BALL_URLS), ...Object.entries(ICON_URLS).map(([k, v]) => [`icon:${k}`, v] as [string, string])].map(
+    Object.entries(ICON_URLS).map(([k, v]) => [`icon:${k}`, v] as [string, string]).map(
       ([name, url]) =>
         new Promise<void>((resolve) => {
           const img = new Image();
@@ -41,10 +37,6 @@ export async function preloadAssets() {
         }),
     ),
   );
-}
-
-export function ballImage(name: string): HTMLImageElement | undefined {
-  return images.get(name);
 }
 
 /** Decoded icon art (star, coin) for particle effects. */

@@ -1,5 +1,7 @@
-// Progress, economy and the weekly bot league. Everything is local and works
-// offline; CrazyGames cloud save can mirror the same Save object later.
+// Progress, economy and the weekly bot league. Everything works offline;
+// on CrazyGames the save goes through the SDK's store, which syncs it to the
+// player's account when they are logged in.
+import { saveStore } from '../platform/ads.ts';
 
 export interface Save {
   level: number;
@@ -21,11 +23,20 @@ export interface Save {
   weekStars: number;
   /** Highest level whose unlocks the player has seen in the shop. */
   seenUnlock: number;
-  /** Key vault: progress dots per prize (0-2), and items won early. */
-  vault: { hint: number; item: number; coins: number };
+  /**
+   * Key vault: progress dots per prize (0-2), and `dry`, how many visits in
+   * a row ended without a prize (the next one is then guaranteed).
+   */
+  vault: { hint: number; item: number; coins: number; dry?: number };
   owned: string[];
   /** One-time tips already shown (e.g. 'curves'). */
   tips: string[];
+  /** Local day of the last visit: a new day tops up one free hint. */
+  day: number;
+  /** Ads watched toward each ad-unlock item (see `ads` on cosmetics). */
+  adProgress: Record<string, number>;
+  /** Super Rewards seen: the first Multiply is free, later ones take an ad. */
+  superRewards: number;
 }
 
 const SAVE_KEY = 'colormaze.v1';
@@ -53,11 +64,27 @@ export function loadSave(): Save {
     vault: { hint: 0, item: 0, coins: 0 },
     owned: [],
     tips: [],
+    day: dayIndex(),
+    adProgress: {},
+    superRewards: 0,
   };
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    // Prefer the SDK's (cloud) copy; fall back to this browser's, so
+    // progress made before the SDK was in use carries over.
+    let raw = saveStore()?.getItem(SAVE_KEY) ?? null;
+    if (raw === null) {
+      try {
+        raw = localStorage.getItem(SAVE_KEY);
+      } catch {
+        raw = null;
+      }
+    }
     const s: Save = raw ? { ...fallback, ...JSON.parse(raw) } : fallback;
     s.best = Math.max(s.best, s.level);
+    if (s.day !== dayIndex()) {
+      s.day = dayIndex();
+      s.hints = Math.max(s.hints, 1);
+    }
     if (s.week !== weekIndex()) {
       s.week = weekIndex();
       s.weekStars = 0;
@@ -68,11 +95,23 @@ export function loadSave(): Save {
   }
 }
 
+/** Days since the epoch in local time. */
+export function dayIndex(now = new Date()): number {
+  return Math.floor((now.getTime() - now.getTimezoneOffset() * 60000) / 86400000);
+}
+
 export function storeSave(s: Save) {
+  const text = JSON.stringify(s);
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(s));
+    saveStore()?.setItem(SAVE_KEY, text);
   } catch {
     /* storage unavailable: progress lasts for this session only */
+  }
+  // Keep a local copy too when the SDK's store is the main one.
+  try {
+    if (saveStore() !== window.localStorage) localStorage.setItem(SAVE_KEY, text);
+  } catch {
+    /* no local storage */
   }
 }
 

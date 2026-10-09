@@ -55,6 +55,21 @@ export const ARROWS: Record<number, Dir> = { [ARROW_U]: 'U', [ARROW_D]: 'D', [AR
 /** Collectibles lying on a tile: painting the tile picks them up. */
 export const COIN = 14;
 export const KEY = 15;
+/**
+ * An x3 tile: the first ball to roll over it splits in three. It rolls on,
+ * and two more shoot out sideways from the tile (see splitDirs); from then
+ * on every swipe moves every ball. Balls that stop on the same tile merge.
+ */
+export const MULT = 16;
+
+/**
+ * Where the ball that crosses an x3 tile at `path[i]` splits to: the two
+ * directions square to the way it was rolling there.
+ */
+export function splitDirs(from: Point, path: Point[], i: number): Dir[] {
+  const prev = i > 0 ? path[i - 1] : from;
+  return path[i].x !== prev.x ? ['U', 'D'] : ['L', 'R'];
+}
 export const isPortal = (c: number | undefined) => c === PORTAL_A || c === PORTAL_B;
 export const isArrow = (c: number | undefined) => c !== undefined && c >= ARROW_U && c <= ARROW_R;
 
@@ -69,7 +84,7 @@ export interface Level {
 
 export function isFloor(grid: Grid, x: number, y: number): boolean {
   const c = grid[y]?.[x];
-  return c === 0 || c === STOPPER || isCurve(c) || (c !== undefined && c >= PORTAL_A && c <= KEY);
+  return c === 0 || c === STOPPER || isCurve(c) || (c !== undefined && c >= PORTAL_A && c <= MULT);
 }
 
 function findTile(grid: Grid, v: number): Point | null {
@@ -275,6 +290,144 @@ export function solve(
   return null;
 }
 
+/**
+ * A move that heads for unpainted floor: the first swipe of the fewest
+ * swipes from `start` to a slide that paints at least one new tile (never
+ * into a saw). Following it again and again finishes any level that cannot
+ * get stuck, and it is cheap on any board, so it backs up `solve` when that
+ * search is too big. Null if no slide can paint anything new.
+ */
+export function nextPaintingMove(grid: Grid, start: Point, painted: Set<number>): Dir | null {
+  const w = grid[0].length;
+  const key = (p: Point) => p.y * w + p.x;
+  const first = new Map<number, Dir | null>([[key(start), null]]);
+  const queue: Point[] = [start];
+  while (queue.length) {
+    const p = queue.shift()!;
+    for (const dir of DIR_LIST) {
+      const r = slide(grid, p, dir);
+      if (!r.path.length || r.saw) continue;
+      const via = first.get(key(p)) ?? dir;
+      if (r.path.some((c) => !painted.has(key(c)))) return via;
+      if (!first.has(key(r.end))) {
+        first.set(key(r.end), via);
+        queue.push(r.end);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Like `solve`, for levels with an x3 tile and for several balls at once:
+ * `start` is the main ball, `extras` any others already split off, `used`
+ * whether the x3 tile has split a ball yet. A swipe moves every ball; one
+ * rolling into a saw ends the attempt (that swipe is never chosen).
+ */
+export function solveMulti(
+  grid: Grid,
+  start: Point,
+  painted?: Iterable<number>,
+  cap = 250000,
+  extras: Point[] = [],
+  used = false,
+): Dir[] | null {
+  const mult = findTile(grid, MULT);
+  if ((!mult || used) && !extras.length) return solve(grid, start, painted, cap);
+  const w = grid[0].length;
+  const index = new Map<number, number>();
+  grid.forEach((row, y) =>
+    row.forEach((c, x) => {
+      if (c !== WALL && c !== SAW) index.set(y * w + x, index.size);
+    }),
+  );
+  const full = (1n << BigInt(index.size)) - 1n;
+  const bit = (cell: number) => 1n << BigInt(index.get(cell)!);
+  const pt = (cell: number) => ({ x: cell % w, y: Math.floor(cell / w) });
+  const multCell = mult ? mult.y * w + mult.x : -1;
+  let mask = bit(start.y * w + start.x);
+  for (const b of extras) mask |= bit(b.y * w + b.x);
+  for (const c of painted ?? []) if (index.has(c)) mask |= bit(c);
+  if (mask === full) return [];
+  type Mv = { end: number; bits: bigint; saw: boolean; moved: boolean; split: Dir[] | null };
+  const cache = new Map<number, Mv>();
+  const move = (cell: number, di: number): Mv => {
+    const ck = cell * 4 + di;
+    const hit = cache.get(ck);
+    if (hit) return hit;
+    const from = pt(cell);
+    const r = slide(grid, from, DIR_LIST[di]);
+    let bits = 0n;
+    for (const c of r.path) bits |= bit(c.y * w + c.x);
+    const at = r.path.findIndex((c) => c.y * w + c.x === multCell);
+    const mv = { end: r.end.y * w + r.end.x, bits, saw: !!r.saw, moved: r.path.length > 0, split: at >= 0 ? splitDirs(from, r.path, at) : null };
+    cache.set(ck, mv);
+    return mv;
+  };
+  const posOf: number[][] = [[start.y * w + start.x, ...extras.map((b) => b.y * w + b.x)]];
+  const usedOf: boolean[] = [used];
+  const maskOf: bigint[] = [mask];
+  const parent: number[] = [-1];
+  const via: Dir[] = ['U'];
+  const keyOf = (pos: number[], u: boolean) => `${pos[0]}|${pos.slice(1).sort((a, b) => a - b).join(',')}|${u ? 1 : 0}`;
+  const seen = new Map<bigint, Set<string>>([[mask, new Set([keyOf(posOf[0], used)])]]);
+  let frontier = [0];
+  while (frontier.length) {
+    const next: number[] = [];
+    for (const i of frontier) {
+      for (let di = 0; di < 4; di++) {
+        let u = usedOf[i];
+        let m = maskOf[i];
+        const out: number[] = [];
+        let dead = false;
+        let any = false;
+        for (const cell of posOf[i]) {
+          const mv = move(cell, di);
+          if (mv.saw) {
+            dead = true;
+            break;
+          }
+          any ||= mv.moved;
+          m |= mv.bits;
+          out.push(mv.end);
+          if (!u && mv.split) {
+            u = true;
+            for (const sd of mv.split) {
+              const sm = move(multCell, DIR_LIST.indexOf(sd));
+              if (sm.saw) dead = true;
+              m |= sm.bits;
+              out.push(sm.end);
+            }
+          }
+        }
+        if (dead || !any) continue;
+        // Balls stopping on the same tile merge (the main ball stays first).
+        const pos = out.filter((c, j) => out.indexOf(c) === j);
+        const key = keyOf(pos, u);
+        let at = seen.get(m);
+        if (at?.has(key)) continue;
+        if (!at) seen.set(m, (at = new Set()));
+        at.add(key);
+        const j = posOf.length;
+        posOf.push(pos);
+        usedOf.push(u);
+        maskOf.push(m);
+        parent.push(i);
+        via.push(DIR_LIST[di]);
+        if (m === full) {
+          const path: Dir[] = [];
+          for (let k = j; parent[k] !== -1; k = parent[k]) path.push(via[k]);
+          return path.reverse();
+        }
+        next.push(j);
+        if (j > cap) return null;
+      }
+    }
+    frontier = next;
+  }
+  return null;
+}
+
 /** Characters for curved corners in level text: a=TL, b=TR, c=BL, d=BR. */
 export const CURVE_CHARS: Record<string, number> = {
   a: CURVE_TL,
@@ -290,12 +443,13 @@ export const CURVE_CHARS: Record<string, number> = {
   '>': ARROW_R,
   $: COIN,
   k: KEY,
+  m: MULT,
 };
 
 /**
  * Parse rows where '#' is wall, '.' floor, '*' a stopper, 'o' the start,
- * a-d curved corners, 'x' a saw, p/q portals, ^v<> arrows, '$' a coin and
- * 'k' a key.
+ * a-d curved corners, 'x' a saw, p/q portals, ^v<> arrows, '$' a coin,
+ * 'k' a key and 'm' an x3 badge.
  */
 export function parseLevel(rows: string[], extra: Partial<Level> = {}): Level {
   let start: Point | null = null;

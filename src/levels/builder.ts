@@ -8,7 +8,9 @@
 //   - picture levels (a silhouette such as a heart or rocket that the paint
 //     reveals), carved inside a pixel-art mask
 //   - stopper rooms (open rooms where studded tiles are the puzzle)
-//   - bonus levels every 5th: wide, satisfying, impossible to get stuck in
+//   - every level is impossible to get stuck in: from any stop the ball can
+//     always get back, so whatever the player does it can still be finished
+//   - bonus levels every 5th: wide and satisfying
 import {
   analyze,
   ARROW_D,
@@ -25,11 +27,13 @@ import {
   isCurve,
   isFloor,
   KEY,
+  MULT,
   PORTAL_A,
   PORTAL_B,
   SAW,
   slide,
   solve,
+  solveMulti,
   STOPPER,
   type Dir,
   type Grid,
@@ -374,6 +378,12 @@ function search(
   rule: { neverStuck: boolean; parMin: number; parMax: number; maxTiles: number; minTiles: number },
   m: Mask | null,
   name: string,
+  /**
+   * A level-seeded random preference among good candidates, so a shape that
+   * comes back (a picture) gets a different maze each time rather than the
+   * same best-scoring one.
+   */
+  variety = 0,
 ): Candidate | null {
   const rng = mulberry32(seed);
   let best: Candidate | null = null;
@@ -384,11 +394,11 @@ function search(
     const a = analyze(c.grid, c.start);
     if (a.covered !== a.floor || a.floor > rule.maxTiles || a.floor < rule.minTiles) continue;
     if (rule.neverStuck && !a.neverStuck) continue;
-    const b = beauty(c.grid, m);
+    const b = beauty(c.grid, m) + (variety ? rng() * variety : 0);
     if (b < -1e8) continue;
     // Cheap pre-filter before the expensive solve.
     if (best && b + 60 < best.score) continue;
-    const sol = solve(c.grid, c.start, undefined, 200000);
+    const sol = solveMulti(c.grid, c.start, undefined, 200000);
     if (!sol) continue;
     const par = sol.length;
     const mid = (rule.parMin + rule.parMax) / 2;
@@ -436,7 +446,7 @@ function room(n: number, effort = 1): Candidate | null {
     const start = corners[Math.floor(rng() * 4)];
     if (grid[start.y][start.x] !== 0) continue;
     const a = analyze(grid, start);
-    if (a.covered !== a.floor || (n < 40 && !a.neverStuck)) continue;
+    if (a.covered !== a.floor || !a.neverStuck) continue;
     const sol = solve(grid, start, undefined, 150000);
     if (!sol) continue;
     const score = -Math.abs(sol.length - target) * 4 + a.stops * 0.5 - pillars;
@@ -498,6 +508,29 @@ function addArrows(rng: () => number, grid: Grid, start: Point, count: number): 
   return n;
 }
 
+/**
+ * Put an x3 tile where splitting pays off: on a plain tile with open floor
+ * straight through it one way and at least one side open the other way, so
+ * the ball rolls over it and the new balls shoot off down side lanes.
+ */
+function addSplit(rng: () => number, grid: Grid, start: Point): boolean {
+  const open = (x: number, y: number) => isFloor(grid, x, y) && grid[y][x] !== STOPPER;
+  const cells: Point[] = [];
+  grid.forEach((row, y) =>
+    row.forEach((v, x) => {
+      if (v !== 0 || (x === start.x && y === start.y)) return;
+      const lr = open(x - 1, y) && open(x + 1, y);
+      const ud = open(x, y - 1) && open(x, y + 1);
+      const side = (lr && (open(x, y - 1) || open(x, y + 1))) || (ud && (open(x - 1, y) || open(x + 1, y)));
+      if (side) cells.push({ x, y });
+    }),
+  );
+  if (!cells.length) return false;
+  const p = cells[Math.floor(rng() * cells.length)];
+  grid[p.y][p.x] = MULT;
+  return true;
+}
+
 /** Scatter a few coins (and sometimes a key) on plain floor tiles. */
 function addPickups(rng: () => number, grid: Grid, start: Point, coins: number, key: boolean) {
   const cells: Point[] = [];
@@ -517,22 +550,49 @@ function addPickups(rng: () => number, grid: Grid, start: Point, coins: number, 
 
 export const FIRST_BUILT = 7; // levels 1-6 are handmade tutorials
 
-/** The kind of level n is, so consecutive levels feel different. */
-export function levelKind(n: number): 'bonus' | 'picture' | 'curves' | 'saws' | 'portals' | 'arrows' | 'room' | 'maze' {
+/**
+ * Search effort for endless levels built in the game. The search result
+ * depends on the effort, so the worker and the on-the-spot fallback must use
+ * this same value or players would get different mazes for the same level.
+ */
+export const ENDLESS_EFFORT = 0.5;
+
+type Kind = 'bonus' | 'picture' | 'curves' | 'saws' | 'portals' | 'arrows' | 'split' | 'room' | 'maze';
+
+/** Where each mechanic first appears: its own level, so it can be learnt. */
+export const DEBUT: Record<'curves' | 'saws' | 'portals' | 'arrows' | 'split', number> = { curves: 16, saws: 23, portals: 32, arrows: 41, split: 47 };
+
+/**
+ * The kind of level n is. Every 5th is a bonus and every 7th a picture;
+ * otherwise the level rotates through everything unlocked so far, so a
+ * new mechanic keeps coming back and no two levels in a row are the same
+ * kind.
+ */
+export function levelKind(n: number): Kind {
   if (n % 5 === 0) return 'bonus';
+  for (const [k, at] of Object.entries(DEBUT)) if (n === at) return k as Kind;
   if (n % 7 === 3 || n === 9) return 'picture';
-  const m = n % 12;
-  if (n >= 22 && (m === 4 || m === 10)) return 'curves';
-  if (n >= 35 && (m === 1 || m === 7)) return 'saws';
-  if (n >= 45 && m === 3) return 'portals';
-  if (n >= 58 && m === 9) return 'arrows';
-  if (n >= 12 && n % 4 === 0) return 'room';
-  return 'maze';
+  const pool: Kind[] = ['maze'];
+  if (n >= 8) pool.push('room');
+  if (n >= DEBUT.curves) pool.push('curves');
+  if (n >= DEBUT.saws) pool.push('saws');
+  if (n >= DEBUT.portals) pool.push('portals');
+  if (n >= DEBUT.arrows) pool.push('arrows');
+  if (n >= DEBUT.split) pool.push('split');
+  // Step through the pool by a stride coprime with its size: consecutive
+  // levels never land on the same kind.
+  const L = pool.length;
+  const stride = L % 3 === 0 ? 5 : 3;
+  let k = pool[(n * stride) % L];
+  // Right after a debut, don't repeat the mechanic just introduced.
+  const prevDebut = Object.entries(DEBUT).find(([, at]) => at === n - 1)?.[0];
+  if (k === prevDebut) k = pool[(n * stride + 1) % L];
+  return k;
 }
 
 const CHARS: Record<number, string> = {
   1: '#', 0: '.', [STOPPER]: '*', [SAW]: 'x', [PORTAL_A]: 'p', [PORTAL_B]: 'q',
-  [ARROW_U]: '^', [ARROW_D]: 'v', [ARROW_L]: '<', [ARROW_R]: '>', [COIN]: '$', [KEY]: 'k',
+  [ARROW_U]: '^', [ARROW_D]: 'v', [ARROW_L]: '<', [ARROW_R]: '>', [COIN]: '$', [KEY]: 'k', [MULT]: 'm',
 };
 
 /** Level text: name|bonus|par|rows. */
@@ -553,11 +613,13 @@ export function buildLevel(n: number, effort = 1): { c: Candidate; bonus: boolea
   const bonus = kind === 'bonus';
   const t = Math.min(1, (n - 6) / 90);
   const parMin = Math.round(6 + t * 9);
-  const rule = { neverStuck: bonus || n < 30, parMin, parMax: parMin + 6, maxTiles: Math.round(40 + t * 34), minTiles: Math.round(26 + t * 18) };
+  // Never stuck, on every level (see analyze in core.ts).
+  const rule = { neverStuck: true, parMin, parMax: parMin + 6, maxTiles: Math.round(40 + t * 34), minTiles: Math.round(26 + t * 18) };
   const w = 8 + Math.round(t * 3);
   const h = 9 + Math.round(t * 3);
   // Later on, special levels sometimes combine two mechanics.
-  const combo = n >= 100 && mulberry32(n * 991)() < 0.5;
+  // From level 60 on, a growing share of special levels mix two mechanics.
+  const combo = n >= 60 && mulberry32(n * 991)() < Math.min(0.6, 0.25 + (n - 60) / 300);
   let c: Candidate | null = null;
   if (kind === 'saws') {
     const frame = FRAMES[(n * 7) % FRAMES.length];
@@ -569,7 +631,7 @@ export function buildLevel(n: number, effort = 1): { c: Candidate; bonus: boolea
         if (!addSaws(rng, g.grid, mirror, 1 + (rng() < 0.4 ? 1 : 0))) return null;
         if (combo) addCurves(rng, g.grid, g.start, mirror, 0.3);
         return sawIsLive(g.grid, g.start) ? g : null;
-      }, { ...rule, neverStuck: false, parMin: rule.parMin - 2 }, null, 'Saws');
+      }, { ...rule, parMin: rule.parMin - 2 }, null, 'Saws');
   } else if (kind === 'curves') {
     const frame = n < 30 ? FRAMES[0] : FRAMES[(n * 3) % FRAMES.length];
     for (let attempt = 0; attempt < 3 && !c; attempt++)
@@ -580,31 +642,53 @@ export function buildLevel(n: number, effort = 1): { c: Candidate; bonus: boolea
         if (addCurves(rng, g.grid, g.start, true, 0.3 + rng() * 0.5) < 2) return null;
         if (combo && addSaws(rng, g.grid, mirror, 1) && !sawIsLive(g.grid, g.start)) return null;
         return g;
-      }, { ...rule, neverStuck: rule.neverStuck && !combo, parMin: n < 30 ? 4 : rule.parMin - 3, parMax: rule.parMax + 2 }, null, 'Curves');
+      }, { ...rule, parMin: n < 30 ? 4 : rule.parMin - 3, parMax: rule.parMax + 2 }, null, 'Curves');
   } else if (kind === 'portals') {
     for (let attempt = 0; attempt < 3 && !c; attempt++)
       c = search(n * 4241 + 3 + attempt, tries(3000), (rng) => {
         const g = portalIslands(rng, w + 1, h);
         if (g && combo) addCurves(rng, g.grid, g.start, false, 0.3);
         return g;
-      }, { ...rule, neverStuck: false, parMin: rule.parMin - 3, parMax: rule.parMax + 3 }, null, 'Portals');
+      }, { ...rule, parMin: rule.parMin - 3, parMax: rule.parMax + 3 }, null, 'Portals');
   } else if (kind === 'arrows') {
     const frame = FRAMES[(n * 11) % FRAMES.length];
-    for (let attempt = 0; attempt < 3 && !c; attempt++)
+    for (let attempt = 0; attempt < 6 && !c; attempt++)
       c = search(n * 6029 + 1 + attempt, tries(3000), (rng) => {
         const g = carve(rng, frame.f(w, h), rng() < 0.5, 0.55 + rng() * 0.15);
         if (!g) return null;
         if (addArrows(rng, g.grid, g.start, 2 + Math.floor(rng() * 3)) < 2) return null;
         if (combo && addSaws(rng, g.grid, false, 1) && !sawIsLive(g.grid, g.start)) return null;
         return g;
-      }, { ...rule, neverStuck: false, parMin: rule.parMin - 3 }, null, 'Arrows');
+      }, { ...rule, parMin: rule.parMin - 3 }, null, 'Arrows');
+  } else if (kind === 'split') {
+    // x3: the ball splits in three. Never with saws, so the main ball alone
+    // can always finish (balls never block one another).
+    const frame = FRAMES[(n * 13) % FRAMES.length];
+    for (let attempt = 0; attempt < 4 && !c; attempt++)
+      c = search(n * 8363 + 7 + attempt, tries(2500), (rng) => {
+        const g = carve(rng, frame.f(w, h), rng() < 0.6, 0.55 + rng() * 0.15);
+        if (!g || !addSplit(rng, g.grid, g.start)) return null;
+        if (combo) addCurves(rng, g.grid, g.start, false, 0.3);
+        return g;
+      }, { ...rule, parMin: rule.parMin - 4, parMax: rule.parMax + 1 }, null, 'Split');
   } else if (kind === 'picture') {
-    const p = PICTURES[Math.floor(n / 7) % PICTURES.length];
+    const round = Math.floor(n / 7);
+    const p = PICTURES[round % PICTURES.length];
     const ring = outline(p.m);
+    // Each time a picture comes round again it gets a twist (some pictures
+    // only fit a few mazes, so a plain repeat could be the same level):
+    // curved corners, then an x3 split, then both.
+    const again = Math.floor(round / PICTURES.length);
+    const twist = again === 0 ? 0 : 1 + ((again - 1) % 3);
+    const curves = twist === 1 || twist === 3;
+    const split = (twist === 2 || twist === 3) && n >= DEBUT.split;
     c = search(n * 7919 + 13, tries(2500), (rng) => {
       const g = carve(rng, p.m, true, 0.35 + rng() * 0.3, ring);
-      return g && prune(g.grid, g.start, true) ? g : null;
-    }, { ...rule, parMin: rule.parMin - 2, parMax: rule.parMax + 4, maxTiles: 76 }, p.m, p.name);
+      if (!g || !prune(g.grid, g.start, true)) return null;
+      if (curves && addCurves(rng, g.grid, g.start, true, 0.4 + rng() * 0.4) < 2) return null;
+      if (split && !addSplit(rng, g.grid, g.start)) return null;
+      return g;
+    }, { ...rule, parMin: rule.parMin - 2, parMax: rule.parMax + 4, maxTiles: 76 }, p.m, p.name, 150);
     if (c) c = { ...c, ...crop(c.grid, c.start) };
   } else if (kind === 'room') {
     c = room(n, effort);
@@ -615,7 +699,8 @@ export function buildLevel(n: number, effort = 1): { c: Candidate; bonus: boolea
     const mh = bonus ? 7 + Math.round(t * 2) : 8 + Math.round(t * 4) + (n % 3 === 1 ? 1 : 0);
     const mirror = bonus || n % 6 !== 2;
     const pool = bonus ? FRAMES.filter((f) => ['Box', 'Octagon', 'Ring', 'Towers', 'Arch'].includes(f.name)) : FRAMES;
-    const frame = pool[(n * 5) % pool.length];
+    // Bonus levels step through their frames (n * 5 would always pick the first).
+    const frame = pool[(bonus ? Math.floor(n / 5) : n * 5) % pool.length];
     const m = n < 14 ? rectMask(mw, mh) : frame.f(mw, mh);
     c = search(n * 104729 + (bonus ? 7 : 1), tries(2200), (rng) => carve(rng, m, mirror, 0.55 + rng() * 0.15), rule, null, (mirror ? 'Sym ' : '') + (n < 14 ? 'Box' : frame.name));
     if (!c) c = search(n * 104729 + 3, tries(2200), (rng) => carve(rng, rectMask(mw, mh), mirror, 0.55 + rng() * 0.15), rule, null, (mirror ? 'Sym ' : '') + 'Box');
