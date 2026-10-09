@@ -1,7 +1,7 @@
-import { parseLevel, solve, type Level } from './core.ts';
+import { COIN, KEY, parseLevel, solve, type Level } from './core.ts';
 import { LEVEL_DATA, LEVEL_DATA_FIRST } from './data.ts';
 import { buildLevel, ENDLESS_EFFORT, encodeLevel } from './builder.ts';
-import { crop } from './generator.ts';
+import { crop, mulberry32 } from './generator.ts';
 
 // Hand-picked opening levels. '#' wall, '.' floor, 'o' start.
 // Every 5th level is a bonus level. No level can ever get stuck: from any
@@ -127,8 +127,37 @@ export function getLevel(n: number): Level {
     level = decode(text);
     store(n, text);
   }
+  placePickups(n, level);
   cache.set(n, level);
   return level;
+}
+
+/**
+ * Coins and keys on the board, kept scarce so they feel like a find: a key
+ * on every 4th level from level 6 (three keys, so a vault about every 12
+ * levels), and one or two coins on two levels in three. Whatever the
+ * curated or built level carried is replaced, the same for every player.
+ */
+function placePickups(n: number, level: Level) {
+  const cells: { x: number; y: number }[] = [];
+  level.grid.forEach((row, y) =>
+    row.forEach((v, x) => {
+      if (v === COIN || v === KEY) row[x] = 0;
+      if (row[x] === 0 && !(x === level.start.x && y === level.start.y)) cells.push({ x, y });
+    }),
+  );
+  const rng = mulberry32(n * 7919 + 13);
+  const take = () => (cells.length ? cells.splice(Math.floor(rng() * cells.length), 1)[0] : null);
+  if (n >= 6 && n % 4 === 2) {
+    const p = take();
+    if (p) level.grid[p.y][p.x] = KEY;
+  }
+  if (n >= 4 && n % 3 !== 1) {
+    for (let i = 1 + Math.floor(rng() * 2); i > 0; i--) {
+      const p = take();
+      if (p) level.grid[p.y][p.x] = COIN;
+    }
+  }
 }
 
 export const HANDMADE_COUNT = HANDMADE.length;

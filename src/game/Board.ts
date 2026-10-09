@@ -611,10 +611,15 @@ export class Board extends Container {
     this.gloss.uniforms.uCell = cellPx;
   }
 
-  /** A coin, key or x3 badge was taken from this tile. */
-  pickup(p: Point) {
+  /** A coin, key or x3 badge was taken from this tile (`gone`: already, no pop). */
+  pickup(p: Point, gone = false) {
     const it = this.pickups.get(p.y * this.cols + p.x);
-    if (it && it.at < 0) it.at = this.lastTime;
+    if (!it || it.at >= 0) return;
+    it.at = gone ? -1e9 : this.lastTime;
+    if (gone) {
+      it.s.alpha = 0;
+      it.glow.alpha = 0;
+    }
   }
 
   /** Put a taken pickup back (an undo to before it was taken). */

@@ -350,31 +350,30 @@ export class Game {
 
   private refreshPrices() {
     this.hud.setPrices({
-      hint: { price: PRICES.hint, free: this.save.hints, ad: this.toolAd.hints },
-      bomb: { price: PRICES.bomb, free: this.save.bombs, ad: this.toolAd.bombs },
+      hint: { price: PRICES.hint, free: this.save.hints, ad: this.toolAd('hints') },
+      bomb: { price: PRICES.bomb, free: this.save.bombs, ad: this.toolAd('bombs') },
     });
   }
 
-  /** Out of free uses: now and then (not every time) a free go for a video. */
-  private toolAd = { hints: false, bombs: false };
-  private toolAdNext = 0;
-  private rollToolAds() {
-    const can = adsAvailable() && Date.now() >= this.toolAdNext;
-    for (const k of ['hints', 'bombs'] as const) this.toolAd[k] = can && this.save[k] <= 0 && Math.random() < 0.5;
-    this.refreshPrices();
+  /**
+   * Out of free uses and short of the coin price: a video gives one go.
+   * Coins are scarce, so this is the usual way to a hint once the free
+   * ones are spent.
+   */
+  private toolAd(kind: 'hints' | 'bombs'): boolean {
+    const price = kind === 'hints' ? PRICES.hint : PRICES.bomb;
+    return adsAvailable() && this.save[kind] <= 0 && this.save.coins < price;
   }
 
   /** Spend one free use or its coin price. Returns false if unaffordable. */
   private spend(kind: 'hints' | 'bombs'): boolean {
-    if (this.save[kind] <= 0 && this.toolAd[kind]) {
+    if (this.toolAd(kind)) {
       // The video gives one free use, which is spent right away.
       void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
         if (!ok) {
           this.hud.toast('No video available right now. Try again soon!');
           return;
         }
-        this.toolAd = { hints: false, bombs: false };
-        this.toolAdNext = Date.now() + 6 * 60 * 1000;
         this.save[kind] += 1;
         if (kind === 'hints') this.showHint();
         else this.paintBomb();
@@ -605,8 +604,8 @@ export class Game {
           this.save.hints += 1;
           label = '+1 Hint';
         } else if (k === 'coins') {
-          this.save.coins += 100;
-          label = '+100';
+          this.save.coins += 40;
+          label = '+40';
         } else {
           const next = this.nextLockedItem();
           if (next) {
@@ -614,8 +613,8 @@ export class Game {
             label = `${next.name}!`;
             this.hud.setShopDot(true);
           } else {
-            this.save.coins += 150;
-            label = '+150';
+            this.save.coins += 60;
+            label = '+60';
           }
         }
         this.hud.setCoins(this.save.coins);
@@ -742,8 +741,7 @@ export class Game {
     this.collected = new Set();
     this.floorTotal = 0;
     this.floorTotal = floorCount(this.level.grid);
-    // Each level decides afresh whether an empty tool offers a video.
-    this.rollToolAds();
+    this.refreshPrices();
     this.resetState();
     const old = this.board;
     this.buildBoard();
@@ -908,6 +906,13 @@ export class Game {
     // As in the original, nothing of the ball's shadow shows past the floor.
     this.ball.clipShadow(board.floorClip);
     this.placeBall(this.pos);
+    // Coins, keys and an x3 already taken stay gone on a rebuilt board
+    // (after a resize, or a new ball, paint or maze picked in the shop).
+    const cols = this.level.grid[0].length;
+    for (const k of this.collected) board.pickup({ x: k % cols, y: Math.floor(k / cols) }, true);
+    if (this.splitUsed) {
+      this.level.grid.forEach((row, y) => row.forEach((v, x) => v === MULT && board.pickup({ x, y }, true)));
+    }
     // Balls split off by x3 move over to the new board.
     for (const e of this.extras) {
       e.ball = this.makeBall();
@@ -1837,15 +1842,16 @@ export class Game {
       const par = this.level.par ?? this.moves;
       const stars = this.moves <= par ? 3 : this.moves <= Math.ceil(par * 1.4) ? 2 : 1;
       // Coins come slowly: they buy tools, so they should feel earned.
-      const coins = 5 + stars * 2 + (this.level.bonus ? 12 : 0);
+      // (A bonus level's coins are then multiplied by the Super Reward.)
+      const coins = this.level.bonus ? 4 + stars * 2 : 2 + stars;
       const leagueBefore = league(this.save.week, this.save.weekStars).rows;
       if (!this.level.bonus) {
         this.save.coins += coins;
         this.save.weekStars += stars;
       }
       this.save.streak = this.restartedThisLevel ? 0 : this.save.streak + 1;
-      const key = this.save.keys < 3 && (this.level.bonus || Math.random() < 0.34);
-      if (key) this.save.keys++;
+      // Keys are only found lying on the board (see placePickups).
+      const key = false;
       this.persist();
       this.hud.setStreak(this.save.streak, this.save.streak > 0);
       this.refreshLeague(false);
@@ -2193,6 +2199,8 @@ export class Game {
         this.painted.set(this.key(tp), this.time);
         this.paintAxis.set(this.key(tp), 2);
         this.speckle(tp);
+        // A coin or key on a shot tile is picked up too.
+        this.collect(tp);
         this.boardFx.splash(to.x, to.y, 0, -1, 8, this.look.paint, this.cell * 3, this.cell * 0.08, (x, y, rr) => this.addDot(x, y, rr));
         this.boardFx.ring(to.x, to.y, this.cell * 0.6, 0xffffff);
         this.sound.thock(0.7);
