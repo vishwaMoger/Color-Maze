@@ -870,10 +870,16 @@ export class Hud {
   renderLeague(rows: LeagueRow[]) {
     const list = $('league-list');
     list.innerHTML = '';
+    // The top three get a real medal, a metal-ringed avatar (a crown on the
+    // leader) and their prize; first place also twinkles.
     const row = (r: LeagueRow, i: number) =>
-      `<span class="pos">${i < 3 ? `<b>${i + 1}</b>` : `#${i + 1}`}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span>${
-        i < 3 ? '<i class="ico ico-gift gift"></i>' : ''
-      }<span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
+      `<span class="pos">${i < 3 ? `<i class="ico ico-medal${i + 1} medal" aria-label="${i + 1}"></i>` : `#${i + 1}`}</span>${
+        i < 3
+          ? `<span class="avwrap">${i === 0 ? '<i class="ico ico-crown crown"></i>' : ''}<span class="avatar" style="${avatarStyle(r)}"></span></span>`
+          : `<span class="avatar" style="${avatarStyle(r)}"></span>`
+      }<span class="who">${r.you ? 'You' : r.name}</span>${i < 3 ? '<i class="ico ico-gift gift"></i>' : ''}<span class="score">${r.stars}<i class="ico ico-star"></i></span>${
+        i === 0 ? '<i class="tw t1"></i><i class="tw t2"></i><i class="tw t3"></i>' : ''
+      }`;
     // The top three stand on a podium (1st in the middle, raised); the
     // list below starts at 4th. You are pinned below the list (like the
     // original), not repeated in it.
