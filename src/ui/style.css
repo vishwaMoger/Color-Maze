@@ -6547,3 +6547,180 @@ body.has-banner {
     linear-gradient(180deg, #ffa13a, #f06a0a);
   box-shadow: 0 2px 0 #b84300, 0 4px 8px rgba(180, 70, 0, 0.3);
 }
+
+/* The event button above the hint: a glowing pumpkin on a night disc,
+   no taller (with its gap) than the streak can opposite, so the board
+   keeps its size. */
+.tool-col.right {
+  gap: calc(24px * var(--k));
+}
+.event-btn {
+  position: relative;
+  justify-self: end;
+  width: calc(48px * var(--k));
+  height: calc(48px * var(--k));
+  margin-right: calc(15px * var(--k));
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #6a3bc0, #2a1052 70%);
+  box-shadow:
+    0 0 0 calc(3px * var(--k)) #fff,
+    0 calc(4px * var(--k)) 0 calc(3px * var(--k)) #d9cff5,
+    0 calc(8px * var(--k)) calc(16px * var(--k)) rgba(60, 20, 120, 0.35);
+  cursor: pointer;
+  animation: evbob 2.6s ease-in-out infinite;
+}
+.event-btn .ev-glow {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 160, 40, 0.75), transparent 70%);
+  animation: evflicker 1.8s ease-in-out infinite;
+}
+.event-btn .ev-ico {
+  position: relative;
+  display: block;
+  font-size: calc(27px * var(--k));
+  line-height: calc(48px * var(--k));
+  text-align: center;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35));
+}
+.event-btn .ev-time {
+  position: absolute;
+  left: 50%;
+  bottom: calc(-12px * var(--k));
+  transform: translateX(-50%);
+  padding: calc(2px * var(--k)) calc(7px * var(--k));
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffa13a, #f06a0a);
+  box-shadow: 0 2px 0 #b84300;
+  color: #fff;
+  font: 800 calc(11px * var(--k)) / 1.2 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@keyframes evbob {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(calc(-3px * var(--k))) rotate(3deg); }
+}
+@keyframes evflicker {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  40% { opacity: 1; transform: scale(1.08); }
+  70% { opacity: 0.6; transform: scale(0.96); }
+}
+
+/* Event panel. */
+.event-panel {
+  display: grid;
+  gap: 10px;
+  text-align: center;
+}
+.ev-hero {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 84px;
+}
+.ev-hero::before {
+  content: '';
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 150, 40, 0.55), transparent 65%);
+  animation: evflicker 1.8s ease-in-out infinite;
+}
+.ev-hero-ico {
+  position: relative;
+  font-size: 60px;
+  line-height: 1;
+  animation: evbob 2.6s ease-in-out infinite;
+}
+.ev-ends {
+  justify-self: center;
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffa13a, #f06a0a);
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.ev-how {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.ev-prizes {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+.ev-prize {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 16px;
+  background: #f4f0ff;
+}
+.ev-prize .ev-sw.board {
+  border-radius: 10px;
+}
+.ev-prize .ni-bar span {
+  background: linear-gradient(90deg, #ffb13a, #f06a0a);
+}
+.ev-prize.won {
+  background: #e3f9e6;
+}
+.ev-prize.won .ni-bar span {
+  background: #2fcf54;
+}
+.ev-prize.won .ni-count::after {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #2fcf54 url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>') center / 70% no-repeat;
+}
+.ev-boost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 56px;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 22px;
+  text-shadow: 0 2px 0 var(--b3);
+}
+.ev-boost:disabled {
+  filter: saturate(0.3) brightness(1.05);
+  cursor: default;
+}
+.ev-play {
+  width: 30px;
+  height: 22px;
+  border-radius: 7px;
+  background: #fff url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23ee2f4a" d="M8 5.5v13l10.5-6.5Z"/></svg>') center / 70% no-repeat;
+}
+.ev-boost:disabled .ev-play {
+  display: none;
+}
+.ev-note {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  opacity: 0.8;
+}
+.ev-close {
+  height: 46px;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 18px;
+}

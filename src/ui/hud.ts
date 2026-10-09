@@ -85,6 +85,16 @@ export interface ShopItem {
   event?: { have: number; need: number; until: number; icon: string; name: string };
 }
 
+export interface EventView {
+  icon: string;
+  name: string;
+  ends: number;
+  prizes: { name: string; kind: ShopTab; preview: string; have: number; need: number; won: boolean }[];
+  boostsLeft: number;
+  perBoost: number;
+  adsOn: boolean;
+}
+
 export interface HudActions {
   /** Erase all progress and begin again as a new player. */
   startOver: () => void;
@@ -100,6 +110,10 @@ export interface HudActions {
   freeCoins: () => void;
   /** Watch an ad toward a special shop item. */
   adUnlock: (tab: ShopTab, id: string) => void;
+  /** Open the limited-time event panel. */
+  openEvent: () => void;
+  /** Watch a video for extra event progress. */
+  eventBoost: () => void;
   /** A bottom sheet opened (its top edge in px) or closed (null). */
   sheet: (top: number | null) => void;
   anyInput: () => void;
@@ -226,6 +240,8 @@ export class Hud {
       this.open('league');
     });
     on('btn-streak', () => this.toast('Finish levels without restarting to grow your streak!'));
+    on('btn-event', a.openEvent);
+    on('btn-event-boost', a.eventBoost);
     on('btn-next', a.next, true);
     on('tg-sfx', () => a.toggle('sfx'));
     on('tg-music', () => a.toggle('music'));
@@ -276,7 +292,7 @@ export class Hud {
   }
 
   get modalOpen() {
-    return ['shop', 'settings', 'league', 'league-info', 'vault', 'super', 'climb', 'unlocked', 'revive'].some((id) => !$(id).hidden);
+    return ['shop', 'settings', 'league', 'league-info', 'vault', 'super', 'climb', 'unlocked', 'revive', 'event'].some((id) => !$(id).hidden);
   }
 
   open(id: string) {
@@ -850,6 +866,43 @@ export class Hud {
 
   private offerTick = 0;
 
+  /** The event button over the hint: shown while an event has prizes left. */
+  setEvent(e: { icon: string; name: string; ends: number } | null, dot: boolean) {
+    const b = $('btn-event');
+    b.hidden = !e;
+    if (!e) return;
+    $('event-icon').textContent = e.icon;
+    b.setAttribute('aria-label', `${e.name} event`);
+    $('event-time').textContent = countdown(e.ends).replace(/:\d\d$/, '');
+    $('event-dot').hidden = !dot;
+  }
+
+  /** Fill and open the event panel. */
+  showEvent(v: EventView) {
+    $('event-title').textContent = `${v.name} Event`;
+    $('event-hero').textContent = v.icon;
+    $('event-ends').textContent = `Ends in ${countdown(v.ends).replace(/:\d\d$/, '')}`;
+    $('event-prizes').innerHTML = v.prizes
+      .map((p) => {
+        const pct = Math.min(100, (p.have / p.need) * 100);
+        return `<div class="ev-prize${p.won ? ' won' : ''}"><span class="ni-swatch ev-sw ${p.kind}" style="${p.preview}"></span><div class="ni-body"><b>${p.name}</b><div class="ni-bar"><span style="width:${pct}%"></span></div></div><span class="ni-count">${p.won ? '' : `${Math.min(p.have, p.need)}/${p.need}`}</span></div>`;
+      })
+      .join('');
+    const boost = $<HTMLButtonElement>('btn-event-boost');
+    const allWon = v.prizes.every((p) => p.won);
+    boost.hidden = !v.adsOn || allWon;
+    boost.disabled = v.boostsLeft <= 0;
+    $('event-boost-label').textContent = v.boostsLeft > 0 ? `+${v.perBoost} levels` : 'Come back tomorrow';
+    $('event-note').textContent = allWon
+      ? 'You won every prize. Happy Halloween!'
+      : !v.adsOn
+        ? ''
+        : v.boostsLeft > 0
+          ? `Watch a video to jump ahead: ${v.boostsLeft} left today`
+          : 'More video boosts tomorrow. Keep playing!';
+    if ($('event').hidden) this.open('event');
+  }
+
   /** Video offers count down on their tiles while the shop is open. */
   private tickOffers() {
     window.clearTimeout(this.offerTick);
@@ -916,8 +969,8 @@ export class Hud {
           return;
         }
         if (ev) {
-          const left = ev.need - ev.have;
-          this.toast(`${ev.icon} Finish ${left} more level${left === 1 ? '' : 's'} before ${ev.name} ends to win ${it.name}!`);
+          // The event panel has the prizes, the clock and the video boost.
+          this.actions.openEvent();
           return;
         }
         if (locked) {

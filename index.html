@@ -130,6 +130,12 @@
         <svg viewBox="0 0 24 24"><path d="M9.4 4.6v3.3h4.4a6.7 6.7 0 0 1 0 13.4H9.5v-2.8h4.3a3.9 3.9 0 0 0 0-7.8H9.4v3.3L3.6 9.3Z" /></svg>
       </button>
       <div class="tool-col right col-right">
+        <button id="btn-event" class="event-btn" aria-label="Halloween event" hidden>
+          <span class="ev-glow"></span>
+          <span class="ev-ico" id="event-icon">🎃</span>
+          <span class="ev-time" id="event-time"></span>
+          <span id="event-dot" class="notify" hidden></span>
+        </button>
         <button id="btn-hint" class="tbtn yellow" aria-label="Show hint" title="Hint (H)">
           <span class="ico ico-bulb tool-ico"></span>
           <span class="tlabel" id="hint-label"></span>
@@ -327,6 +333,20 @@
           <button id="btn-unlock-later" class="gbtn later">Later</button>
           <button id="btn-unlock-equip" class="gbtn go equip">Equip</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Limited-time event: its prizes, progress and the video boost. -->
+    <div id="event" class="modal" hidden>
+      <div class="panel event-panel" role="dialog" aria-labelledby="event-title">
+        <div class="ribbon"><span id="event-title">Halloween</span></div>
+        <div class="ev-hero"><span class="ev-hero-ico" id="event-hero">🎃</span></div>
+        <p class="ev-ends" id="event-ends"></p>
+        <p class="ev-how">Every level you finish counts. Win all three before it ends!</p>
+        <div class="ev-prizes" id="event-prizes"></div>
+        <button id="btn-event-boost" class="gbtn go ev-boost"><span class="ev-play"></span><span id="event-boost-label">+2 levels</span></button>
+        <p class="ev-note" id="event-note"></p>
+        <button class="gbtn later ev-close" data-close="event">Close</button>
       </div>
     </div>
 
