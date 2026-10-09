@@ -1,10 +1,11 @@
 import { parseLevel, solve, type Level } from './core.ts';
 import { LEVEL_DATA, LEVEL_DATA_FIRST } from './data.ts';
-import { buildLevel, encodeLevel } from './builder.ts';
+import { buildLevel, ENDLESS_EFFORT, encodeLevel } from './builder.ts';
 import { crop } from './generator.ts';
 
 // Hand-picked opening levels. '#' wall, '.' floor, 'o' start.
-// Every 5th level is a bonus level (never possible to get stuck).
+// Every 5th level is a bonus level. No level can ever get stuck: from any
+// position the ball can still finish it.
 const HANDMADE: Level[] = [
   parseLevel(['#######', '#.###.#', '#.###.#', '#.###.#', '#o....#', '#######'], { name: 'U-turn' }),
   parseLevel(['#######', '#.....#', '#.###.#', '#.###.#', '#.###.#', '#o....#', '#######'], { name: 'Ring' }),
@@ -51,41 +52,10 @@ HANDMADE.push(
   }),
 );
 
-// Picture levels that can trap you: kept for later, where Undo-based thinking
-// is expected.
-const SPECIAL = new Map<number, Level>([
-  [33, parseLevel(
-    [
-      '###############',
-      '#..###...###..#',
-      '#...#..#..#...#',
-      '#.#...###...#.#',
-      '#.###########.#',
-      '#......o......#',
-      '#.###########.#',
-      '#.............#',
-      '###############',
-    ],
-    { name: 'Crown' },
-  )],
-  [47, parseLevel(
-    [
-      '###############',
-      '###...###...###',
-      '##..#..#..#..##',
-      '#..###...###..#',
-      '#.#####.#####.#',
-      '#..####.####..#',
-      '##..###.###..##',
-      '###..##.##..###',
-      '####..#.#..####',
-      '#####.....#####',
-      '######.o.######',
-      '###############',
-    ],
-    { name: 'Heart' },
-  )],
-]);
+// Levels placed by hand at a given number (none at present: every level
+// must be impossible to get stuck in, which the earlier picture levels here
+// were not).
+const SPECIAL = new Map<number, Level>();
 
 const cache = new Map<number, Level>();
 
@@ -94,13 +64,15 @@ function decode(text: string): Level {
   return parseLevel(rows.split('/'), { name, bonus: bonus === '1', par: Number(par) });
 }
 
-const encodeOf = (n: number, effort: number) => {
-  const { c, bonus } = buildLevel(n, effort);
+const encodeOf = (n: number) => {
+  const { c, bonus } = buildLevel(n, ENDLESS_EFFORT);
   return encodeLevel(c, bonus);
 };
 
 // Built levels are remembered on this device so they never rebuild.
-const STORE = 'colormaze.lv.';
+// v3: levels are now built so they can never get stuck; older stored
+// ones could.
+const STORE = 'colormaze.lv3.';
 const built = new Map<number, string>();
 function readStored(n: number): string | null {
   try {
@@ -149,8 +121,9 @@ export function getLevel(n: number): Level {
     level = decode(LEVEL_DATA[n - LEVEL_DATA_FIRST]);
   } else {
     // Endless: built by the same builder as the curated set. Prefetched in
-    // a worker; if the player gets here first, build it now (lighter search).
-    const text = built.get(n) ?? readStored(n) ?? encodeOf(n, 0.15);
+    // a worker; if the player gets here first, build it now with the same
+    // effort so every player still gets the same maze.
+    const text = built.get(n) ?? readStored(n) ?? encodeOf(n);
     level = decode(text);
     store(n, text);
   }

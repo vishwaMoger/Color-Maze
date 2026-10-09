@@ -1,18 +1,19 @@
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Container, Graphics, Rectangle, type Renderer, Texture, TilingSprite } from 'pixi.js';
 import { Sound } from '../audio/sound.ts';
-import { DIRS, floorCount, isFloor, SAW, slide, solve, type Dir, type Level, type Point, isCurve, COIN, KEY } from '../levels/core.ts';
+import { analyze, ARROW_R, ARROW_U, DIRS, floorCount, isFloor, nextPaintingMove, PORTAL_A, SAW, slide, solve, solveMulti, splitDirs, STOPPER, type Dir, type Level, type Point, type SlideResult, isCurve, COIN, KEY, MULT } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
 import { prefetchLevels } from '../levels/prefetch.ts';
 import type { Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
-import { BALL_URLS } from './assets.ts';
 import { BALLS, PAINTS, PATTERN_MODE } from './cosmetics.ts';
 import { league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
-import { Ball, renderSphere } from './Ball.ts';
-import { Board, type PaintStroke } from './Board.ts';
-import { rewardedAd } from '../platform/ads.ts';
+import { Ball, ballCanvas, ballPreview } from './Ball.ts';
+import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
+import { adsAvailable, gameplayStart, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
-import { camoTile, mazeSwatch, paintSwatch } from './swatches.ts';
+import { boardPreview, paintPreview } from './previews.ts';
 import { boardLight, type BoardLight } from './shaders.ts';
+import { Confetti } from './confetti.ts';
+import { slabTexture } from './slabs.ts';
 import { THEMES, type Theme } from './themes.ts';
 
 interface Slide {
@@ -34,8 +35,20 @@ interface Slide {
 
 type XY = { x: number; y: number };
 
+/** Screens that may carry the banner ad (see showBanner). */
+const BANNER_SCREENS = ['shop', 'settings', 'league', 'vault', 'super', 'climb'];
+/**
+ * Keep the banner at the bottom during play too. Note: CrazyGames' ad
+ * requirements say banners should not show during gameplay, so this may
+ * be refused at review; set to false to show it on menu screens only.
+ */
+const GAMEPLAY_BANNER = true;
+
 interface Snapshot {
   pos: Point;
+  /** Other balls (after an x3 split) and whether the split has happened. */
+  extras: Point[];
+  split: boolean;
   painted: Map<number, number>;
   dots: number;
   splats: number;
@@ -48,6 +61,9 @@ interface Tween {
   step: (p: number) => void;
   done?: () => void;
 }
+
+/** Players who asked their system for less motion: no shake, no slow-mo. */
+const REDUCED_MOTION = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** Ease out with a gentle overshoot (about 4%). */
 const easeOutSoft = (p: number) => 1 + 1.6 * (p - 1) ** 3 + 0.6 * (p - 1) ** 2;
@@ -76,6 +92,7 @@ class Ambient {
   update(dt: number, time: number, w: number, h: number, theme: Theme) {
     const g = this.g;
     g.clear();
+    if (theme.ambient === 'none') return;
     for (const p of this.parts) {
       // Bigger (closer) particles drift faster: cheap depth.
       p.x += this.vx * dt * (0.4 + Math.min(1, p.r / 30) * 0.6);
@@ -97,14 +114,14 @@ class Ambient {
   }
 }
 
-/** Camouflage tile colours behind the balls in the shop (base, blobs). */
-const CAMO: [string, string][] = [
-  ['#ffd9ec', '#ffa9d0'],
-  ['#d6f5ff', '#9fdcf5'],
-  ['#e3dcff', '#bfaff7'],
-  ['#dcf8d2', '#a9e69a'],
-  ['#ffe9cc', '#ffc58a'],
-  ['#fff4bf', '#ffe17a'],
+/** Rich tile colours behind the balls in the shop (light, deep). */
+const TILE_COLORS: [string, string][] = [
+  ['#ff5fa8', '#d6146a'],
+  ['#38c8ff', '#1255e6'],
+  ['#a978ff', '#5b22e0'],
+  ['#2fe08a', '#0a9a5c'],
+  ['#ffa53a', '#ec4f08'],
+  ['#ffd93d', '#f08c00'],
 ];
 
 export class Game {
@@ -114,7 +131,6 @@ export class Game {
   private readonly world = new Container();
   private readonly ambient: Ambient;
   private readonly boardHolder = new Container();
-  private readonly screenFx: Fx;
   private board!: Board;
   private ball!: Ball;
   private boardFx!: Fx;
@@ -128,9 +144,13 @@ export class Game {
   private dots: PaintStroke['dots'] = [];
   private splats: PaintStroke['splats'] = [];
   private introAt = 0;
-  private sparkQueue: { x: number; y: number; at: number }[] = [];
-  private shimmer: { k: number; t: number }[] = [];
-  private cone: { from: Point; to: { x: number; y: number }; endedAt: number | null } | null = null;
+  private sparkQueue: { x: number; y: number; at: number; kick?: { x: number; y: number } }[] = [];
+  /** When the ball last rolled over each tile, and which way (see Board). */
+  private wet = new Map<number, { t: number; axis: number }>();
+  /** The speed cone behind the sliding ball: where its run began, and when it stopped. */
+  private cone: { from: XY; endedAt: number | null } | null = null;
+  /** The cone's colour: the ball's own, a touch paler. */
+  private coneColor = 0xffffff;
   private moves = 0;
   private history: Snapshot[] = [];
   private slideState: Slide | null = null;
@@ -140,10 +160,25 @@ export class Game {
   private warping = false;
   /** Collectibles already picked up on this level (kept through undo). */
   private collected = new Set<number>();
+  /** The page's material for textured themes, behind everything. */
+  private readonly pageBg = new TilingSprite({ texture: Texture.WHITE, width: 1, height: 1 });
+  /** Confetti over the whole screen when a level is done. */
+  private readonly confetti = new Confetti();
+  private confettiAt = -1;
+  /** Balls split off by the x3 tile, each with its own slide while rolling. */
+  private extras: { pos: Point; ball: Ball; slide: Slide | null; lastDir: XY; born: number }[] = [];
+  /** The x3 tile has split the ball on this attempt. */
+  private splitUsed = false;
+  private ballRes = 1;
   private light: BoardLight | null = null;
   private completeAt: number | null = null;
   private resultShown = false;
-  private hint: { path: Point[]; dir: Point; until: number } | null = null;
+  /** The next move to show: where the ball is and the slide to make. */
+  private hint: { from: Point; path: Point[]; dir: Point; since: number } | null = null;
+  /** A hint was used on this level: keep guiding, move by move, to the end. */
+  private hintGuide = false;
+  /** State the guide last solved for, so it solves once per position. */
+  private guideKey = '';
   private tweens: Tween[] = [];
   private scaleKick = 0;
   private scaleKickV = 0;
@@ -160,13 +195,16 @@ export class Game {
     this.save = loadSave();
     this.theme = THEMES.find((t) => t.id === this.save.theme) ?? THEMES[0];
     this.look = this.makeLook();
+    this.hud.setPaintColors(this.look.paint, this.look.paintLight, this.look.paintDark);
     this.levelNo = Math.max(1, this.save.level);
     this.sound.setEnabled(this.save.sound);
     this.sound.setMusic(this.save.music);
+    // A textured page (wood, terrazzo...) fills the screen behind it all.
+    app.stage.addChild(this.pageBg);
     app.stage.addChild(this.world);
+    app.stage.addChild(this.confetti.g);
     this.ambient = new Ambient(this.world);
     this.world.addChild(this.boardHolder);
-    this.screenFx = new Fx(this.world);
 
     hud.bind({
       restart: () => this.restart(),
@@ -180,15 +218,46 @@ export class Game {
       sheet: (top) => this.focusAbove(top),
       openLeague: () => this.refreshLeague(true),
       anyInput: () => this.sound.unlock(),
+      adUnlock: (tab, id) => {
+        this.sound.click();
+        const item = [...BALLS, ...PAINTS, ...THEMES].find((x) => x.id === id);
+        if (!item?.ads) return;
+        void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
+          if (!ok) {
+            this.hud.toast('No video available right now. Try again soon!');
+            this.refreshShop();
+            return;
+          }
+          const have = (this.save.adProgress[id] ?? 0) + 1;
+          this.save.adProgress[id] = have;
+          if (have >= item.ads!) {
+            this.save.owned.push(id);
+            this.persist();
+            this.equip(tab, id);
+            this.hud.toast(`${item.name} unlocked!`);
+            this.sound.star(2);
+          } else {
+            this.persist();
+            this.hud.toast(`${have}/${item.ads} — ${item.ads! - have} more to unlock ${item.name}`);
+          }
+          this.refreshShop();
+        });
+      },
       freeCoins: () => {
         this.sound.click();
-        void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(false)).then((ok) => {
-          if (!ok) return;
+        void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
+          if (!ok) {
+            this.hud.toast('No video available right now. Try again soon!');
+            return;
+          }
           this.save.coins += 80;
           this.hud.setCoins(this.save.coins);
           this.hud.toast('+80 coins');
           this.sound.coin();
           this.persist();
+          // Then the offer rests for a few minutes.
+          this.coinsReadyAt = Date.now() + 4 * 60 * 1000;
+          this.hud.coinsCooldown(this.coinsReadyAt);
         });
       },
       click: () => this.sound.click(),
@@ -205,15 +274,32 @@ export class Game {
     this.applyTheme();
     this.loadLevel(this.levelNo, false);
     this.bindInput();
-    app.ticker.add((t) => this.tick(t.deltaMS));
+    // Never let one bad frame stop the game: an unexpected error is logged
+    // and every ball is settled where it is, so play simply carries on.
+    app.ticker.add((t) => {
+      try {
+        this.tick(t.deltaMS);
+      } catch (err) {
+        console.error(err);
+        this.recover();
+      }
+    });
     window.addEventListener('resize', () => {
       this.hud.updateMode();
       this.invalidateLayout();
     });
-    document.addEventListener('visibilitychange', () => this.sound.setMuted(document.hidden));
+    document.addEventListener('visibilitychange', () => this.sound.setMuted(document.hidden || this.portalMuted));
+    onPortalMute((muted) => {
+      this.portalMuted = muted;
+      this.sound.setMuted(muted || document.hidden);
+    });
+    hud.setAdsAvailable(adsAvailable());
+    hud.setBallArt(BALLS.map((b) => this.spherePreview(b.id)));
     // HUD height changes once the web font arrives.
     void document.fonts?.ready.then(() => this.invalidateLayout());
   }
+
+  private portalMuted = false;
 
   private persist() {
     this.save.level = this.levelNo;
@@ -225,10 +311,14 @@ export class Game {
   /** The active board theme with the player's paint and ball choices applied. */
   private look!: Theme;
 
-  private makeLook(): Theme {
+  private ballSkin() {
+    return BALLS.find((b) => b.id === this.save.ball) ?? BALLS[0];
+  }
+
+  private makeLook(theme = this.theme): Theme {
     const p = PAINTS.find((x) => x.id === this.save.paint) ?? PAINTS[0];
     return {
-      ...this.theme,
+      ...theme,
       paint: p.paint,
       paintDark: p.dark,
       paintLight: p.light,
@@ -242,13 +332,37 @@ export class Game {
 
   private refreshPrices() {
     this.hud.setPrices({
-      hint: { price: PRICES.hint, free: this.save.hints },
-      bomb: { price: PRICES.bomb, free: this.save.bombs },
+      hint: { price: PRICES.hint, free: this.save.hints, ad: this.toolAd.hints },
+      bomb: { price: PRICES.bomb, free: this.save.bombs, ad: this.toolAd.bombs },
     });
+  }
+
+  /** Out of free uses: now and then (not every time) a free go for a video. */
+  private toolAd = { hints: false, bombs: false };
+  private toolAdNext = 0;
+  private rollToolAds() {
+    const can = adsAvailable() && Date.now() >= this.toolAdNext;
+    for (const k of ['hints', 'bombs'] as const) this.toolAd[k] = can && this.save[k] <= 0 && Math.random() < 0.5;
+    this.refreshPrices();
   }
 
   /** Spend one free use or its coin price. Returns false if unaffordable. */
   private spend(kind: 'hints' | 'bombs'): boolean {
+    if (this.save[kind] <= 0 && this.toolAd[kind]) {
+      // The video gives one free use, which is spent right away.
+      void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
+        if (!ok) {
+          this.hud.toast('No video available right now. Try again soon!');
+          return;
+        }
+        this.toolAd = { hints: false, bombs: false };
+        this.toolAdNext = Date.now() + 6 * 60 * 1000;
+        this.save[kind] += 1;
+        if (kind === 'hints') this.showHint();
+        else this.paintBomb();
+      });
+      return false;
+    }
     if (this.save[kind] > 0) {
       this.save[kind]--;
     } else {
@@ -271,43 +385,56 @@ export class Game {
     if (render) this.hud.renderLeague(rows);
   }
 
+  /**
+   * A special item still to unlock by ads: its progress, shown in the shop.
+   * Owned items, or any when ads are off, use their level unlock instead.
+   */
+  private adsFor(it: { id: string; ads?: number }): ShopItem['ads'] {
+    if (!it.ads || this.save.owned.includes(it.id) || !adsAvailable()) return undefined;
+    return { have: this.save.adProgress[it.id] ?? 0, need: it.ads };
+  }
+
   private shopItems(): Record<ShopTab, ShopItem[]> {
     return {
       ball: BALLS.map((b, i) => {
-        const [base, blob] = CAMO[i % CAMO.length];
+        const [c1, c2] = TILE_COLORS[i % TILE_COLORS.length];
         return {
           id: b.id,
           name: b.name,
           unlock: this.save.owned.includes(b.id) ? 1 : b.unlock,
+          ads: this.adsFor(b),
           kind: 'ball' as const,
-          bg: `background-image: url(${camoTile(b.id, base, blob)})`,
-          preview: `background-image: url(${b.image ? BALL_URLS[b.image] : this.spherePreview(b.id, b.colors!, b.metal)})`,
+          bg: `--c1:${c1};--c2:${c2}`,
+          preview: `background-image: url(${this.spherePreview(b.id)})`,
         };
       }),
       paint: PAINTS.map((p) => ({
         id: p.id,
         name: p.name,
         unlock: this.save.owned.includes(p.id) ? 1 : p.unlock,
+        ads: this.adsFor(p),
         kind: 'paint' as const,
-        preview: `background-image: url(${paintSwatch(p)})`,
+        preview: `background-image: url(${paintPreview(this.app.renderer as Renderer, p)})`,
       })),
       board: THEMES.map((t) => ({
         id: t.id,
         name: t.name,
-        unlock: t.unlock,
+        unlock: this.save.owned.includes(t.id) ? 1 : t.unlock,
+        ads: this.adsFor(t),
         kind: 'board' as const,
-        preview: `background-image: url(${mazeSwatch(t)})`,
+        preview: `background-image: url(${boardPreview(this.app.renderer as Renderer, this.makeLook(t), this.ballSkin())})`,
       })),
     };
   }
 
   private previews = new Map<string, string>();
 
-  /** Same lit-sphere render as in game, cached as an image for the shop. */
-  private spherePreview(id: string, colors: [string, string, string], metal?: boolean): string {
+  /** Same 3D render as in game, cached as an image for the shop. */
+  private spherePreview(id: string): string {
     let url = this.previews.get(id);
     if (!url) {
-      url = renderSphere(128, colors, metal).toDataURL();
+      const skin = BALLS.find((b) => b.id === id) ?? BALLS[0];
+      url = ballPreview(this.app.renderer as Renderer, skin);
       this.previews.set(id, url);
     }
     return url;
@@ -331,10 +458,13 @@ export class Game {
     if (tab === 'ball') this.save.ball = id;
     else this.save.paint = id;
     this.look = this.makeLook();
+    this.hud.setPaintColors(this.look.paint, this.look.paintLight, this.look.paintDark);
     const old = this.board;
     this.buildBoard();
     old.destroy();
     this.persist();
+    // Board previews show the player's paint and ball: redraw them.
+    this.refreshShop();
   }
 
   /** Red dot on the shop when something new unlocked since the last visit. */
@@ -347,26 +477,49 @@ export class Game {
   private chestPending = false;
 
   /**
-   * Three keys open the key vault. Every visit is guaranteed one prize: the
-   * card closest to complete is the target, and locks reveal it until it is
-   * won; later locks give near misses that carry over to the next visit.
+   * Three keys open the key vault. Each lock holds a random prize token,
+   * weighted (coins common, hints less, new items rare) and leaning toward
+   * cards that already have dots, which carry over between visits. Fair
+   * play: a visit that wins nothing makes the next one a sure thing, its
+   * locks all revealing the card closest to complete until it is won.
    */
   private openVault() {
     this.chestPending = true;
     const v = this.save.vault;
     const kinds: VaultKind[] = ['hint', 'item', 'coins'];
+    const base: Record<VaultKind, number> = { coins: 0.45, hint: 0.33, item: 0.22 };
+    const local: Record<VaultKind, number> = { hint: v.hint, item: v.item, coins: v.coins };
+    const sure = (v.dry ?? 0) >= 1;
     const top = Math.max(...kinds.map((k) => v[k]));
     const best = kinds.filter((k) => v[k] === top);
     const target = best[Math.floor(Math.random() * best.length)];
     let won = false;
+    const nextItem = this.nextLockedItem();
+    const ballItem = nextItem && BALLS.find((b) => b.id === nextItem.id);
+    const paintItem = nextItem && PAINTS.find((p) => p.id === nextItem.id);
     this.hud.vault({
-      dots: { ...v },
+      dots: { ...local },
       keys: 3,
+      item: nextItem
+        ? {
+            name: nextItem.name,
+            art: ballItem ? this.spherePreview(ballItem.id) : paintPreview(this.app.renderer as Renderer, paintItem!),
+          }
+        : null,
       pick: () => {
-        if (!won) return target;
-        const near = kinds.filter((k) => this.save.vault[k] < 2);
-        const pool = near.length ? near : kinds;
-        return pool[Math.floor(Math.random() * pool.length)];
+        let k: VaultKind;
+        if (sure && !won) k = target;
+        else {
+          const w = kinds.map((x) => base[x] * (1 + local[x] * 1.3));
+          let r = Math.random() * w.reduce((a, b) => a + b, 0);
+          k = kinds[kinds.length - 1];
+          for (let i = 0; i < kinds.length; i++) if ((r -= w[i]) <= 0) {
+            k = kinds[i];
+            break;
+          }
+        }
+        local[k] = (local[k] + 1) % 3;
+        return k;
       },
       onDot: (k, n) => {
         this.save.vault[k] = n;
@@ -399,6 +552,7 @@ export class Game {
         return label;
       },
       onDone: () => {
+        this.save.vault.dry = won ? 0 : (this.save.vault.dry ?? 0) + 1;
         this.chestPending = false;
         this.save.keys = 0;
         this.hud.setKeys(0);
@@ -429,7 +583,10 @@ export class Game {
 
   private bindInput() {
     const el = this.app.canvas;
-    let origin: { x: number; y: number; id: number } | null = null;
+    // `dir` is the last swipe this drag made: a drag that keeps going the
+    // same way is one swipe, not several. (Otherwise a finger still moving
+    // after a curve has turned the ball queues an unwanted extra move.)
+    let origin: { x: number; y: number; id: number; dir?: Dir } | null = null;
     const threshold = (e: PointerEvent) =>
       e.pointerType === 'mouse' ? 12 : Math.max(14, Math.min(28, Math.min(innerWidth, innerHeight) * 0.03));
     el.addEventListener('pointerdown', (e) => {
@@ -454,9 +611,11 @@ export class Game {
       const dy = e.clientY - origin.y;
       if (Math.max(Math.abs(dx), Math.abs(dy)) < threshold(e)) return;
       const dir: Dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : dy > 0 ? 'D' : 'U';
-      // Re-anchor so one continuous drag can chain several swipes.
-      origin = { x: e.clientX, y: e.clientY, id: e.pointerId };
-      this.input(dir);
+      // Re-anchor so one continuous drag can chain several swipes, but only
+      // when it changes direction.
+      const same = origin.dir === dir;
+      origin = { x: e.clientX, y: e.clientY, id: e.pointerId, dir };
+      if (!same) this.input(dir);
     });
     const end = (e: PointerEvent) => {
       if (origin && e.pointerId === origin.id) origin = null;
@@ -471,7 +630,8 @@ export class Game {
       };
       if (keyDirs[e.key]) {
         e.preventDefault();
-        this.input(keyDirs[e.key]);
+        // A held key repeats: that is still one move.
+        if (!e.repeat) this.input(keyDirs[e.key]);
       } else if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') this.undo();
       else if (e.key === 'r' || e.key === 'R') this.restart();
       else if (e.key === 'h' || e.key === 'H') this.showHint();
@@ -484,7 +644,7 @@ export class Game {
 
   private input(dir: Dir) {
     if (this.completeAt !== null || this.hud.modalOpen || this.dead) return;
-    if (this.slideState) {
+    if (this.busy) {
       this.queued = dir;
       return;
     }
@@ -500,11 +660,18 @@ export class Game {
   private loadLevel(n: number, animate: boolean) {
     this.levelNo = n;
     this.restartedThisLevel = false;
+    this.watchedThisLevel = false;
     this.level = getLevel(n);
+    // The first level guides the whole way; elsewhere a hint turns it on.
+    this.hintGuide = n === 1;
+    this.guideKey = '';
+    this.hud.undoNudge(false);
     prefetchLevels(n + 1);
     this.collected = new Set();
     this.floorTotal = 0;
     this.floorTotal = floorCount(this.level.grid);
+    // Each level decides afresh whether an empty tool offers a video.
+    this.rollToolAds();
     this.resetState();
     const old = this.board;
     this.buildBoard();
@@ -566,6 +733,10 @@ export class Game {
     const fresh = [
       { id: 'curves', on: has(isCurve), text: 'Curved corners swing the ball around!' },
       { id: 'saws', on: has((c) => c === SAW), text: 'Watch out for the saws!' },
+      { id: 'portals', on: has((c) => c === PORTAL_A), text: 'Portals warp the ball to their twin!' },
+      { id: 'arrows', on: has((c) => c >= ARROW_U && c <= ARROW_R), text: 'Arrows send the ball the way they point!' },
+      { id: 'stoppers', on: has((c) => c === STOPPER), text: 'Studded tiles stop the ball dead!' },
+      { id: 'split', on: has((c) => c === MULT), text: 'Roll over x3 to split into three balls!' },
     ].find((t) => t.on && !this.save.tips.includes(t.id));
     if (fresh) {
       this.save.tips.push(fresh.id);
@@ -584,6 +755,9 @@ export class Game {
     this.dots = [];
     this.splats = [];
     this.sparkQueue = [];
+    this.wet.clear();
+    this.setExtras([]);
+    this.splitUsed = false;
     this.cone = null;
     this.bombAnim = null;
     this.moves = 0;
@@ -618,6 +792,7 @@ export class Game {
     this.layoutCache = { cx, cy };
     this.cell = cell;
     const res = Math.min(window.devicePixelRatio || 1, 2);
+    this.ballRes = res;
     const board = new Board(this.level, this.look, cell, res);
     board.pivot.set(board.boardWidth / 2, board.boardHeight / 2);
     board.position.set(cx, cy);
@@ -625,16 +800,32 @@ export class Game {
     this.board = board;
     this.boardFx = new Fx(board.fxLayer);
     // A soft pool of light follows the ball across the board.
-    this.light = boardLight(cell * 3.2 * res);
+    this.light = boardLight(cell * 3.2);
     board.filters = [this.light];
     // Fresh bomb layer per board: the old one is destroyed with its board.
     this.bombG = new Graphics();
     board.fxLayer.addChild(this.bombG);
     this.bombAnim = null;
     const skin = BALLS.find((x) => x.id === this.save.ball) ?? BALLS[0];
-    this.ball = new Ball(cell, res, skin, board.ballLayer);
+    this.ball = new Ball(cell, res, skin);
+    const bc = parseInt(skin.colors[0].slice(1), 16);
+    this.coneColor = [16, 8, 0].reduce((acc, sh) => acc | (Math.round(((bc >> sh) & 255) * 0.85 + 255 * 0.15) << sh), 0);
     board.ballLayer.addChild(this.ball);
+    // The original is seen from slightly in front, so its rows are about
+    // 3.6% shorter than its columns. Squash the board by that much, rounded
+    // so each row is a whole number of device pixels (grid lines stay
+    // crisp), and keep the ball round.
+    this.foreshorten = Math.round(cell * res * 0.964) / (cell * res);
+    this.ball.scale.set(1, 1 / this.foreshorten);
+    // As in the original, nothing of the ball's shadow shows past the floor.
+    this.ball.clipShadow(board.floorClip);
     this.placeBall(this.pos);
+    // Balls split off by x3 move over to the new board.
+    for (const e of this.extras) {
+      e.ball = this.makeBall();
+      const c = board.cellCenter(e.pos.x, e.pos.y);
+      e.ball.position.set(c.x, c.y);
+    }
     this.ambient.reset(this.app.screen.width, this.app.screen.height, this.theme);
   }
 
@@ -671,15 +862,19 @@ export class Game {
   private startSlide(dir: Dir) {
     const r = slide(this.level.grid, this.pos, dir);
     const d = DIRS[dir];
-    if (!r.path.length && !r.saw) {
+    // Every ball rolls (after an x3 split there are several).
+    const others = this.extras.map((e) => slide(this.level.grid, e.pos, dir));
+    const rolls = (x: SlideResult) => x.path.length > 0 || !!x.saw;
+    if (!rolls(r) && !others.some(rolls)) {
       // Blocked: a small wobble toward the wall.
-
       this.ball.impact(0.25);
       this.sound.bump();
       return;
     }
     this.history.push({
       pos: { ...this.pos },
+      extras: this.extras.map((e) => ({ ...e.pos })),
+      split: this.splitUsed,
       painted: new Map(this.painted),
       dots: this.dots.length,
       splats: this.splats.length,
@@ -689,11 +884,175 @@ export class Game {
     this.hud.setMoves(this.moves);
     this.hud.showTip(null);
     this.hint = null;
+    this.dots = this.dots.filter((dt) => !dt.top);
+    let longest = 0;
+    this.extras.forEach((e, i) => {
+      if (!rolls(others[i])) return;
+      e.slide = this.makeSlide(dir, e.pos, others[i]);
+      longest = Math.max(longest, e.slide.dur);
+    });
+    if (rolls(r)) {
+      this.slideState = this.makeSlide(dir, this.pos, r);
+      longest = Math.max(longest, this.slideState.dur);
+      this.lastDir = d;
+      this.cone = { from: { ...this.pos }, endedAt: null };
+      this.wet.set(this.key(this.pos), { t: this.time, axis: d.x !== 0 ? 0 : 1 });
+    }
+    this.sound.launch(longest);
+  }
+
+  private makeSlide(dir: Dir, from: Point, r: SlideResult): Slide {
     const len = r.path.length;
-    this.slideState = { dir, endDir: r.dir, from: { ...this.pos }, path: r.path, turns: r.turns, saw: r.saw, jumps: r.jumps, t: 0, dur: 40 + 19 * Math.max(1, len) ** 0.9, done: 0 };
-    this.lastDir = d;
-    this.cone = { from: { ...this.pos }, to: { ...this.pos }, endedAt: null };
-    this.sound.launch(this.slideState.dur);
+    return { dir, endDir: r.dir, from: { ...from }, path: r.path, turns: r.turns, saw: r.saw, jumps: r.jumps, t: 0, dur: 40 + 19 * Math.max(1, len) ** 0.9, done: 0 };
+  }
+
+  /** After an unexpected error: stop every ball where it is and go on. */
+  private recover() {
+    try {
+      const s = this.slideState;
+      if (s) {
+        this.slideState = null;
+        this.pos = s.path[s.path.length - 1] ?? s.from;
+      }
+      for (const e of this.extras) {
+        if (!e.slide) continue;
+        e.pos = e.slide.path[e.slide.path.length - 1] ?? e.slide.from;
+        e.slide = null;
+      }
+      this.queued = null;
+      this.timeScale = 1;
+      this.placeBall(this.pos);
+      for (const e of this.extras) {
+        const c = this.board.cellCenter(e.pos.x, e.pos.y);
+        e.ball.position.set(c.x, c.y);
+      }
+      this.updateRemaining();
+      if (this.completeAt === null && !this.dead && this.painted.size >= this.floorTotal) this.beginComplete();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  /** A ball is rolling (the main one or any split off by x3). */
+  private get busy(): boolean {
+    return !!this.slideState || this.extras.some((e) => e.slide);
+  }
+
+  private makeBall(): Ball {
+    const b = new Ball(this.cell, this.ballRes, this.ballSkin());
+    b.scale.set(1, 1 / this.foreshorten);
+    b.clipShadow(this.board.floorClip);
+    this.board.ballLayer.addChild(b);
+    return b;
+  }
+
+  /** Replace the split-off balls with ones resting at `at`. */
+  private setExtras(at: Point[]) {
+    for (const e of this.extras) e.ball.destroy();
+    this.extras = at.map((p) => {
+      const ball = this.makeBall();
+      const c = this.board.cellCenter(p.x, p.y);
+      ball.position.set(c.x, c.y);
+      return { pos: { ...p }, ball, slide: null, lastDir: { x: 1, y: 0 }, born: -1e9 };
+    });
+  }
+
+  /**
+   * The x3 tile: the ball rolling over it splits in three. It rolls on and
+   * two new balls pop out of the tile and shoot off sideways.
+   */
+  private splitAt(p: Point, dirs: Dir[]) {
+    this.splitUsed = true;
+    this.board.pickup(p);
+    const c = this.board.cellCenter(p.x, p.y);
+    this.boardFx.sparkle(c.x, c.y, 16, this.cell * 1.8, 0xffffff);
+    this.boardFx.ring(c.x, c.y, this.cell * 0.75, 0xffffff);
+    this.boardFx.flash(c.x, c.y, this.cell * 1.4, this.look.paintLight, 0.45);
+    this.sound.star(2);
+    this.vibrate(14);
+    for (const sd of dirs) {
+      const r = slide(this.level.grid, p, sd);
+      const ball = this.makeBall();
+      ball.position.set(c.x, c.y);
+      const e = { pos: { ...p }, ball, slide: null as Slide | null, lastDir: DIRS[sd], born: this.time };
+      if (r.path.length || r.saw) e.slide = this.makeSlide(sd, p, r);
+      this.extras.push(e);
+    }
+  }
+
+  /** Roll the split-off balls on, painting as they go. */
+  private stepExtras(dt: number) {
+    for (const e of [...this.extras]) {
+      if (!this.extras.includes(e)) continue;
+      const pop = Math.min(1, 0.35 + Math.max(0, this.time - e.born) / 160);
+      const s = e.slide;
+      if (!s) {
+        e.ball.scale.set(pop, pop / this.foreshorten);
+        continue;
+      }
+      s.t += dt;
+      const p = Math.min(1, s.t / s.dur);
+      const dist = p * (0.6 + 0.4 * p) * s.path.length;
+      if (!s.path.length) {
+        if (p >= 1) this.arriveExtra(e);
+        continue;
+      }
+      const sp = this.slidePoint(s, dist);
+      e.lastDir = sp.dir;
+      const k = pop * (0.15 + 0.85 * (sp.warp ?? 1));
+      e.ball.scale.set(k, k / this.foreshorten);
+      this.layTiles(s, dist, sp);
+      const c = this.board.cellCenter(sp.p.x, sp.p.y);
+      e.ball.position.set(c.x, c.y);
+      if (p >= 1) this.arriveExtra(e);
+    }
+  }
+
+  private arriveExtra(e: (typeof this.extras)[number]) {
+    const s = e.slide!;
+    e.slide = null;
+    e.pos = s.path[s.path.length - 1] ?? s.from;
+    if (s.saw) {
+      this.die(s.saw, DIRS[s.endDir], e.ball);
+      return;
+    }
+    const c = this.board.cellCenter(e.pos.x, e.pos.y);
+    e.ball.position.set(c.x, c.y);
+    if (s.path.length) {
+      this.sound.thock(0.4);
+      this.wallLumps(e.pos, DIRS[s.endDir], Math.min(1.3, s.path.length / 6));
+    }
+    this.settle();
+  }
+
+  /**
+   * Once every ball has stopped: balls resting on the same tile merge into
+   * one, then the level may be done, or a queued swipe goes.
+   */
+  private settle() {
+    if (this.busy || this.dead || this.completeAt !== null) return;
+    const taken = new Set([this.key(this.pos)]);
+    this.extras = this.extras.filter((e) => {
+      const k = this.key(e.pos);
+      if (!taken.has(k)) {
+        taken.add(k);
+        return true;
+      }
+      const c = this.board.cellCenter(e.pos.x, e.pos.y);
+      this.boardFx.sparkle(c.x, c.y, 8, this.cell, 0xffffff);
+      e.ball.destroy();
+      return false;
+    });
+    if (this.painted.size >= this.floorTotal) {
+      this.queued = null;
+      this.beginComplete();
+      return;
+    }
+    if (this.queued) {
+      const q = this.queued;
+      this.queued = null;
+      this.startSlide(q);
+    }
   }
 
   private stepSlide(dt: number) {
@@ -708,7 +1067,7 @@ export class Game {
     const d = sp.dir;
     this.lastDir = d;
     const warp = sp.warp ?? 1;
-    this.ball.scale.set(0.15 + 0.85 * warp);
+    this.ball.scale.set(0.15 + 0.85 * warp, (0.15 + 0.85 * warp) / this.foreshorten);
     if (sp.warp !== undefined && !this.warping) {
       this.warping = true;
       const c = this.board.cellCenter(sp.p.x, sp.p.y);
@@ -722,25 +1081,40 @@ export class Game {
     }
     // Ease off the squash and stretch while swinging round a curve.
     this.turnDamp += ((sp.turning ? 0.3 : 1) - this.turnDamp) * Math.min(1, dt / 40);
-    while (s.done < s.path.length && dist >= s.done + 0.55) {
+    this.layTiles(s, dist, sp);
+    this.placeBall(sp.p);
+    if (this.cone) this.cone.from = sp.band.from;
+    if (p >= 1) this.arrive(s);
+  }
+
+  /**
+   * Paint the tiles a ball's centre has reached in its slide. The stream
+   * under the ball (see Board) runs up to its centre; a tile is laid as
+   * whole paint once the centre reaches its middle, so its rounded front
+   * matches the stream's and nothing pops in ahead. Pickups are taken, and
+   * the x3 tile splits the ball.
+   */
+  private layTiles(s: Slide, dist: number, sp: { dir: XY; turning?: boolean }) {
+    const d = sp.dir;
+    while (s.done < s.path.length && dist >= s.done + 1) {
       const cellP = s.path[s.done];
       const k = this.key(cellP);
       if (!this.painted.has(k)) {
-        this.painted.set(k, this.time);
+        this.painted.set(k, this.time - SPREAD_MS);
         this.paintAxis.set(k, sp.turning || this.isCurveAt(cellP) ? 2 : d.x !== 0 ? 0 : 1);
         this.sound.paintTile();
         this.speckle(cellP);
+      } else {
+        // Rolling back over paint still throws up a splash (as in the
+        // original), a little lighter than on fresh paint.
+        this.speckle(cellP, 0.55);
       }
+      // Wet again wherever the ball rolls, painted before or not.
+      if (!sp.turning && !this.isCurveAt(cellP)) this.wet.set(k, { t: this.time, axis: d.x !== 0 ? 0 : 1 });
       this.collect(cellP);
-      this.sprayTile(cellP, d);
+      if (!this.splitUsed && this.level.grid[cellP.y][cellP.x] === MULT) this.splitAt(cellP, splitDirs(s.from, s.path, s.done));
       s.done++;
     }
-    this.placeBall(sp.p);
-    if (this.cone) {
-      this.cone.from = sp.band.from;
-      this.cone.to = sp.p;
-    }
-    if (p >= 1) this.arrive(s);
   }
 
   /**
@@ -749,6 +1123,8 @@ export class Game {
    * travel direction and the straight stretch of fresh paint behind it.
    */
   private slidePoint(s: Slide, dist: number): { p: XY; dir: XY; band: { from: XY; pos: XY }; turning?: boolean; warp?: number } {
+    // Straight into a saw right beside the ball: no tiles to roll over.
+    if (!s.path.length) return { p: s.from, dir: DIRS[s.dir], band: { from: s.from, pos: s.from } };
     const pts: XY[] = [s.from, ...s.path];
     const end = pts.length - 1;
     const dd = Math.max(0, Math.min(end, dist));
@@ -800,19 +1176,21 @@ export class Game {
     this.slideState = null;
     if (s.saw) {
       this.updateRemaining();
+      // The speed cone draws back into the ball as on any stop.
+      if (this.cone) this.cone.endedAt = this.time;
       this.die(s.saw, d);
       return;
     }
-    // A glint runs back along the stroke from the start to where it landed.
-    const now = this.time;
-    this.shimmer = [this.key(s.from), ...s.path.map((p) => this.key(p))].map((k, i) => ({ k, t: now + i * 16 }));
     if (this.cone) this.cone.endedAt = this.time;
     this.updateRemaining();
     const speed = Math.min(1.3, s.path.length / 6);
     // Stopped by a stopper's studs: they clamp on, the ball squashes hard
     // into the grip and lands with a firmer, clickier thud.
     const gripped = this.board.grip(this.pos.x, this.pos.y);
-    this.ball.impact(0.6 + speed * 0.5 + (gripped ? 0.45 : 0));
+    // No bounce: as in the original the stretched ball just draws in
+    // against the wall (see Ball). A stopper's grip still squeezes it.
+    if (gripped) this.ball.impact(0.6);
+    this.splatBall(d);
     this.sound.thock(0.6 + speed * 0.4 + (gripped ? 0.3 : 0));
     if (gripped) this.sound.grip();
     this.vibrate(gripped ? 16 : 8);
@@ -820,19 +1198,26 @@ export class Game {
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
     const hitX = c.x + d.x * this.cell * 0.45;
     const hitY = c.y + d.y * this.cell * 0.45;
-    this.boardFx.ring(hitX, hitY, this.cell * 0.5, 0xffffff);
-    this.boardFx.splash(hitX, hitY, -d.x, -d.y, 5 + Math.round(speed * 6), this.look.paint, this.cell * 3.2,
-      this.cell * 0.075, (x, y, r) => this.addDot(x, y, r));
+    if (!REDUCED_MOTION) this.wave = { x: hitX, y: hitY, t: 0, power: Math.min(1, 0.45 + speed * 0.45 + (gripped ? 0.15 : 0)) };
+    this.wallLumps(this.pos, d, speed);
+    this.settle();
+  }
 
-    if (this.painted.size >= this.floorTotal) {
-      this.queued = null;
-      this.beginComplete();
-      return;
-    }
-    if (this.queued) {
-      const q = this.queued;
-      this.queued = null;
-      this.startSlide(q);
+  /**
+   * A few lumps thrown up where a ball hits a wall, some onto the wall face
+   * above the lane (as in the original).
+   */
+  private wallLumps(p: Point, d: XY, speed: number) {
+    const c = this.board.cellCenter(p.x, p.y);
+    for (let i = 0; i < 4 + Math.round(speed * 3); i++) {
+      const along = Math.random() * 0.9;
+      this.dots.push({
+        x: c.x + (d.x ? -d.x * along : Math.random() - 0.5) * this.cell * 0.9,
+        y: c.y - this.cell * (0.25 + Math.random() * 0.45) + (d.y ? -d.y * along * this.cell * 0.9 : 0),
+        r: this.cell * (0.07 + Math.random() * 0.06),
+        t: this.time + Math.random() * 50,
+        life: 650 + Math.random() * 200,
+      });
     }
   }
 
@@ -857,8 +1242,8 @@ export class Game {
     this.board.pickup(p);
     const g = this.board.toGlobal(this.board.cellCenter(p.x, p.y));
     if (v === COIN) {
-      this.save.coins += 5;
-      this.hud.flyCoins(g, 3, this.save.coins);
+      this.save.coins += 2;
+      this.hud.flyCoins(g, 2, this.save.coins);
       this.sound.coin();
     } else if (this.save.keys < 3) {
       this.save.keys++;
@@ -869,53 +1254,47 @@ export class Game {
   }
 
   /**
-   * Wet spray as the ball rolls through a tile (painted or not): glossy
-   * droplets in three shades burst out to both sides of the path.
+   * Splatter thrown up from a freshly painted tile, as measured on the
+   * original: about a dozen lumps per tile, the larger ones the paint's own
+   * deep shade and the smaller ones red, scattered over the tile and up
+   * onto the wall face above it. The lumps shrink away within about 0.9 s,
+   * the red drops a little later.
    */
-  private sprayTile(p: Point, d: XY) {
-    const c = this.board.cellCenter(p.x, p.y);
-    const cell = this.cell;
-    const shades = [this.look.paint, this.look.paintDark, this.look.paintLight, this.look.paint];
-    const nx = -d.y;
-    const ny = d.x;
-    const n = 6 + Math.floor(Math.random() * 4);
-    // Droplets stay on the floor: next to a wall they hug the corridor.
-    const open = (side: number) => isFloor(this.level.grid, p.x + nx * side, p.y + ny * side);
-    for (let i = 0; i < n; i++) {
-      const side = Math.random() < 0.5 ? -1 : 1;
-      const free = open(side);
-      const off = (0.16 + Math.random() * (free ? 0.55 : 0.16)) * side;
-      const along = (Math.random() - 0.5) * 0.9;
-      const big = Math.random() < 0.2;
-      const r = cell * (big ? 0.07 + Math.random() * 0.05 : 0.025 + Math.random() * 0.045);
-      const sp = cell * (free ? 1.2 + Math.random() * 2.2 : 0.2 + Math.random() * 0.4);
-      this.boardFx.blob(
-        c.x + nx * off * cell + d.x * along * cell,
-        c.y + ny * off * cell + d.y * along * cell,
-        nx * side * sp - d.x * sp * 0.3,
-        ny * side * sp - d.y * sp * 0.3,
-        r,
-        shades[Math.floor(Math.random() * shades.length)],
-        420 + Math.random() * 380,
-      );
-    }
-  }
-
-  /** Dense wet splatter on a freshly painted tile. */
-  private speckle(p: Point) {
+  private speckle(p: Point, amount = 1) {
     const c = this.cell;
-    // Fine wet flecks, like the original: small, light and short-lived.
-    const n = 7 + Math.floor(Math.random() * 6);
+    const n = Math.round((12 + Math.floor(Math.random() * 5)) * amount);
     for (let i = 0; i < n; i++) {
-      const big = Math.random() < 0.12;
+      const red = Math.random() < 0.42;
       this.dots.push({
-        x: (p.x + 0.05 + Math.random() * 0.9) * c,
-        y: (p.y + 0.05 + Math.random() * 0.9) * c,
-        r: c * (big ? 0.04 + Math.random() * 0.025 : 0.014 + Math.random() * 0.02),
-        t: this.time + Math.random() * 60,
+        x: (p.x + 0.04 + Math.random() * 0.92) * c,
+        y: (p.y - 0.12 + Math.random() * 1.04) * c,
+        r: c * (red ? 0.03 + Math.random() * 0.035 : 0.055 + Math.random() * 0.075),
+        t: this.time + Math.random() * 70,
+        life: red ? 850 + Math.random() * 300 : 700 + Math.random() * 200,
+        red,
       });
     }
   }
+
+  /** A couple of lumps that land on the ball as it hits the wall. */
+  private splatBall(d: XY) {
+    const c = this.cell;
+    // Where the ball comes to rest (its body is still drawn out just now).
+    const x = this.ball.x;
+    const y = this.ball.y + this.ball.restY * this.ball.scale.y;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    this.dots.push(
+      { x: x + side * c * (0.05 + Math.random() * 0.12), y: y - c * 0.26, r: c * 0.075, t: this.time + 60, life: 520, top: true },
+      { x: x + d.x * c * 0.42 + d.y * c * 0.1, y: y + d.y * c * 0.38 - c * 0.04, r: c * 0.06, t: this.time + 90, life: 480, top: true },
+    );
+  }
+
+  /** Vertical squash of the board (rows vs columns), see buildBoard. */
+  private foreshorten = 1;
+  /** Area the board's light filter renders, in board space (see tick). */
+  private readonly filterArea = new Rectangle();
+  /** Impact shockwave rippling from a wall hit (board px), if running. */
+  private wave: { x: number; y: number; t: number; power: number } | null = null;
 
   private dead = false;
 
@@ -923,26 +1302,30 @@ export class Game {
    * The ball rolled into a saw: it is pushed into the blade and sliced in
    * two, sparks fly, the board shakes, then the revive offer appears.
    */
-  private die(saw: Point, dir: Point) {
+  private die(saw: Point, dir: Point, ball = this.ball) {
     this.dead = true;
     this.queued = null;
     this.hint = null;
-    const from = { x: this.ball.x, y: this.ball.y };
+    const from = { x: ball.x, y: ball.y };
     const c = this.board.cellCenter(saw.x, saw.y);
     this.tweens.push({
       t: 0,
       dur: 110,
-      step: (p) => this.ball.position.set(from.x + (c.x - from.x) * 0.5 * p, from.y + (c.y - from.y) * 0.5 * p),
+      step: (p) => ball.position.set(from.x + (c.x - from.x) * 0.5 * p, from.y + (c.y - from.y) * 0.5 * p),
       done: () => {
-        const hx = (this.ball.x + c.x) / 2;
-        const hy = (this.ball.y + c.y) / 2;
-        this.ball.split(dir);
+        const hx = (ball.x + c.x) / 2;
+        const hy = (ball.y + c.y) / 2;
+        const px = Math.ceil(this.cell * Math.min(window.devicePixelRatio || 1, 2));
+        const still = Texture.from(ballCanvas(this.app.renderer as Renderer, this.ballSkin(), px));
+        ball.split(dir, (x, y) => isFloor(this.level.grid, Math.floor(x / this.cell), Math.floor(y / this.cell)), still);
         this.board.sawHit(this.time);
         this.boardFx.sparkle(hx, hy, 16, this.cell * 1.8, 0xffd27a);
         this.boardFx.flash(hx, hy, this.cell * 1.6, 0xff5a5a, 0.8);
         this.boardFx.splash(hx, hy, -dir.x, -dir.y, 10, this.look.paint, this.cell * 3.4, this.cell * 0.08, (x, y, r) => this.addDot(x, y, r));
-        this.nudge.vx -= dir.x * 260 + 120;
-        this.nudge.vy -= dir.y * 260;
+        if (!REDUCED_MOTION) {
+          this.nudge.vx -= dir.x * 260 + 120;
+          this.nudge.vy -= dir.y * 260;
+        }
         this.hud.hurt();
         this.sound.thock(1.3);
         this.sound.bump();
@@ -951,34 +1334,61 @@ export class Game {
     });
     window.setTimeout(() => {
       if (!this.dead) return;
+      const revive = () => {
+        // Undo the fatal move and drop the ball back in.
+        this.dead = false;
+        if (!ball.destroyed) ball.unsplit();
+        this.undo();
+        this.introAt = this.time;
+        this.landed = false;
+      };
+      const giveUp = () => {
+        this.dead = false;
+        if (!ball.destroyed) ball.unsplit();
+        this.restart();
+      };
+      // Revive is always a rewarded ad (Give up beside it). With no ads to
+      // be had, just retry.
+      if (!adsAvailable()) {
+        this.hud.toast('Ouch! Try again');
+        giveUp();
+        return;
+      }
       this.hud.revive({
         level: this.levelNo,
         streak: this.save.streak,
         seconds: 9,
         tick: () => this.sound.click(),
         onRevive: () => {
-          // Undo the fatal move and drop the ball back in.
-          this.dead = false;
-          this.ball.unsplit();
-          this.undo();
-          this.introAt = this.time;
-          this.landed = false;
+          return rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
+            if (!ok) {
+              this.hud.toast('No video available right now. Try again soon!');
+              return false;
+            }
+            this.watchedThisLevel = true;
+            revive();
+            return true;
+          });
         },
-        onGiveUp: () => {
-          this.dead = false;
-          this.ball.unsplit();
-          this.restart();
-        },
+        onGiveUp: giveUp,
       });
     }, 950);
   }
 
   undo() {
     this.sound.unlock();
-    if (this.slideState || this.completeAt !== null || this.dead) return;
+    if (this.busy || this.completeAt !== null || this.dead) return;
     const snap = this.history.pop();
     if (!snap) return;
+    this.hint = null;
+    this.hud.undoNudge(false);
     this.pos = snap.pos;
+    if (this.splitUsed && !snap.split) {
+      const m = this.multTile();
+      if (m) this.board.unpick(m);
+    }
+    this.splitUsed = snap.split;
+    this.setExtras(snap.extras);
     this.painted = snap.painted;
     this.dots = [];
     this.splats.length = snap.splats;
@@ -1003,6 +1413,9 @@ export class Game {
       this.persist();
     }
     this.resetState();
+    const m = this.multTile();
+    if (m) this.board.unpick(m);
+    this.hud.undoNudge(false);
     this.hud.setMoves(0);
     this.placeBall(this.pos);
     this.ball.impact(0.4);
@@ -1010,25 +1423,106 @@ export class Game {
     this.boardFx.clear();
   }
 
+  private multTile(): Point | null {
+    for (let y = 0; y < this.level.grid.length; y++) {
+      const x = this.level.grid[y].indexOf(MULT);
+      if (x >= 0) return { x, y };
+    }
+    return null;
+  }
+
   private showHint() {
     this.sound.unlock();
-    if (this.slideState || this.completeAt !== null || this.dead) return;
-    const sol = solve(this.level.grid, this.pos, this.painted.keys(), 300000);
-    if (!sol || !sol.length) {
-      this.hud.toast('No way to finish from here. Tap Undo.');
+    if (this.completeAt !== null || this.dead || this.busy) return;
+    const stuck = !this.canFinish();
+    if (this.hintGuide) {
+      // Already guiding: a press in a dead end rewinds for free.
+      if (stuck) this.rewind();
+      else this.hud.toast('Hint is on: follow the arrows');
       return;
     }
     if (!this.spend('hints')) return;
-    const r = slide(this.level.grid, this.pos, sol[0]);
-    this.hint = { path: r.path, dir: DIRS[sol[0]], until: this.time + 6000 };
+    this.hintGuide = true;
+    this.guideKey = '';
+    // A hint always gets the player home: out of a dead end first, if need be.
+    if (stuck) this.rewind();
+    else this.hud.toast('Hint on: follow the arrows to the finish');
     this.sound.click();
+  }
+
+  /**
+   * Can the level still be finished from here? Always, on a level that can
+   * never get stuck (every built level); otherwise ask the solver.
+   */
+  private canFinish(): boolean {
+    return this.neverStuck || solve(this.level.grid, this.pos, this.painted.keys(), 300000) !== null;
+  }
+
+  private readonly stuckFree = new WeakMap<Level, boolean>();
+  /** Whether this level is impossible to get stuck in (see analyze). */
+  private get neverStuck(): boolean {
+    let v = this.stuckFree.get(this.level);
+    if (v === undefined) {
+      v = analyze(this.level.grid, this.level.start).neverStuck;
+      this.stuckFree.set(this.level, v);
+    }
+    return v;
+  }
+
+  /** Undo back to the latest position the level can still be finished from. */
+  private rewind() {
+    let k = 0;
+    while (!this.canFinish() && this.history.length) {
+      this.undo();
+      k++;
+    }
+    if (!this.canFinish()) {
+      this.restart();
+      this.hud.toast('Fresh start: follow the arrows');
+      return;
+    }
+    this.hud.undoNudge(false);
+    this.hud.toast(`Back ${k} move${k === 1 ? '' : 's'}: follow the arrows`);
+  }
+
+  /**
+   * Whenever the ball comes to rest: with the guide on, show the next
+   * optimal move (re-solved from wherever the player is, so straying from
+   * the route just plots a new one).
+   */
+  private updateGuide() {
+    if (this.busy || this.completeAt !== null || this.dead || this.bombAnim) return;
+    // Anything that changes the board (a move, undo, restart, a bomb) clears
+    // the hint, so a hint on screen is always current.
+    if (this.hint) return;
+    // Solve once per position for the guide's next move. Levels can never
+    // get stuck, so there is always a way on: when the board is too big to
+    // solve outright, the guide heads for the nearest unpainted floor (which
+    // still always reaches the finish). Only a level that could trap the
+    // ball would ever point at Undo.
+    const key = `${this.pos.x},${this.pos.y}|${this.moves}|${this.painted.size}`;
+    if (key === this.guideKey) return;
+    this.guideKey = key;
+    if (!this.hintGuide && this.neverStuck) return;
+    const sol = solveMulti(this.level.grid, this.pos, this.painted.keys(), this.neverStuck ? 120000 : 300000, this.extras.map((e) => e.pos), this.splitUsed);
+    const move = sol?.[0] ?? (this.neverStuck ? nextPaintingMove(this.level.grid, this.pos, new Set(this.painted.keys())) : null);
+    if (!move) {
+      if (sol === null && !this.neverStuck) {
+        if (this.hintGuide) this.hud.toast('Dead end! Tap Undo or Hint');
+        this.hud.undoNudge(true);
+      }
+      return;
+    }
+    if (!this.hintGuide) return;
+    const r = slide(this.level.grid, this.pos, move);
+    this.hint = { from: { ...this.pos }, path: r.path, dir: DIRS[move], since: this.time };
   }
 
   // ---------------------------------------------------------------- complete
 
   private beginComplete() {
     this.completeAt = this.time;
-    this.timeScale = 0.3;
+    this.timeScale = REDUCED_MOTION ? 1 : 0.3;
     this.hint = null;
   }
 
@@ -1039,28 +1533,72 @@ export class Game {
     const start = 200;
     if (t >= start && t - this.lastFrameDt < start) {
       this.sound.complete();
-      this.scaleKickV += 1.1;
-      this.boardFx.sparkle(this.ball.x, this.ball.y, 18, this.cell * 2.5, 0xffffff);
-      this.screenFx.confetti(this.app.screen.width, this.app.screen.height, 120, [
-        this.look.paint, this.look.paintLight, 0xffd23f, 0x7b5cf0, 0x40e0d0, 0xffffff,
-      ]);
-      // Glints rise from every tile, rippling outward from the ball.
+      if (!REDUCED_MOTION) this.scaleKickV += 1.1;
+      // A small burst of paint out of the ball, then a wave of soft light
+      // ripples out across every tile while the sheen sweeps the board
+      // (drawSweep below); as the wave reaches the rim, some edge tiles kick
+      // a little spray of paint outward. Nothing covers the screen.
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]])
+        this.boardFx.splash(this.ball.x, this.ball.y, dx, dy, 4, this.look.paint, this.cell * 2.6, this.cell * 0.07,
+          (x, y, r) => this.addDot(x, y, r));
+      this.boardFx.flash(this.ball.x, this.ball.y, this.cell * 2, this.look.paintLight, 0.6);
+      // The whole painted floor lights up, in a wave spreading out from the
+      // ball (the fresh-paint glow, see Board.drawSheen).
+      for (const k of this.painted.keys()) {
+        const w = this.level.grid[0].length;
+        const dist = Math.hypot((k % w) - this.pos.x, Math.floor(k / w) - this.pos.y);
+        this.wet.set(k, { t: this.time + 40 + dist * 55, axis: 0 });
+      }
+      // The ball hops for joy and lands with a squash.
+      const by = this.ball.y;
+      this.tweens.push({
+        t: 0,
+        dur: 380,
+        step: (p) => (this.ball.y = by - Math.sin(p * Math.PI) * this.cell * 0.55),
+        done: () => {
+          this.ball.y = by;
+          this.ball.impact(0.8);
+        },
+      });
+      // Confetti cannons from both lower corners, and a second smaller pop.
+      if (!REDUCED_MOTION) {
+        this.fireConfetti(1);
+        this.confettiAt = this.time + 320;
+      }
+      const grid = this.level.grid;
+      const midX = (grid[0].length - 1) / 2;
+      const midY = (grid.length - 1) / 2;
+      let rimCount = 0;
       this.sparkQueue = this.board
         .floorPoints()
-        .map((p) => ({ ...this.board.cellCenter(p.x, p.y), at: this.time + Math.hypot(p.x - this.pos.x, p.y - this.pos.y) * 45 }))
+        .map((p) => {
+          const rim = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !isFloor(grid, p.x + dx, p.y + dy));
+          const kick = rim && rimCount++ % 2 === 0 ? { x: p.x - midX, y: p.y - midY } : undefined;
+          return { ...this.board.cellCenter(p.x, p.y), at: this.time + Math.hypot(p.x - this.pos.x, p.y - this.pos.y) * 45, kick };
+        })
         .sort((a, b) => a.at - b.at);
+    }
+    if (this.confettiAt > 0 && this.time >= this.confettiAt) {
+      this.confettiAt = -1;
+      this.fireConfetti(0.55);
     }
     while (this.sparkQueue.length && this.sparkQueue[0].at <= this.time) {
       const sp = this.sparkQueue.shift()!;
-      this.boardFx.rise(sp.x, sp.y, 0xffffff, this.cell * 0.09);
+      this.boardFx.flash(sp.x, sp.y, this.cell * 0.8, this.look.paintLight, 0.32);
+      if (sp.kick && !REDUCED_MOTION) {
+        const l = Math.hypot(sp.kick.x, sp.kick.y) || 1;
+        this.boardFx.splash(sp.x, sp.y, sp.kick.x / l, sp.kick.y / l, 6, this.look.paint, this.cell * 3.4, this.cell * 0.085);
+      }
     }
     this.board.drawSweep((t - start - 100) / 900);
     if (t > 950 && !this.resultShown) {
       this.resultShown = true;
       this.resultAt = this.time;
+      happytime();
       const par = this.level.par ?? this.moves;
       const stars = this.moves <= par ? 3 : this.moves <= Math.ceil(par * 1.4) ? 2 : 1;
-      const coins = 10 + stars * 5 + (this.level.bonus ? 25 : 0);
+      // Coins come slowly: they buy tools, so they should feel earned.
+      const coins = 5 + stars * 2 + (this.level.bonus ? 12 : 0);
       const leagueBefore = league(this.save.week, this.save.weekStars).rows;
       if (!this.level.bonus) {
         this.save.coins += coins;
@@ -1093,12 +1631,24 @@ export class Game {
         this.bonusFlow(stars + 2, coins, leagueBefore);
       } else {
         const c = this.board.toGlobal(this.board.cellCenter(this.pos.x, this.pos.y));
-        const top = this.board.toGlobal({ x: 0, y: 0 }).y;
+        // The top of what is visible: the first floor row (inside the
+        // one-cell wall border) less the wall face standing above it.
+        const top = this.board.toGlobal({ x: 0, y: this.cell * 0.55 }).y;
         this.hud.celebrate(info, { x: c.x, y: c.y }, top, onKey);
-        this.autoNextAt = this.time + (key ? 2200 : 1750);
+        this.autoNextAt = this.time + (key ? 2600 : 2300);
       }
       this.checkUnlocks();
     }
+  }
+
+  private fireConfetti(power: number) {
+    const w = this.app.screen.width;
+    const h = this.app.screen.height;
+    const colors = [this.look.paint, this.look.paintLight, 0xffd34a, 0xffffff, 0x6fe3ff, 0x9b7bff, 0xff7aa8];
+    const n = Math.round(65 * power);
+    const v = Math.max(1100, h * 2.5) * (0.8 + power * 0.2);
+    this.confetti.burst(-8, h * 0.82, -Math.PI * 0.34, 0.5, n, v, colors);
+    this.confetti.burst(w + 8, h * 0.82, -Math.PI * 0.66, 0.5, n, v, colors);
   }
 
   private lastFrameDt = 16;
@@ -1111,6 +1661,13 @@ export class Game {
   private landed = false;
 
   private restartedThisLevel = false;
+  /** Levels finished since the last between-level ad. */
+  private levelsSinceAd = 0;
+  private bannerShown = false;
+  /** When the free-coins video may be offered again. */
+  private coinsReadyAt = 0;
+  /** A rewarded ad was watched to keep playing this level: no midgame ad after it. */
+  private watchedThisLevel = false;
 
   /** Bonus level: Super Reward multiplier, then the league climb, then on. */
   private bonusFlow(stars: number, coins: number, before: ReturnType<typeof league>['rows']) {
@@ -1133,7 +1690,14 @@ export class Game {
         this.hud.leagueClimb(before, after, timeLeft(), () => this.nextLevel(), () => this.sound.click());
       },
       { tick: () => this.sound.click(), win: () => this.sound.complete() },
+      {
+        // The first Super Reward multiplies for free; after that it is a
+        // rewarded ad (when ads run), always with Continue beside it.
+        free: this.save.superRewards++ === 0,
+        watchAd: adsAvailable() ? () => rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)) : null,
+      },
     );
+    this.persist();
   }
 
   /** Progress toward the next unlock after a level, or the unlock itself. */
@@ -1163,6 +1727,8 @@ export class Game {
   nextLevel() {
     // Ignore taps in the first moment so the stars can land.
     if (!this.resultShown || this.time - this.resultAt < 450) return;
+    // A fresh banner between levels (the SDK allows one a minute here).
+    refreshBanner();
     // Three keys: open the treasure chest before moving on.
     if (this.save.keys >= 3 && !this.chestPending) {
       this.autoNextAt = null;
@@ -1177,6 +1743,16 @@ export class Game {
     this.hud.endCelebrate();
     const prevBest = this.save.best;
     this.loadLevel(this.levelNo + 1, true);
+    // Between levels is the only place a midgame ad may appear.
+    // Between levels only, and gently: never in the first few levels, at
+    // least 4 levels apart (and 3 minutes, which the SDK enforces), not
+    // after a bonus level (its reward screens are break enough), and never
+    // after the player watched an ad to keep playing that same level.
+    this.levelsSinceAd++;
+    if (this.levelNo > 4 && this.levelsSinceAd >= 4 && !this.level.bonus && !this.watchedThisLevel) {
+      this.levelsSinceAd = 0;
+      void midgameAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted));
+    }
     window.setTimeout(() => this.showUnlockProgress(prevBest, this.save.best), 650);
   }
 
@@ -1188,11 +1764,20 @@ export class Game {
     root.setProperty('--bg-top', t.bgTop);
     root.setProperty('--bg-bottom', t.bgBottom);
     root.setProperty('--ink', t.ui.ink);
+    root.setProperty('--page-ink', t.ui.pageInk ?? t.ui.ink);
+    // Light text on a dark page gets a dark drop, never a white glow.
+    root.setProperty('--page-shadow', t.ui.pageInk ? 'rgba(10, 0, 40, 0.45)' : 'rgba(255, 255, 255, 0.7)');
     root.setProperty('--deep', t.ui.deep);
     root.setProperty('--p1', t.ui.p1);
     root.setProperty('--p2', t.ui.p2);
     root.setProperty('--p3', t.ui.p3);
     root.setProperty('--panel-edge', t.ui.panelEdge);
+    const res = Math.min(window.devicePixelRatio || 1, 2);
+    this.pageBg.visible = !!t.slab;
+    if (t.slab) {
+      this.pageBg.texture = slabTexture(t.slab, res);
+      this.pageBg.tileScale.set(1 / res);
+    }
     this.sound.setRoot(t.root);
   }
 
@@ -1201,6 +1786,7 @@ export class Game {
     if (!next || next === this.theme) return;
     this.theme = next;
     this.look = this.makeLook();
+    this.hud.setPaintColors(this.look.paint, this.look.paintLight, this.look.paintDark);
     this.applyTheme();
     const old = this.board;
     this.buildBoard();
@@ -1310,7 +1896,7 @@ export class Game {
   }
 
   private paintBomb() {
-    if (this.slideState || this.completeAt !== null || this.bombAnim || this.dead) return;
+    if (this.busy || this.completeAt !== null || this.bombAnim || this.dead) return;
     const targets = this.bombTargets();
     if (!targets.length || !this.spend('bombs')) return;
     const o = this.hud.bombOrigin();
@@ -1378,6 +1964,7 @@ export class Game {
     if (shotT > flight + b.targets.length * 70 + 40) {
       this.bombAnim = null;
       g.clear();
+      this.hint = null;
       if (this.painted.size >= this.floorTotal) this.beginComplete();
     }
   }
@@ -1391,7 +1978,22 @@ export class Game {
     this.time += rawDt;
     const time = this.time;
 
+    if (this.completeAt === null && !this.dead && !this.hud.modalOpen) gameplayStart();
+    else gameplayStop();
+    // The banner ad only on screens that stay open a while, never in play.
+    const wantBanner = GAMEPLAY_BANNER || BANNER_SCREENS.some((id) => document.getElementById(id)?.classList.contains('show'));
+    if (wantBanner) showBanner();
+    else hideBanner();
+    // The strip changes the room left for the board: lay it out again.
+    const hasBanner = document.body.classList.contains('has-banner');
+    if (hasBanner !== this.bannerShown) {
+      this.bannerShown = hasBanner;
+      this.layoutCache = null;
+      this.relayout();
+    }
+
     this.stepSlide(dt);
+    this.stepExtras(dt);
     this.stepBomb(dt);
     this.stepComplete();
     if (this.autoNextAt !== null && this.time >= this.autoNextAt) this.nextLevel();
@@ -1427,7 +2029,8 @@ export class Game {
     const k = Math.min(1, rawDt / 90);
     v.dy += (v.tdy - v.dy) * k;
     v.s += (v.ts - v.s) * k;
-    this.board.scale.set(e.s * v.s * (1 + this.scaleKick * 0.05));
+    const sc = e.s * v.s * (1 + this.scaleKick * 0.05);
+    this.board.scale.set(sc, sc * this.foreshorten);
     this.board.rotation = e.rot;
     this.board.position.set(cx + n.x + e.x, cy + n.y + v.dy);
     // At rest, put the board's corner on a whole device pixel so the tile
@@ -1438,6 +2041,11 @@ export class Game {
       const by = this.board.position.y - this.board.pivot.y;
       this.board.position.set(Math.round(bx * dpr) / dpr + this.board.pivot.x, Math.round(by * dpr) / dpr + this.board.pivot.y);
     }
+    this.board.alignSlab();
+    if (this.pageBg.visible) {
+      this.pageBg.width = this.app.screen.width;
+      this.pageBg.height = this.app.screen.height;
+    }
     if (this.completeAt === null) {
       const sweep = (time - this.introSweepAt) / 750;
       if (sweep >= 0 && sweep < 1.5) this.board.drawSweep(sweep, 0.6);
@@ -1446,6 +2054,10 @@ export class Game {
     const moving = !!this.slideState;
     const speed = this.slideState ? (this.slideState.path.length / (this.slideState.dur / 1000) / 30) * this.turnDamp : 0;
     this.ball.update(dt, time, moving, this.lastDir, speed);
+    for (const e of this.extras) {
+      const es = e.slide;
+      e.ball.update(dt, time, !!es, e.lastDir, es ? es.path.length / (es.dur / 1000) / 30 : 0);
+    }
     const intro = (time - this.introAt) / 470;
     if (intro < 1.2) {
       this.ball.dropIn(moving ? 1 : intro);
@@ -1459,30 +2071,36 @@ export class Game {
       }
     }
 
-    const showTutorial = this.levelNo === 1 && this.moves === 0 && !this.slideState;
-    if (showTutorial && !this.hint) {
-      const sol = solve(this.level.grid, this.pos, this.painted.keys(), 20000);
-      if (sol?.length) {
-        const r = slide(this.level.grid, this.pos, sol[0]);
-        this.hint = { path: r.path, dir: DIRS[sol[0]], until: Infinity };
-      }
-    }
-    if (this.hint && time > this.hint.until) this.hint = null;
-    this.board.drawHint(time, this.hint?.path ?? null, this.hint?.dir);
+    this.updateGuide();
+    this.board.drawHint(time, this.hint);
 
-    if (this.dots.length > 40 && time - this.dots[0].t > 1100) this.dots = this.dots.filter((d) => time - d.t < 1100);
+    if (this.dots.length > 40 && time - this.dots[0].t > 1200) this.dots = this.dots.filter((d) => time - d.t < (d.life ?? 900));
     const stroke: PaintStroke = {
       painted: this.painted,
       axis: this.paintAxis,
       dots: this.dots,
       splats: this.splats,
       startRound: this.moves === 0 && !this.slideState ? this.key(this.level.start) : undefined,
-      shimmer: this.shimmer,
+      wet: this.wet,
     };
     if (this.cone) {
-      const fade = this.cone.endedAt === null ? 1 : Math.max(0, 1 - (time - this.cone.endedAt) / 380);
-      this.board.drawCone(this.cone.from, this.cone.to, fade);
-      if (fade <= 0) this.cone = null;
+      // From a fifth of a tile ahead of where the run began to the centre of
+      // the ball's drawn body. Once the ball stops the cone holds a moment,
+      // then its tip runs in to the ball (measured on the original).
+      const o = this.ball.bodyOffset;
+      const base = { x: this.ball.x + o.x, y: this.ball.y + o.y * this.ball.scale.y };
+      const f = this.board.cellCenter(this.cone.from.x, this.cone.from.y);
+      f.y += this.ball.restY * this.ball.scale.y;
+      const dl = Math.hypot(base.x - f.x, base.y - f.y);
+      const q = this.cone.endedAt === null ? 0 : Math.min(1, Math.max(0, (time - this.cone.endedAt - 70) / 110));
+      if (q >= 1 || dl < this.cell * 0.3) {
+        this.board.drawCone(null, base, 0);
+        if (q >= 1) this.cone = null;
+      } else {
+        const lead = (this.cell * 0.2) / dl;
+        const t = lead + (1 - lead) * q ** 1.2;
+        this.board.drawCone({ x: f.x + (base.x - f.x) * t, y: f.y + (base.y - f.y) * t }, base, this.coneColor);
+      }
     } else this.board.drawCone(null, { x: 0, y: 0 }, 0);
     if (this.slideState) {
       const st = this.slideState;
@@ -1490,12 +2108,63 @@ export class Game {
       const dist = p * (0.6 + 0.4 * p) * st.path.length;
       stroke.active = this.slidePoint(st, dist).band;
     }
+    stroke.more = [];
+    for (const e of this.extras) {
+      const es = e.slide;
+      if (!es?.path.length) continue;
+      const p = Math.min(1, es.t / es.dur);
+      stroke.more.push(this.slidePoint(es, p * (0.6 + 0.4 * p) * es.path.length).band);
+    }
     if (this.light) {
-      const b = this.board.getBounds();
-      const p = this.ball.getGlobalPosition();
+      // The board's light filter renders a fixed area around the board,
+      // snapped to whole device pixels and clipped to the screen. Left to
+      // itself the filter frame would follow the board's bounds, which
+      // flying paint drops make fractional: the whole board would then be
+      // resampled between pixels and thin tile lines would fade in places.
+      const scr = this.app.screen;
       const res = this.app.renderer.resolution;
-      this.light.uniforms.uLight[0] = (p.x - b.x) * res;
-      this.light.uniforms.uLight[1] = (p.y - b.y) * res;
+      const m = this.board.pad + this.cell * 3;
+      const corners = [
+        this.board.toGlobal({ x: -m, y: -m }),
+        this.board.toGlobal({ x: this.board.boardWidth + m, y: -m }),
+        this.board.toGlobal({ x: -m, y: this.board.boardHeight + m }),
+        this.board.toGlobal({ x: this.board.boardWidth + m, y: this.board.boardHeight + m }),
+      ];
+      const snapDown = (v: number) => Math.floor(v * res) / res;
+      const snapUp = (v: number) => Math.ceil(v * res) / res;
+      const x0 = Math.max(0, snapDown(Math.min(...corners.map((c) => c.x))));
+      const y0 = Math.max(0, snapDown(Math.min(...corners.map((c) => c.y))));
+      const x1 = Math.min(snapUp(scr.width), snapUp(Math.max(...corners.map((c) => c.x))));
+      const y1 = Math.min(snapUp(scr.height), snapUp(Math.max(...corners.map((c) => c.y))));
+      // filterArea is in the board's own space: map the snapped screen
+      // rectangle back into it.
+      const a = this.board.toLocal({ x: x0, y: y0 });
+      const b = this.board.toLocal({ x: x1, y: y1 });
+      this.filterArea.x = Math.min(a.x, b.x);
+      this.filterArea.y = Math.min(a.y, b.y);
+      this.filterArea.width = Math.max(1, Math.abs(b.x - a.x));
+      this.filterArea.height = Math.max(1, Math.abs(b.y - a.y));
+      this.board.filterArea = this.filterArea;
+      const u = this.light.uniforms;
+      u.uFrame[0] = Math.max(1, x1 - x0);
+      u.uFrame[1] = Math.max(1, y1 - y0);
+      const p = this.ball.getGlobalPosition();
+      u.uLight[0] = p.x - x0;
+      u.uLight[1] = p.y - y0;
+      // Shockwave: a small ring that expands fast, then eases out as it fades.
+      const w = this.wave;
+      if (w) {
+        w.t += rawDt;
+        const t = Math.min(1, w.t / 380);
+        const g = this.board.toGlobal({ x: w.x, y: w.y });
+        const scale = this.board.scale.x;
+        u.uWave[0] = g.x - x0;
+        u.uWave[1] = g.y - y0;
+        u.uWave[2] = this.cell * (0.15 + 0.95 * (1 - (1 - t) ** 3)) * scale;
+        u.uWave[3] = w.power * (1 - t) ** 1.6;
+        u.uWaveWidth = this.cell * (0.26 + 0.14 * t) * scale;
+        if (t >= 1) this.wave = null;
+      } else u.uWave[3] = 0;
     }
     {
       const res = this.app.renderer.resolution;
@@ -1504,7 +2173,7 @@ export class Game {
     }
     this.board.update(time, stroke, this.remaining);
     this.boardFx.update(dt);
-    this.screenFx.update(rawDt);
+    this.confetti.update(rawDt, this.app.screen.height);
     this.ambient.update(rawDt / 1000, time, this.app.screen.width, this.app.screen.height, this.theme);
   }
 

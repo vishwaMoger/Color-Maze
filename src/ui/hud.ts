@@ -1,14 +1,37 @@
 // DOM overlay: HUD, panels (shop, settings, league, key vault) and the
 // level-complete moments. The board itself is drawn by Pixi underneath.
 
-import { BALL_URLS } from '../game/assets.ts';
 
-// Players are shown by their ball, like the original.
+/** League tiers, lowest first. */
+const TIERS = ['Bronze', 'Silver', 'Gold', 'Ruby', 'Emerald', 'Diamond'];
+
+/**
+ * The tier ladder above a league table: your tier's trophy on a glowing
+ * medallion, the tiers above as coloured locked medallions on a track that
+ * is filled in gold up to you, the next one pulsing with its gift.
+ */
+function tierLadder(current: number): string {
+  const fill = (current / (TIERS.length - 1)) * 100;
+  return `<div class="ladder">
+    <div class="ltrack"><i style="width:${fill}%"></i></div>
+    ${TIERS.map((name, i) => {
+      const state = i === current ? 'now' : i === current + 1 ? 'next' : i < current ? 'done' : 'locked';
+      return `<div class="tier t-${name.toLowerCase()} ${state}">
+        <span class="tbadge"><i class="ico ico-trophy"></i>${state === 'next' ? '<i class="ico ico-gift tgift"></i>' : state === 'locked' ? '<svg class="tlock" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10V8a4 4 0 1 1 8 0v2h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Zm2 0h4V8a2 2 0 1 0-4 0Z" /></svg>' : ''}</span>
+        <b class="tname">${name}</b>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// Players are shown by their ball, like the original. Rendered by the game's
+// 3D ball shader and handed over once at start.
+let BALL_ART: string[] = [];
 const SPHERES = ['#ffd23a', '#ff4f7a', '#4fdca0', '#5aa8ff', '#b67bff', '#ff9a3d', '#3d3d55', '#f2f0ff'];
 const avatarStyle = (r: { name: string; you?: boolean; avatar: string }) => {
   let h = 7;
   for (const ch of r.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const balls = Object.values(BALL_URLS);
+  const balls = BALL_ART;
   if (!r.you && h % 3 === 0 && balls.length) return `background:url('${balls[h % balls.length]}') center / cover no-repeat`;
   const c = r.you ? '#ffc21a' : SPHERES[h % SPHERES.length];
   return `background:radial-gradient(circle at 35% 30%, #fff 0 8%, ${c} 38%, color-mix(in srgb, ${c} 60%, #000) 100%)`;
@@ -26,6 +49,8 @@ export interface VaultSession {
   onDot: (k: VaultKind, dots: number) => void;
   onDone: () => void;
   sound: { click: () => void; thock: (s: number) => void; coin: () => void; star: (i: number) => void; complete: () => void };
+  /** The new item up for grabs (shown on its card), if any is left. */
+  item?: { name: string; art: string } | null;
 }
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -47,6 +72,8 @@ export interface ShopItem {
   /** CSS for the tile's own background (ball tiles). */
   bg?: string;
   kind: 'ball' | 'paint' | 'board';
+  /** Special item still to unlock by ads: how many watched of how many. */
+  ads?: { have: number; need: number };
 }
 
 export interface HudActions {
@@ -60,6 +87,8 @@ export interface HudActions {
   openShop: () => void;
   openLeague: () => void;
   freeCoins: () => void;
+  /** Watch an ad toward a special shop item. */
+  adUnlock: (tab: ShopTab, id: string) => void;
   /** A bottom sheet opened (its top edge in px) or closed (null). */
   sheet: (top: number | null) => void;
   anyInput: () => void;
@@ -94,6 +123,8 @@ export class Hud {
   private readonly bottom = $('hud-bottom');
   private readonly levelLabel = $('level-label');
   private readonly chain = $('level-progress');
+  /** How far the paint in the progress tube reaches (viewBox units). */
+  private chainFill = 0;
   private readonly movesLabel = $('moves');
   private readonly coinsLabel = $('coins-count');
   private readonly tip = $('tip');
@@ -144,7 +175,16 @@ export class Hud {
     });
     on('btn-settings', () => this.open('settings'));
     this.startIdleZap();
-    on('btn-league-info', () => ($('league-help').hidden = !$('league-help').hidden));
+    // How the weekly ranking works, after the original: three steps on a
+    // bright screen; any tap closes it.
+    on('btn-league-info', () => {
+      $('league-info').style.setProperty('--zoom', String(Math.max(1, Math.min(1.6, Math.min(innerWidth / 430, innerHeight / 820)))));
+      this.open('league-info');
+    });
+    $('league-info').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.close('league-info');
+    });
     on('btn-free-coins', a.freeCoins);
     on('btn-league', () => {
       a.openLeague();
@@ -176,20 +216,32 @@ export class Hud {
         this.shopTab = t.dataset.tab as ShopTab;
         this.renderShop();
       });
+    this.bindShopSwipe();
     this.result.addEventListener('click', () => {
       a.anyInput();
       a.next();
     });
     // Physical press state for touch as well as mouse.
-    for (const b of document.querySelectorAll<HTMLElement>('.gbtn, .league, .streak')) {
+    for (const b of document.querySelectorAll<HTMLElement>('.gbtn, .league, .streak, .pbtn, .tbtn, .trophy-card')) {
       b.addEventListener('pointerdown', () => b.classList.add('pressed'));
-      for (const ev of ['pointerup', 'pointerleave', 'pointercancel'])
+      for (const ev of ['pointerleave', 'pointercancel'])
         b.addEventListener(ev, () => b.classList.remove('pressed'));
+      // Released: spring back up with a little overshoot.
+      b.addEventListener('pointerup', () => {
+        b.classList.remove('pressed');
+        if (!b.matches('.pbtn, .tbtn, .trophy-card')) return;
+        b.classList.remove('pop');
+        void b.offsetWidth;
+        b.classList.add('pop');
+      });
+      b.addEventListener('animationend', (e) => {
+        if (e.animationName === 'btnpop') b.classList.remove('pop');
+      });
     }
   }
 
   get modalOpen() {
-    return ['shop', 'settings', 'league', 'vault', 'super', 'climb', 'unlocked', 'revive'].some((id) => !$(id).hidden);
+    return ['shop', 'settings', 'league', 'league-info', 'vault', 'super', 'climb', 'unlocked', 'revive'].some((id) => !$(id).hidden);
   }
 
   open(id: string) {
@@ -251,7 +303,8 @@ export class Hud {
     const right = rects('.col-right');
     return {
       top: $('level-info').getBoundingClientRect().bottom,
-      bottom: 12,
+      // Clear of the banner ad strip at the bottom, if there is one.
+      bottom: 12 + ($('ad-banner').hidden ? 0 : $('ad-banner').getBoundingClientRect().height),
       left: Math.max(0, ...left.map((r) => r.right)),
       right: W - Math.min(W, ...right.map((r) => r.left)),
     };
@@ -260,31 +313,57 @@ export class Hud {
   // ------------------------------------------------------------ HUD values
 
   setLevel(n: number, bonus: boolean, par?: number) {
-    this.levelLabel.textContent = bonus ? `Bonus level ${n}` : `Level ${n}`;
+    this.levelLabel.textContent = bonus ? `Bonus ${n}` : `Level ${n}`;
     this.levelLabel.classList.toggle('bonus', bonus);
-    // Five stops per group, the fifth is the bonus level. Finished stops
-    // are fat bubbles joined by pinched necks (like the original); the
-    // current stop is a dot, the bonus a ring.
+    // A paint tube: the track fills with the player's paint as the group
+    // of five progresses, stripes flowing inside it; the four stops are
+    // dots and the fifth, the bonus level, a gold star medallion.
     const at = (n - 1) % 5;
-    const xs = [12, 31, 50, 69, 88];
-    const cy = 11;
-    const R = 7.2;
-    let svg = '<rect class="track" x="1" y="1" width="98" height="20" rx="10" />';
-    const k = Math.cos(Math.PI / 4.2);
-    const sn = Math.sin(Math.PI / 4.2);
-    for (let i = 0; i + 1 < at; i++) {
-      const a0 = xs[i] + R * k;
-      const b0 = xs[i + 1] - R * k;
-      const mid = (xs[i] + xs[i + 1]) / 2;
-      svg += `<path class="done" d="M${a0} ${cy - R * sn}Q${mid} ${cy - 2.4} ${b0} ${cy - R * sn}L${b0} ${cy + R * sn}Q${mid} ${cy + 2.4} ${a0} ${cy + R * sn}Z" />`;
-    }
+    const xs = [11, 32, 53, 74];
+    const cy = 14;
+    const fillTo = at >= 4 ? 112 : xs[at] + 5;
+    const from = at === 0 ? 0 : this.chainFill;
+    this.chainFill = fillTo;
+    let svg = `<defs>
+      <linearGradient id="tube-paint" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" style="stop-color:var(--paint-light)" /><stop offset="0.45" style="stop-color:var(--paint)" /><stop offset="1" style="stop-color:var(--paint-dark)" />
+      </linearGradient>
+      <pattern id="tube-flow" width="10" height="28" patternUnits="userSpaceOnUse" patternTransform="skewX(-30)">
+        <rect width="4" height="28" fill="rgba(255,255,255,0.22)" />
+        <animateTransform attributeName="patternTransform" type="translate" from="0 0" to="10 0" dur="0.9s" repeatCount="indefinite" additive="sum" />
+      </pattern>
+      <clipPath id="tube-clip"><rect x="2" y="7" width="104" height="14" rx="7" /></clipPath>
+      <radialGradient id="tube-gold" cx="0.38" cy="0.32" r="0.75">
+        <stop offset="0" stop-color="#fff6c2" /><stop offset="0.45" stop-color="#ffcf2e" /><stop offset="1" stop-color="#e88a00" />
+      </radialGradient>
+    </defs>
+    <rect class="tube" x="2" y="7" width="104" height="14" rx="7" />
+    <g clip-path="url(#tube-clip)">
+      <rect class="tube-fill" x="0" y="7" height="14" width="${from}" fill="url(#tube-paint)" />
+      <rect class="tube-fill" x="0" y="7" height="14" width="${from}" fill="url(#tube-flow)" />
+      <rect x="4" y="8.6" width="100" height="3" rx="1.5" fill="rgba(255,255,255,0.45)" />
+    </g>`;
     xs.forEach((x, i) => {
-      if (i < at) svg += `<circle class="done" cx="${x}" cy="${cy}" r="${R}" />`;
-      else if (i === at) svg += i === 4 ? `<circle class="bonus now" cx="${x}" cy="${cy}" r="5.6" />` : `<circle class="now" cx="${x}" cy="${cy}" r="4.4" />`;
-      else if (i === 4) svg += `<circle class="bonus" cx="${x}" cy="${cy}" r="5" />`;
-      else svg += `<circle class="next" cx="${x}" cy="${cy}" r="3.4" />`;
+      if (i < at) svg += `<circle class="dot done" cx="${x}" cy="${cy}" r="2.6" />`;
+      else if (i === at) svg += `<circle class="dot ping" cx="${x}" cy="${cy}" r="4.6" /><circle class="dot now" cx="${x}" cy="${cy}" r="4.6" />`;
+      else svg += `<circle class="dot next" cx="${x}" cy="${cy}" r="2.6" />`;
     });
+    const star = (cx: number, r: number) =>
+      Array.from({ length: 10 }, (_, i) => {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        const rr = i % 2 ? r * 0.45 : r;
+        return `${(cx + Math.cos(a) * rr).toFixed(2)},${(cy + 0.4 + Math.sin(a) * rr).toFixed(2)}`;
+      }).join(' ');
+    svg += `<g class="medal${bonus ? ' lit' : ''}">
+      <circle cx="111" cy="${cy}" r="11.5" class="medal-rim" />
+      <circle cx="111" cy="${cy}" r="9" class="medal-face" />
+      <polygon points="${star(111, 6.2)}" class="medal-star" />
+    </g>`;
     this.chain.innerHTML = svg;
+    // Let the paint flow from where it was to the new stop.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => this.chain.querySelectorAll<SVGRectElement>('.tube-fill').forEach((r) => r.setAttribute('width', String(fillTo)))),
+    );
     // The bonus reward above the bar fills in as the group progresses.
     $('lvl-reward').dataset.stage = String(bonus ? 3 : at >= 3 ? 2 : at >= 1 ? 1 : 0);
     this.movesLabel.dataset.par = par ? String(par) : '';
@@ -315,11 +394,20 @@ export class Hud {
   }
 
   /**
-   * "Don't give up": revive within the countdown, or give up (restart and
-   * lose the streak). Revive will become a rewarded ad on CrazyGames.
+   * "Don't give up": revive for a rewarded ad (video badge) within the
+   * countdown, or give up. `onRevive` returns false when the ad did not
+   * play, which counts as giving up.
    */
-  revive(o: { level: number; streak: number; seconds: number; onRevive: () => void; onGiveUp: () => void; tick: () => void }) {
+  revive(o: {
+    level: number;
+    streak: number;
+    seconds: number;
+    onRevive: () => Promise<boolean> | boolean;
+    onGiveUp: () => void;
+    tick: () => void;
+  }) {
     $('revive-level').textContent = `Level ${o.level}`;
+    $('revive-video').hidden = false;
     $('revive-streak').textContent = String(o.streak);
     $('revive-sub').textContent = o.streak > 0 ? "You'll lose your win streak" : "You'll lose this level's progress";
     const bar = $('revive-bar');
@@ -351,8 +439,13 @@ export class Hud {
       done = true;
       for (const [id, fn] of handlers) $(id).removeEventListener('click', fn);
       this.close('revive');
-      if (revived) o.onRevive();
-      else o.onGiveUp();
+      if (!revived) {
+        o.onGiveUp();
+        return;
+      }
+      void Promise.resolve(o.onRevive()).then((ok) => {
+        if (!ok) o.onGiveUp();
+      });
     };
     const handlers: [string, (e: Event) => void][] = [
       ['btn-revive', (e) => (e.stopPropagation(), finish(true))],
@@ -507,9 +600,15 @@ export class Hud {
     window.setTimeout(() => fx.forEach((el) => el.remove()), 1400);
   }
 
-  setPrices(p: { hint: { price: number; free: number }; bomb: { price: number; free: number } }) {
+  setPrices(p: { hint: { price: number; free: number; ad: boolean }; bomb: { price: number; free: number; ad: boolean } }) {
+    // Free uses left sit in a bubble on the corner, and then no price shows.
+    // Out of free uses: the coin price, or now and then a free go for a
+    // video instead.
     for (const [k, v] of [['hint', p.hint], ['bomb', p.bomb]] as const) {
-      $(`${k}-price`).innerHTML = `<i class="ico ico-coin"></i>${v.price}`;
+      const label = $(`${k}-label`);
+      label.hidden = v.free > 0;
+      label.classList.toggle('ad', v.ad);
+      label.innerHTML = v.ad ? '<i class="vid"></i>Free' : `<i class="ico ico-coin"></i>${v.price}`;
       const f = $(`${k}-free`);
       f.hidden = v.free <= 0;
       f.textContent = String(v.free);
@@ -521,6 +620,56 @@ export class Hud {
     $('league-rank').textContent = String(rank);
     $('league-time').textContent = timeLeft;
     $('league-left').textContent = timeLeft;
+  }
+
+  /** The player's paint, for HUD pieces drawn in it (the progress tube). */
+  setPaintColors(paint: number, light: number, dark: number) {
+    const css = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
+    const root = document.documentElement.style;
+    root.setProperty('--paint', css(paint));
+    root.setProperty('--paint-light', css(light));
+    root.setProperty('--paint-dark', css(dark));
+  }
+
+  /** Make the Undo button pulse to point the way out of a dead end. */
+  undoNudge(on: boolean) {
+    $('btn-undo').classList.toggle('nudge', on);
+  }
+
+  /** Hide ad-only offers where no ads can be shown. */
+  setAdsAvailable(on: boolean) {
+    $('btn-free-coins').hidden = !on;
+  }
+
+  private coinsTimer = 0;
+  /**
+   * After a free-coins video the offer rests for a while (rewarded ads
+   * should be an occasional treat): the button shows when it is back.
+   */
+  coinsCooldown(until: number) {
+    const btn = $<HTMLButtonElement>('btn-free-coins');
+    const reward = btn.querySelector<HTMLElement>('.cta-reward')!;
+    const label = reward.dataset.label ?? (reward.dataset.label = reward.innerHTML);
+    window.clearInterval(this.coinsTimer);
+    const tick = () => {
+      const left = Math.ceil((until - Date.now()) / 1000);
+      if (left <= 0) {
+        window.clearInterval(this.coinsTimer);
+        btn.disabled = false;
+        btn.classList.remove('cooling');
+        reward.innerHTML = label;
+        return;
+      }
+      btn.disabled = true;
+      btn.classList.add('cooling');
+      reward.textContent = `More coins in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    };
+    tick();
+    this.coinsTimer = window.setInterval(tick, 1000);
+  }
+
+  setBallArt(urls: string[]) {
+    BALL_ART = urls;
   }
 
   setShopDot(on: boolean) {
@@ -541,9 +690,104 @@ export class Hud {
     this.renderShop();
   }
 
+  /**
+   * Shop pages slide sideways: by touch (native scrolling), and on a PC by
+   * dragging with the mouse or turning the wheel; the dots jump to a page.
+   * Swiping on past the last page (or back past the first) moves to the
+   * next (or previous) section: Ball, Paint, Maze.
+   */
+  private bindShopSwipe() {
+    const grid = $('shop-grid');
+    const tabs: ShopTab[] = ['ball', 'paint', 'board'];
+    const pages = () => grid.children.length;
+    const pageAt = () => Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth));
+    const goTab = (step: number) => {
+      const i = tabs.indexOf(this.shopTab) + step;
+      if (i < 0 || i >= tabs.length) return false;
+      this.actions.click();
+      this.shopTab = tabs[i];
+      this.renderShop();
+      // Arriving from the right, start on the section's last page.
+      if (step < 0) grid.scrollLeft = (pages() - 1) * grid.clientWidth;
+      return true;
+    };
+    const goPage = (i: number) => {
+      if (i >= pages()) return goTab(1);
+      if (i < 0) return goTab(-1);
+      grid.scrollTo({ left: i * grid.clientWidth, behavior: 'smooth' });
+      return true;
+    };
+    let drag: { x: number; y: number; left: number; page: number; mouse: boolean; moved: boolean } | null = null;
+    let swallowClick = false;
+    grid.addEventListener('pointerdown', (e) => {
+      drag = { x: e.clientX, y: e.clientY, left: grid.scrollLeft, page: pageAt(), mouse: e.pointerType === 'mouse', moved: false };
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      if (Math.abs(dx) > 8) drag.moved = true;
+      if (drag.mouse && drag.moved) {
+        grid.style.scrollSnapType = 'none';
+        grid.scrollLeft = drag.left - dx;
+      }
+    });
+    const end = (e: PointerEvent) => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      grid.style.scrollSnapType = '';
+      const dx = e.clientX - d.x;
+      if (!d.moved || Math.abs(dx) < Math.abs(e.clientY - d.y)) return;
+      swallowClick = true;
+      const step = dx < -50 ? 1 : dx > 50 ? -1 : 0;
+      if (d.mouse) goPage(d.page + step);
+      // Touch scrolls the pages itself; only a swipe past either end
+      // changes the section.
+      else if ((step > 0 && d.page >= pages() - 1) || (step < 0 && d.page <= 0)) goPage(d.page + step);
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', () => {
+      drag = null;
+      grid.style.scrollSnapType = '';
+    });
+    // A drag never counts as a tap on the tile under it.
+    grid.addEventListener(
+      'click',
+      (e) => {
+        if (!swallowClick) return;
+        swallowClick = false;
+        e.stopPropagation();
+        e.preventDefault();
+      },
+      true,
+    );
+    let wheelAt = 0;
+    grid.addEventListener(
+      'wheel',
+      (e) => {
+        const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (Math.abs(d) < 4) return;
+        e.preventDefault();
+        const now = performance.now();
+        if (now - wheelAt < 380) return;
+        wheelAt = now;
+        goPage(pageAt() + (d > 0 ? 1 : -1));
+      },
+      { passive: false },
+    );
+    $('shop-dots').addEventListener('click', (e) => {
+      const i = [...$('shop-dots').children].indexOf(e.target as Element);
+      if (i < 0) return;
+      e.stopPropagation();
+      goPage(i);
+    });
+  }
+
   private renderShop() {
     for (const t of document.querySelectorAll<HTMLElement>('#shop .tab'))
       t.setAttribute('aria-selected', String(t.dataset.tab === this.shopTab));
+    // Slide the white pill under the chosen tab.
+    document.querySelector<HTMLElement>('#shop .ftabs')!.style.setProperty('--i', String(['ball', 'paint', 'board'].indexOf(this.shopTab)));
     const grid = $('shop-grid');
     grid.innerHTML = '';
     for (const el of document.querySelectorAll('.shop-coins')) el.textContent = String(this.shownCoins);
@@ -556,21 +800,32 @@ export class Hud {
         page.className = 'spage';
         grid.appendChild(page);
       }
-      const locked = this.unlockedTo < it.unlock;
+      const byAds = !!it.ads;
+      const locked = byAds || this.unlockedTo < it.unlock;
       const b = document.createElement('button');
       b.className = `tile ${it.kind}${locked ? ' locked' : ''}${it.id === equipped ? ' on' : ''}`;
-      b.setAttribute('aria-label', `${it.name}${locked ? `, unlocks at level ${it.unlock}` : ''}`);
+      b.setAttribute(
+        'aria-label',
+        `${it.name}${byAds ? `, watch ${it.ads!.need - it.ads!.have} more ads to unlock` : locked ? `, unlocks at level ${it.unlock}` : ''}`,
+      );
       if (it.bg) b.setAttribute('style', it.bg);
       b.innerHTML = `<span class="swatch" style="${it.preview}"></span>${
-        locked
+        byAds
+          ? `<span class="chip">${it.ads!.have}/${it.ads!.need} ads</span><span class="lockb video"></span>`
+          : locked
           ? `<span class="chip">${Math.min(this.unlockedTo, it.unlock)}/${it.unlock} lvls</span><span class="lockb"></span>`
           : it.id === equipped
             ? '<span class="tick"></span>'
-            : '<span class="chip apply">Apply</span>'
+            : ''
       }`;
       b.addEventListener('click', (e) => {
         e.stopPropagation();
         this.actions.anyInput();
+        if (byAds) {
+          // A special item: each ad watched brings it closer.
+          this.actions.adUnlock(this.shopTab, it.id);
+          return;
+        }
         if (locked) {
           this.toast(`${it.name} unlocks at level ${it.unlock}`);
           return;
@@ -601,7 +856,25 @@ export class Hud {
       `<span class="pos">${i < 3 ? `<b>${i + 1}</b>` : `#${i + 1}`}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span>${
         i < 3 ? '<i class="ico ico-gift gift"></i>' : ''
       }<span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
-    // You are pinned below the list (like the original), not repeated in it.
+    // The top three stand on a podium (1st in the middle, raised); the
+    // list below starts at 4th. You are pinned below the list (like the
+    // original), not repeated in it.
+    const medal = ['gold', 'silver', 'bronze'];
+    $('league-podium').innerHTML = [1, 0, 2]
+      .filter((i) => rows[i])
+      .map((i) => {
+        const r = rows[i];
+        return `<div class="pod p${i + 1}${r.you ? ' you' : ''}">
+          ${i === 0 ? '<i class="ico ico-crown crown"></i>' : ''}
+          <span class="pav ${medal[i]}" style="${avatarStyle(r)}"></span>
+          <span class="pname">${r.you ? 'You' : r.name}</span>
+          <span class="pstars">${r.stars}<i class="ico ico-star"></i></span>
+          <span class="pblock ${medal[i]}"><b>${i + 1}</b><i class="ico ico-gift"></i></span>
+        </div>`;
+      })
+      .join('');
+    // The list starts at 1st: the top three are gold, silver and bronze
+    // nameplates (on wide screens the podium shows them instead).
     rows.forEach((r, i) => {
       if (r.you) return;
       const li = document.createElement('li');
@@ -611,8 +884,16 @@ export class Hud {
     });
     const me = rows.findIndex((r) => r.you);
     $('league-you').innerHTML = me >= 0 ? `<li class="you">${row(rows[me], me)}</li>` : '';
-    const tiers = ['bronze', 'silver', 'gold', 'ruby', 'emerald', 'diamond'];
-    $('league-tiers').innerHTML = tiers.map((t, i) => `<span class="tier ${t}${i === 0 ? ' now' : ''}"><i class="ico ico-trophy"></i></span>`).join('');
+    // Your standing at a glance (shown beside the podium on wide screens).
+    if (me >= 0) {
+      const ahead = me > 0 ? rows[me - 1] : null;
+      const gap = ahead ? ahead.stars - rows[me].stars + 1 : 0;
+      $('league-stats').innerHTML =
+        `<div class="ls"><b>#${me + 1}</b><span>Your rank</span></div>` +
+        `<div class="ls"><b>${rows[me].stars}<i class="ico ico-star"></i></b><span>Your stars</span></div>` +
+        `<div class="ls"><b>${ahead ? `+${gap}` : 'Top!'}</b><span>${ahead ? `to pass ${ahead.name}` : 'You lead'}</span></div>`;
+    }
+    $('league-tiers').innerHTML = tierLadder(0);
     list.scrollTop = 0;
   }
 
@@ -632,6 +913,14 @@ export class Hud {
     let keys = v.keys;
     let pending = 0;
     const cards = {} as Record<VaultKind, HTMLElement>;
+    // The "New!" card shows the actual item to be won, not just a star.
+    const art = scr.querySelector<HTMLElement>('.p-item .prize-art')!;
+    art.hidden = !v.item;
+    if (v.item) {
+      art.style.backgroundImage = `url(${v.item.art})`;
+      art.title = v.item.name;
+    }
+    scr.querySelector<HTMLElement>('.p-item .ico-star')!.hidden = !!v.item;
     for (const c of scr.querySelectorAll<HTMLElement>('.prize')) {
       const k = c.dataset.kind as VaultKind;
       cards[k] = c;
@@ -683,8 +972,34 @@ export class Hud {
         frames.push({ transform: `translate(${x}px, ${y}px) scale(${1 + Math.sin(t * Math.PI) * 0.35 - t * 0.25}) rotate(${t * 20}deg)` });
       }
       const anim = el.animate(frames, { duration: ms, easing: 'cubic-bezier(0.4, 0, 0.3, 1)' });
+      // A trail of glints left along the arc.
+      for (let i = 1; i < 9; i++) {
+        const t = i / 9;
+        window.setTimeout(() => {
+          const gl = document.createElement('i');
+          gl.className = 'vglint';
+          const x = from.x + (to.x - from.x) * t + (Math.random() - 0.5) * 10;
+          const y = from.y + (to.y - from.y) * t - Math.sin(t * Math.PI) * lift + (Math.random() - 0.5) * 10;
+          gl.style.cssText = `left:${x}px;top:${y}px`;
+          document.body.appendChild(gl);
+          window.setTimeout(() => gl.remove(), 600);
+        }, ms * t);
+      }
       return anim.finished.then(() => el.remove());
     };
+    /** Glints bursting out of a point (page px). */
+    const burst = (at: { x: number; y: number }, n: number, spread: number) => {
+      for (let i = 0; i < n; i++) {
+        const gl = document.createElement('i');
+        gl.className = 'vglint big';
+        const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+        const d = spread * (0.6 + Math.random() * 0.6);
+        gl.style.cssText = `left:${at.x}px;top:${at.y}px;--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d}px`;
+        document.body.appendChild(gl);
+        window.setTimeout(() => gl.remove(), 800);
+      }
+    };
+    let anyWon = false;
 
     const open = async (lock: HTMLButtonElement) => {
       if (keys <= 0 || lock.classList.contains('opening')) return;
@@ -697,12 +1012,17 @@ export class Hud {
       v.sound.click();
       const at = center(lock);
       await fly('ico ico-key', from, at, 40, 320, 50);
-      // Key turns, tile flashes gold and shakes, then bursts open.
+      // The key slides into the lock and turns; the tile warms to gold,
+      // shakes with the effort, then bursts open.
+      const inKey = document.createElement('i');
+      inKey.className = 'ico ico-key vinkey';
+      lock.appendChild(inKey);
       lock.classList.add('turn');
       v.sound.thock(0.5);
-      await wait(200);
+      await wait(260);
       lock.classList.add('gold');
-      await wait(300);
+      await wait(320);
+      inKey.remove();
       const kind = v.pick();
       lock.classList.add('opened');
       lock.setAttribute('aria-label', 'Opened');
@@ -714,26 +1034,37 @@ export class Hud {
       const flash = document.createElement('span');
       flash.className = 'vflash';
       lock.appendChild(flash);
+      const rays = document.createElement('span');
+      rays.className = 'vrays';
+      lock.appendChild(rays);
+      burst(at, 10, at.w * 0.9);
       const icon = { hint: 'ico-bulb', item: 'ico-star', coins: 'ico-coin' }[kind];
       const item = document.createElement('i');
       item.className = `ico ${icon} vitem`;
       lock.appendChild(item);
       v.sound.coin();
-      await wait(520);
+      await wait(560);
       // The token flies up to its prize card and fills a dot.
       item.style.visibility = 'hidden';
+      rays.remove();
       const card = cards[kind];
       await fly(`ico ${icon}`, center(item), center(card.querySelector('.ico')!), at.w * 0.62, 520, 90);
       dots[kind]++;
-      card.classList.remove('bump');
+      card.classList.remove('bump', 'catch');
       void card.offsetWidth;
-      card.classList.add('bump');
+      card.classList.add('bump', 'catch');
       card.querySelectorAll('.dots i')[dots[kind] - 1]?.classList.add('on');
       v.sound.star(dots[kind] - 1);
       v.onDot(kind, dots[kind]);
       if (dots[kind] >= 3) {
         await wait(250);
         card.classList.add('won');
+        anyWon = true;
+        const sun = document.createElement('span');
+        sun.className = 'wrays';
+        card.prepend(sun);
+        window.setTimeout(() => sun.remove(), 2600);
+        burst(center(card), 18, card.getBoundingClientRect().width * 1.1);
         const label = v.win(kind);
         const pop = document.createElement('span');
         pop.className = 'won-pop';
@@ -747,7 +1078,8 @@ export class Hud {
       pending--;
       if (keys === 0 && pending === 0) {
         await wait(400);
-        hint.textContent = 'All keys used!';
+        hint.textContent = anyWon ? 'Prize collected!' : 'So close! Your progress is saved.';
+        done.textContent = anyWon ? 'Collect' : 'Continue';
         done.hidden = false;
       }
     };
@@ -844,8 +1176,17 @@ export class Hud {
     title.textContent = r.stars >= 3 ? 'Perfect!' : r.stars === 2 ? 'Great!' : 'Nice!';
     title.classList.toggle('gold', r.stars >= 3);
     box.hidden = false;
-    // Sit just above the board; the ribbon hangs ~20px below the card.
-    box.style.top = `${Math.max(this.topInset() + 6, boardTop - box.offsetHeight - 26)}px`;
+    // Sit just above the board's visible top; the ribbon hangs ~20px below
+    // the card. When the board leaves too little room under the HUD, the
+    // card shrinks to fit rather than overhang the walls.
+    const card = box.querySelector<HTMLElement>('.cel-card')!;
+    card.style.scale = '';
+    const ceiling = this.topInset() + 6;
+    const room = boardTop - 26 - ceiling;
+    const fit = Math.max(0.62, Math.min(1, room / box.offsetHeight));
+    card.style.scale = fit < 1 ? String(fit) : '';
+    card.style.transformOrigin = 'top center';
+    box.style.top = `${Math.max(ceiling, boardTop - box.offsetHeight * fit - 26)}px`;
     requestAnimationFrame(() => box.classList.add('show'));
     for (let i = 0; i < r.stars; i++)
       window.setTimeout(() => {
@@ -915,11 +1256,26 @@ export class Hud {
    * Multiply button locks it. `onLocked` gets the multiplier, `onDone` fires
    * when the payout has landed.
    */
-  superReward(stars: number, coins: number, onLocked: (m: number) => void, onDone: () => void, sound: { tick: () => void; win: () => void }) {
+  private srFit = () => {};
+
+  /**
+   * `free`: the multiplier is on the house (the first Super Reward). Else it
+   * takes a rewarded ad (`watchAd`), shown by a video badge; with no ads to
+   * be had the Multiply button is hidden. "Continue" always takes the
+   * plain reward, as clearly as the offer.
+   */
+  superReward(
+    stars: number,
+    coins: number,
+    onLocked: (m: number) => void,
+    onDone: () => void,
+    sound: { tick: () => void; win: () => void },
+    offer: { free: boolean; watchAd: (() => Promise<boolean>) | null } = { free: true, watchAd: null },
+  ) {
     const scr = $('super');
     const needle = $('mult-needle');
     const arc = $('mult-arc');
-    const segs = arc.querySelectorAll<SVGPathElement>('.arcseg');
+    const segs = arc.querySelectorAll<SVGElement>('.arcseg');
     const span = Number(arc.dataset.span ?? 64);
     const gx = Number(arc.dataset.cx ?? 170);
     const gy = Number(arc.dataset.cy ?? 300);
@@ -932,6 +1288,17 @@ export class Hud {
     $('super-coins').textContent = String(coins);
     pop.hidden = true;
     btn.disabled = false;
+    const cont = $<HTMLButtonElement>('btn-sr-continue');
+    cont.disabled = false;
+    $('mult-video').hidden = offer.free;
+    btn.hidden = !offer.free && !offer.watchAd;
+    // Scale the whole panel to the screen: as laid out on a phone, larger
+    // on tablets and PCs (never smaller, never huge).
+    const fit = () => scr.style.setProperty('--zoom', String(Math.max(1, Math.min(1.8, Math.min(innerWidth / 430, (innerHeight - 90) / 700)))));
+    fit();
+    window.removeEventListener('resize', this.srFit);
+    this.srFit = fit;
+    window.addEventListener('resize', fit);
     arc.classList.remove('locked');
     segs.forEach((el) => el.classList.remove('on', 'win'));
     $('super-coins').classList.remove('bump');
@@ -961,18 +1328,16 @@ export class Hud {
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
-    const lock = (e: Event) => {
-      e.stopPropagation();
-      if (locked) return;
-      locked = true;
-      btn.disabled = true;
-      const m = values[seg];
+    // Pay out with multiplier m (1: just the plain reward), then fly home.
+    const settle = (m: number) => {
       arc.classList.add('locked');
-      segs[seg].classList.add('win');
-      pop.textContent = `x${m}`;
-      pop.className = `mult-pop v${m}`;
-      pop.hidden = false;
-      sound.win();
+      if (m > 1) {
+        segs[seg].classList.add('win');
+        pop.textContent = `x${m}`;
+        pop.className = `mult-pop v${m}`;
+        pop.hidden = false;
+        sound.win();
+      }
       onLocked(m);
       // Count the rewards up, then hand over.
       const from = coins;
@@ -1006,9 +1371,40 @@ export class Hud {
           }, 900);
       };
       requestAnimationFrame(count);
+    };
+    const lock = (e: Event) => {
+      e.stopPropagation();
+      if (locked) return;
+      locked = true;
+      btn.disabled = true;
+      cont.disabled = true;
+      detach();
+      const m = values[seg];
+      if (offer.free || !offer.watchAd) {
+        settle(m);
+        return;
+      }
+      // The needle stops where it was; the ad decides the payout.
+      void offer.watchAd().then((ok) => {
+        if (!ok) this.toast('No video available right now. Try again soon!');
+        settle(ok ? m : 1);
+      });
+    };
+    const skip = (e: Event) => {
+      e.stopPropagation();
+      if (locked) return;
+      locked = true;
+      btn.disabled = true;
+      cont.disabled = true;
+      detach();
+      settle(1);
+    };
+    const detach = () => {
       btn.removeEventListener('click', lock);
+      cont.removeEventListener('click', skip);
     };
     btn.addEventListener('click', lock);
+    cont.addEventListener('click', skip);
   }
 
   // ------------------------------------------------------------ league climb
@@ -1030,8 +1426,11 @@ export class Hud {
     const you = $('climb-you');
     const gain = $('climb-gain');
     $('climb-left').textContent = left;
-    const tiers = ['bronze', 'silver', 'gold', 'ruby', 'emerald', 'diamond'];
-    $('climb-tiers').innerHTML = tiers.map((t, i) => `<span class="tier ${t}${i === 0 ? ' now' : ''}"><i class="ico ico-trophy"></i>${i === 1 ? '<i class="ico ico-gift tgift"></i>' : ''}</span>`).join('');
+    $('climb-tiers').innerHTML = tierLadder(0);
+    // Scale the whole screen to the display, like the Super Reward: as laid
+    // out on a phone, larger (not emptier) on tall and wide screens.
+    const z = Math.max(1, Math.min(1.7, Math.min(innerWidth / 430, (innerHeight - 40) / 760)));
+    scr.style.setProperty('--zoom', String(z));
     const from = before.findIndex((r) => r.you);
     const to = after.findIndex((r) => r.you);
     const meBefore = before[from];
@@ -1106,12 +1505,16 @@ export class Hud {
           onTick();
         }
         place(rank);
+        // Your row glides up through the table every frame (the list scrolls
+        // with it), while the rows you overtake slide down past you.
+        layout(rank);
         if (p >= 1 && !landed && t > tLift + Math.max(climbMs, 450)) {
           landed = true;
           you.innerHTML = rowHtml(meAfter, to);
           you.classList.remove('lift');
           you.classList.add('land');
-          const y = vr.top + layout(to) + rowH / 2;
+          // The list is laid out unscaled; the screen sees it scaled by z.
+          const y = vr.top + (layout(to) + rowH / 2) * z;
           fx.burst(vr.left + vr.width / 2, y, vr.width);
           if (from > to) {
             gain.innerHTML = `<i class="up"></i>${from - to} place${from - to > 1 ? 's' : ''} up!`;
@@ -1122,9 +1525,6 @@ export class Hud {
           }
         }
       }
-      const y = vr.top + layout(rank) + rowH / 2;
-      // Sparkles stream off the lifted row while it rises.
-      if (you.classList.contains('lift')) fx.trail(vr.left + 6, vr.right - 6, y, rowH, to < from ? 1 : 0.4);
       fx.step();
       requestAnimationFrame(frame);
     };
@@ -1193,31 +1593,13 @@ class ClimbFx {
     cv.height = Math.round(innerHeight * this.dpr);
   }
 
-  private static COLORS = ['#ffffff', '#ffe27a', '#ff9ad5', '#c4a6ff', '#8ff0ff'];
-
-  trail(x0: number, x1: number, y: number, h: number, rate: number) {
-    for (let i = 0; i < 3 * rate; i++) {
-      const side = Math.random();
-      const onEdge = Math.random() < 0.6;
-      this.parts.push({
-        x: onEdge ? (side < 0.5 ? x0 : x1) + (Math.random() - 0.5) * 8 : x0 + Math.random() * (x1 - x0),
-        y: y + (onEdge ? (Math.random() - 0.5) * h : (Math.random() < 0.5 ? -1 : 1) * h * 0.5),
-        vx: (Math.random() - 0.5) * 60,
-        vy: 40 + Math.random() * 90,
-        r: 2 + Math.random() * 4,
-        life: 0,
-        max: 500 + Math.random() * 500,
-        c: ClimbFx.COLORS[Math.floor(Math.random() * ClimbFx.COLORS.length)],
-        star: Math.random() < 0.55,
-        rot: Math.random() * 3,
-      });
-    }
-  }
+  private static COLORS = ['#ffffff', '#ffe27a', '#ffc55a', '#fff3c4'];
 
   burst(x: number, y: number, w: number) {
-    for (let i = 0; i < 70; i++) {
+    // A small, clean pop of warm light as your row lands.
+    for (let i = 0; i < 26; i++) {
       const a = Math.random() * Math.PI * 2;
-      const v = 120 + Math.random() * 380;
+      const v = 90 + Math.random() * 220;
       this.parts.push({
         x: x + (Math.random() - 0.5) * w * 0.8,
         y,
@@ -1227,7 +1609,7 @@ class ClimbFx {
         life: 0,
         max: 700 + Math.random() * 700,
         c: ClimbFx.COLORS[i % ClimbFx.COLORS.length],
-        star: i % 2 === 0,
+        star: i % 4 === 0,
         rot: Math.random() * 3,
       });
     }

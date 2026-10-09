@@ -18,9 +18,9 @@ void main(void) {
   vTextureCoord = filterTextureCoord();
 }`;
 
-type Uniforms = Record<string, { value: number | Float32Array; type: 'f32' | 'vec2<f32>' | 'vec3<f32>' }>;
+type Uniforms = Record<string, { value: number | Float32Array; type: 'f32' | 'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>' | 'mat3x3<f32>' }>;
 
-function make<U>(name: string, fragment: string, uniforms: Uniforms, padding = 0): Filter & { uniforms: U } {
+export function make<U>(name: string, fragment: string, uniforms: Uniforms, padding = 0): Filter & { uniforms: U } {
   const group = new UniformGroup(uniforms);
   const f = new Filter({
     glProgram: GlProgram.from({ vertex: FILTER_VERT, fragment, name }),
@@ -33,8 +33,9 @@ function make<U>(name: string, fragment: string, uniforms: Uniforms, padding = 0
 }
 
 // ---------------------------------------------------------------- paint
-// Wet paint: a thin coat that lies flat on the floor, its edge a touch
-// deeper where it pools, with a soft sheen that drifts across.
+// Paint: plain paint is flat and even, as in the original. Patterned paints
+// get a thin wet coat: a touch deeper where they pool at the edge and a
+// faint glint on the lit side.
 // Patterned paints (marble, slime, lava, water) are generated here in
 // board space, so the pattern stays put as the paint spreads.
 const PAINT_FRAG = `in vec2 vTextureCoord;
@@ -120,6 +121,10 @@ void main(void) {
     float l = caustic(q * 0.45, uTime * 0.7);
     base = mix(base, uAlt, l * 0.9);
   }
+  if (uMode < 0.5) {
+    finalColor = vec4(base * c.a, c.a);
+    return;
+  }
   // Thin wet coat: no raised bevel, just a slightly deeper tone where the
   // paint pools at its edge and a faint wet glint on the lit side.
   float r = uRadius;
@@ -128,8 +133,6 @@ void main(void) {
   float lit = max(dot(normalize(g + 1e-5), normalize(vec2(-1.0, -1.0))), 0.0);
   vec3 col = base * (1.0 - 0.07 * edge);
   col += vec3(1.0) * edge * lit * lit * 0.06;
-  float sheen = sin((px.x + px.y) * 0.004 - uTime * 0.6);
-  col += vec3(1.0) * smoothstep(0.94, 1.0, sheen) * 0.05;
   finalColor = vec4(col * c.a, c.a);
 }`;
 
@@ -148,75 +151,63 @@ export function paintGloss(radiusPx: number): PaintGloss {
   });
 }
 
-// ---------------------------------------------------------------- ball
-// The ball's shine: a crisp rim light from the coverage gradient, and a
-// highlight band that sweeps across in the direction of travel while it
-// rolls, so it reads as a glossy sphere in motion.
-const BALL_FRAG = `in vec2 vTextureCoord;
-out vec4 finalColor;
-uniform sampler2D uTexture;
-uniform highp vec4 uInputSize;
-uniform float uRadius;
-uniform float uPhase;
-uniform float uRoll;
-uniform vec2 uDir;
-float a(vec2 o) { return texture(uTexture, vTextureCoord + o * uInputSize.zw).a; }
-void main(void) {
-  vec4 c = texture(uTexture, vTextureCoord);
-  if (c.a < 0.004) { finalColor = c; return; }
-  float r = uRadius;
-  vec2 g = vec2(a(vec2(-r, 0.0)) - a(vec2(r, 0.0)), a(vec2(0.0, -r)) - a(vec2(0.0, r)));
-  float rim = clamp(length(g), 0.0, 1.0);
-  // Rim: bright on the upper left, cool bounce on the lower right.
-  float side = dot(normalize(g + 1e-5), normalize(vec2(-1.0, -1.0)));
-  vec3 col = c.rgb;
-  col += vec3(1.0) * rim * max(side, 0.0) * 0.35 * c.a;
-  col += vec3(0.55, 0.65, 1.0) * rim * max(-side, 0.0) * 0.18 * c.a;
-  // Rolling shine band.
-  vec2 px = vTextureCoord * uInputSize.xy;
-  float s = dot(px, uDir) / (uRadius * 6.0);
-  float band = exp(-pow((fract(s - uPhase) - 0.5) * 7.0, 2.0));
-  col += vec3(1.0) * band * uRoll * 0.32 * c.a * (1.0 - rim);
-  finalColor = vec4(col, c.a);
-}`;
-
-export type BallShine = Filter & { uniforms: { uRadius: number; uPhase: number; uRoll: number; uDir: Float32Array } };
-
-export function ballShine(radiusPx: number): BallShine {
-  return make('ballShine', BALL_FRAG, {
-    uRadius: { value: radiusPx, type: 'f32' },
-    uPhase: { value: 0, type: 'f32' },
-    uRoll: { value: 0, type: 'f32' },
-    uDir: { value: new Float32Array([0, 1]), type: 'vec2<f32>' },
-  });
-}
-
 // ---------------------------------------------------------------- board
 // Board light: a soft pool of light that follows the ball across the floor
 // and a gentle key light from the upper left, so the board feels lit
-// rather than flat.
+// rather than flat. The same pass carries the impact shockwave: a ring
+// that ripples out from where the ball hits a wall, bending the board under
+// it like a pressure wave, with a soft bright crest.
 const LIGHT_FRAG = `in vec2 vTextureCoord;
 out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform highp vec4 uInputSize;
+uniform highp vec4 uOutputFrame;
+uniform vec2 uFrame;
 uniform vec2 uLight;
 uniform float uRadius;
 uniform float uStrength;
+uniform vec4 uWave;
+uniform float uWaveWidth;
 void main(void) {
-  vec4 c = texture(uTexture, vTextureCoord);
-  vec2 px = vTextureCoord * uInputSize.xy;
-  float d = length(px - uLight) / uRadius;
-  float pool = exp(-d * d * 1.6);
-  vec3 col = c.rgb * (1.0 + pool * uStrength);
+  // Work in screen points across the filter's frame: q runs 0-1 over the
+  // frame whatever the texture's resolution, uFrame is its size in points.
+  vec2 k = uOutputFrame.zw * uInputSize.zw;
+  vec2 px = vTextureCoord / k * uFrame;
+  vec2 tc = vTextureCoord;
+  float crest = 0.0;
+  if (uWave.w > 0.001) {
+    vec2 dv = px - uWave.xy;
+    float d = length(dv);
+    float x = (d - uWave.z) / uWaveWidth;
+    if (abs(x) < 1.0) {
+      // Push outward ahead of the ring, pull back behind it.
+      float prof = sin(x * 3.14159) * (1.0 - x * x);
+      tc -= (dv / max(d, 0.001)) * prof * uWaveWidth * 0.3 * uWave.w / uFrame * k;
+      crest = (1.0 - x * x) * (1.0 - x * x) * uWave.w;
+    }
+  }
+  vec4 c = texture(uTexture, tc);
+  float dl = length(px - uLight) / uRadius;
+  float pool = exp(-dl * dl * 1.6);
+  vec3 col = c.rgb * (1.0 + pool * uStrength) + vec3(1.0) * crest * 0.06 * c.a;
   finalColor = vec4(col, c.a);
 }`;
 
-export type BoardLight = Filter & { uniforms: { uLight: Float32Array; uRadius: number; uStrength: number } };
+export type BoardLight = Filter & {
+  uniforms: { uFrame: Float32Array; uLight: Float32Array; uRadius: number; uStrength: number; uWave: Float32Array; uWaveWidth: number };
+};
 
 export function boardLight(radiusPx: number): BoardLight {
   return make('boardLight', LIGHT_FRAG, {
+    // Frame size and positions are in screen points, relative to the frame.
+    uFrame: { value: new Float32Array([1, 1]), type: 'vec2<f32>' },
     uLight: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
     uRadius: { value: radiusPx, type: 'f32' },
-    uStrength: { value: 0.16, type: 'f32' },
+    // No pool of light under the ball (the original has none); the pass
+    // still carries the impact shockwave.
+    uStrength: { value: 0, type: 'f32' },
+    // Shockwave: centre x, y and radius (points), strength 0-1.
+    uWave: { value: new Float32Array([0, 0, 0, 0]), type: 'vec4<f32>' },
+    uWaveWidth: { value: 1, type: 'f32' },
   });
 }

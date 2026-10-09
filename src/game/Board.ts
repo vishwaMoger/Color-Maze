@@ -1,4 +1,4 @@
-import { BlurFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture, UniformGroup } from 'pixi.js';
+import { BlurFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js';
 import {
   ARROW_D,
   ARROW_L,
@@ -11,6 +11,7 @@ import {
   CURVE_TR,
   isFloor,
   KEY,
+  MULT,
   PORTAL_A,
   PORTAL_B,
   SAW,
@@ -21,7 +22,8 @@ import {
 import { iconImage } from './assets.ts';
 import { dilate, fillRoundedCells, makeCanvas, softBlur, texture, tint } from './shape.ts';
 import { paintGloss, type PaintGloss } from './shaders.ts';
-import type { Theme } from './themes.ts';
+import type { Theme, TileStyle } from './themes.ts';
+import { slabTexture } from './slabs.ts';
 
 const FILTER_VERT = `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -129,80 +131,177 @@ interface Grip {
 /** How long fresh paint takes to flow out and fill its tile (ms). */
 export const SPREAD_MS = 280;
 
-const TRAIL_W = 256;
-const TRAIL_H = 64;
-let TRAIL_TEX: Texture | null = null;
-
-/** Feathered streak: alpha ramps up along x, gaussian across y, widening. */
-function trailTexture(): Texture {
-  if (TRAIL_TEX) return TRAIL_TEX;
-  const c = makeCanvas(TRAIL_W, TRAIL_H);
-  const ctx = c.getContext('2d')!;
-  const img = ctx.createImageData(TRAIL_W, TRAIL_H);
-  for (let x = 0; x < TRAIL_W; x++) {
-    const t = x / (TRAIL_W - 1);
-    const along = Math.pow(t, 1.6) * (1 - Math.pow(Math.max(0, t - 0.94) / 0.06, 2));
-    const sigma = 0.06 + 0.32 * Math.pow(t, 0.8);
-    for (let y = 0; y < TRAIL_H; y++) {
-      const v = (y + 0.5) / TRAIL_H - 0.5;
-      const across = Math.exp(-(v * v) / (2 * sigma * sigma));
-      const core = Math.exp(-(v * v) / (2 * (sigma * 0.35) ** 2));
-      const a = along * (0.55 * across + 0.45 * core);
-      const i = (y * TRAIL_W + x) * 4;
-      img.data[i] = 255;
-      img.data[i + 1] = 250;
-      img.data[i + 2] = 255;
-      img.data[i + 3] = Math.round(255 * Math.min(1, a));
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  TRAIL_TEX = Texture.from(c);
-  return TRAIL_TEX;
+/** HSV (h in degrees, s and v 0..1) of a 0xRRGGBB colour. */
+function toHsv(c: number): [number, number, number] {
+  const r = ((c >> 16) & 255) / 255;
+  const g = ((c >> 8) & 255) / 255;
+  const b = (c & 255) / 255;
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d > 0) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, max ? d / max : 0, max];
 }
 
-/** A swirling portal: a glowing ring with spiral arms. */
+function fromHsv(h: number, s: number, v: number): number {
+  const f = (n: number) => {
+    const k = (n + h / 60) % 6;
+    return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))));
+  };
+  return (f(5) << 16) | (f(3) << 8) | f(1);
+}
+
+/**
+ * Splatter colours for a paint, derived the way the original's relate to
+ * its pink (238,40,143): lumps of the same hue at full saturation (232,0,124)
+ * shaded from (200,0,98) to (236,56,168), and smaller drops shifted toward
+ * red (228,0,70).
+ */
+function splatPalette(paint: number) {
+  const [h, , v] = toHsv(paint);
+  const lump = [fromHsv(h, 1, v * 0.84), fromHsv(h, 1, v * 0.98), fromHsv((h + 355) % 360, 0.76, v)];
+  const rh = (h + 13) % 360;
+  const red = [fromHsv(rh, 1, v * 0.78), fromHsv(rh, 1, v * 0.96), fromHsv((rh + 357) % 360, 0.78, v)];
+  return { lump, red };
+}
+
+/**
+ * One splatter lump, as in the original: a knobbly blob (a core and four
+ * lobes) lit from above, dark at its foot, light on its upper left.
+ */
+function lump(g: Graphics, x: number, y: number, r: number, seed: number, [dark, mid, light]: number[]) {
+  const lobes: number[] = [];
+  for (let j = 0; j < 4; j++) {
+    const a = seed * 6.283 + j * 1.71;
+    const k = (Math.sin(seed * 91.7 + j * 12.9) + 1) / 2;
+    lobes.push(Math.cos(a) * r * 0.42, Math.sin(a) * r * 0.42, r * (0.5 + 0.14 * k));
+  }
+  const shape = (ox: number, oy: number, s: number) => {
+    g.circle(x + ox, y + oy, r * 0.78 * s);
+    for (let j = 0; j < 12; j += 3) g.circle(x + ox + lobes[j] * s, y + oy + lobes[j + 1] * s, lobes[j + 2] * s);
+  };
+  shape(0, r * 0.08, 1);
+  g.fill(dark);
+  shape(0, -r * 0.02, 0.95);
+  g.fill(mid);
+  g.circle(x - r * 0.24, y - r * 0.3, r * 0.4);
+  g.circle(x - r * 0.02, y - r * 0.4, r * 0.24);
+  g.fill({ color: light, alpha: 0.8 });
+}
+
+/** A glowing portal orb: a bright core in the portal's colour inside a softly wobbling white rim. */
 function portalTexture(r: number, res: number, cols: [string, string, string]): Texture {
   const R = r * res;
-  const size = Math.ceil(R * 2 + 6);
+  const size = Math.ceil(R * 2 + 8);
   const cv = makeCanvas(size, size);
   const ctx = cv.getContext('2d')!;
   const cx = size / 2;
   const cy = size / 2;
-  const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R);
-  g.addColorStop(0, cols[0]);
-  g.addColorStop(0.45, cols[1]);
-  g.addColorStop(0.8, cols[2]);
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fill();
-  // Spiral arms.
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-  ctx.lineCap = 'round';
-  for (let a = 0; a < 3; a++) {
-    ctx.lineWidth = R * 0.1;
+  const blob = (k: number) => {
     ctx.beginPath();
-    for (let t = 0; t <= 1; t += 0.05) {
-      const ang = a * ((Math.PI * 2) / 3) + t * Math.PI * 1.4;
-      const rr = R * (0.18 + t * 0.66);
-      const px = cx + Math.cos(ang) * rr;
-      const py = cy + Math.sin(ang) * rr;
-      if (t === 0) ctx.moveTo(px, py);
+    for (let i = 0; i <= 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      const rr = R * k * (1 + 0.035 * Math.sin(a * 5 + 0.7) + 0.02 * Math.sin(a * 3));
+      const px = cx + Math.cos(a) * rr;
+      const py = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
     }
-    ctx.stroke();
-  }
-  // Bright rim.
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-  ctx.lineWidth = R * 0.08;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2);
+    ctx.closePath();
+  };
+  const g = ctx.createRadialGradient(cx - R * 0.15, cy - R * 0.2, R * 0.05, cx, cy, R * 0.95);
+  g.addColorStop(0, cols[0]);
+  g.addColorStop(0.55, cols[1]);
+  g.addColorStop(1, cols[2]);
+  ctx.fillStyle = g;
+  blob(0.92);
+  ctx.fill();
+  // A soft shine on the upper left, as on the ball.
+  const s = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.35, 0, cx - R * 0.3, cy - R * 0.35, R * 0.45);
+  s.addColorStop(0, 'rgba(255,255,255,0.75)');
+  s.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = s;
+  blob(0.92);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.lineWidth = R * 0.1;
+  blob(0.92);
   ctx.stroke();
   return Texture.from(cv);
 }
 
-/** A shiny circular saw blade with a dark hub. */
+/** A soft round glow, white, for tinting (additive halos and sparkles). */
+function glowTexture(r: number, res: number): Texture {
+  const R = Math.ceil(r * res);
+  const cv = makeCanvas(R * 2, R * 2);
+  const ctx = cv.getContext('2d')!;
+  const g = ctx.createRadialGradient(R, R, 0, R, R, R);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, R * 2, R * 2);
+  return Texture.from(cv);
+}
+
+/**
+ * The column of light rising from a portal: brightest at its foot and along
+ * its middle, fading out upward and to the sides. White, for tinting.
+ */
+function beamTexture(w: number, h: number, res: number): Texture {
+  const W = Math.ceil(w * res);
+  const H = Math.ceil(h * res);
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d')!;
+  const img = ctx.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const up = 1 - y / (H - 1); // 0 at the foot, 1 at the top
+    const fade = (1 - up) ** 1.3;
+    for (let x = 0; x < W; x++) {
+      const u = (x + 0.5) / W - 0.5;
+      const across = Math.exp(-(u * u) / (2 * 0.22 * 0.22));
+      const i = (y * W + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * Math.min(1, across * fade * 1.5));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return Texture.from(cv);
+}
+
+/** The dark rounded socket a saw spins in, set into the floor (as in the original). */
+function sawSocket(s: number, res: number): Texture {
+  const S = s * res;
+  const pad = Math.ceil(S * 0.12);
+  const size = Math.ceil(S + pad * 2);
+  const cv = makeCanvas(size, size);
+  const ctx = cv.getContext('2d')!;
+  const r = S * 0.2;
+  const box = (x: number, y: number, w: number, h: number, rr: number) => {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, rr);
+  };
+  // Shadow it casts on the floor, then the socket and its lit top edge.
+  ctx.fillStyle = 'rgba(15, 5, 35, 0.35)';
+  box(pad, pad + S * 0.06, S, S, r);
+  ctx.fill();
+  const g = ctx.createLinearGradient(0, pad, 0, pad + S);
+  g.addColorStop(0, '#4a4458');
+  g.addColorStop(1, '#2c2836');
+  ctx.fillStyle = g;
+  box(pad, pad, S, S, r);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth = Math.max(1, S * 0.03);
+  box(pad + S * 0.03, pad + S * 0.03, S * 0.94, S * 0.94, r * 0.85);
+  ctx.stroke();
+  return Texture.from(cv);
+}
+
+/**
+ * A circular saw blade, as in the original: hooked silver teeth shaded on
+ * their cutting faces, a pale inner disc and a dark hub.
+ */
 function sawBlade(r: number, res: number): Texture {
   const R = r * res;
   const size = Math.ceil(R * 2 + 8);
@@ -210,57 +309,231 @@ function sawBlade(r: number, res: number): Texture {
   const ctx = cv.getContext('2d')!;
   const cx = size / 2;
   const cy = size / 2;
-  const teeth = 14;
-  // Soft shadow under the blade.
-  ctx.fillStyle = 'rgba(20, 10, 50, 0.35)';
-  ctx.beginPath();
-  ctx.arc(cx + R * 0.06, cy + R * 0.1, R * 0.95, 0, Math.PI * 2);
-  ctx.fill();
+  const teeth = 15;
+  const step = (Math.PI * 2) / teeth;
+  const pt = (a: number, k: number) => [cx + Math.cos(a) * R * k, cy + Math.sin(a) * R * k] as const;
+  // Toothed outline: each tooth rises along the rim to a hooked tip, then
+  // drops back to the gullet.
   ctx.beginPath();
   for (let i = 0; i < teeth; i++) {
-    const a0 = (i / teeth) * Math.PI * 2;
-    const a1 = a0 + (Math.PI * 2) / teeth;
-    // Hooked tooth: rise along the arc, then drop straight to the gullet.
-    ctx.lineTo(cx + Math.cos(a0) * R * 0.78, cy + Math.sin(a0) * R * 0.78);
-    ctx.lineTo(cx + Math.cos(a0 + (a1 - a0) * 0.75) * R, cy + Math.sin(a0 + (a1 - a0) * 0.75) * R);
-    ctx.lineTo(cx + Math.cos(a1) * R * 0.78, cy + Math.sin(a1) * R * 0.78);
+    const a0 = i * step;
+    ctx.lineTo(...pt(a0, 0.74));
+    ctx.quadraticCurveTo(...pt(a0 + step * 0.35, 0.86), ...pt(a0 + step * 0.82, 1));
+    ctx.lineTo(...pt(a0 + step * 0.9, 0.8));
+    ctx.quadraticCurveTo(...pt(a0 + step, 0.7), ...pt(a0 + step, 0.74));
   }
   ctx.closePath();
   const g = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
   g.addColorStop(0, '#ffffff');
-  g.addColorStop(0.45, '#c9cedd');
-  g.addColorStop(0.55, '#e9edf5');
-  g.addColorStop(1, '#7c8398');
+  g.addColorStop(0.5, '#d7dae4');
+  g.addColorStop(1, '#8d92a6');
   ctx.fillStyle = g;
   ctx.fill();
-  ctx.lineWidth = Math.max(1, R * 0.05);
-  ctx.strokeStyle = '#4b5068';
+  ctx.lineWidth = Math.max(1, R * 0.035);
+  ctx.strokeStyle = '#5a5e72';
   ctx.stroke();
-  // Inner disc and hub.
-  const d = ctx.createRadialGradient(cx - R * 0.15, cy - R * 0.2, R * 0.05, cx, cy, R * 0.6);
-  d.addColorStop(0, '#f4f6fb');
-  d.addColorStop(1, '#8b92a8');
-  ctx.fillStyle = d;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 0.56, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#3b3f55';
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
+  // Cutting faces in shade.
+  ctx.fillStyle = 'rgba(60, 60, 80, 0.45)';
+  for (let i = 0; i < teeth; i++) {
+    const a0 = i * step;
     ctx.beginPath();
-    ctx.arc(cx + Math.cos(a) * R * 0.34, cy + Math.sin(a) * R * 0.34, R * 0.08, 0, Math.PI * 2);
+    ctx.moveTo(...pt(a0 + step * 0.82, 1));
+    ctx.lineTo(...pt(a0 + step * 0.9, 0.8));
+    ctx.lineTo(...pt(a0 + step * 0.62, 0.8));
+    ctx.closePath();
     ctx.fill();
   }
-  ctx.fillStyle = '#2b2e40';
+  // Pale inner disc with a soft shine, then the hub.
+  const d = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.25, R * 0.05, cx, cy, R * 0.66);
+  d.addColorStop(0, '#fafbff');
+  d.addColorStop(1, '#b7bccb');
+  ctx.fillStyle = d;
   ctx.beginPath();
-  ctx.arc(cx, cy, R * 0.17, 0, Math.PI * 2);
+  ctx.arc(cx, cy, R * 0.62, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = '#34323e';
   ctx.beginPath();
-  ctx.arc(cx - R * 0.05, cy - R * 0.06, R * 0.05, 0, Math.PI * 2);
+  ctx.arc(cx, cy, R * 0.3, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = Math.max(1, R * 0.03);
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.25, Math.PI * 1.05, Math.PI * 1.6);
+  ctx.stroke();
   return Texture.from(cv);
+}
+
+/** The x3 badge, as in the original: a white disc with a bold dark "x3". */
+function multBadge(r: number, res: number): HTMLCanvasElement {
+  const R = r * res;
+  const size = Math.ceil(R * 2 + R * 0.5);
+  const cv = makeCanvas(size, size);
+  const ctx = cv.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2 - R * 0.06;
+  ctx.fillStyle = 'rgba(20, 10, 50, 0.3)';
+  ctx.beginPath();
+  ctx.arc(cx, cy + R * 0.12, R, 0, Math.PI * 2);
+  ctx.fill();
+  const g = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(1, '#e6e2f6');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2e2348';
+  ctx.font = `700 ${Math.round(R * 0.95)}px Fredoka, 'Baloo 2', 'Arial Rounded MT Bold', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('x3', cx, cy + R * 0.05);
+  return cv;
+}
+
+/**
+ * The finish on each floor tile: soft, low-contrast light and shade only
+ * (no outlines), so the floor reads as real tiles under the paint while
+ * keeping the board's clean look. `ctx` is clipped to the floor by the
+ * caller; (x0, y0) is a tile's corner and c its size, in canvas px.
+ */
+function tileFinish(ctx: CanvasRenderingContext2D, style: TileStyle, x0: number, y0: number, c: number, tx: number, ty: number) {
+  // A steady per-tile random, so every tile differs but never flickers.
+  let seed = (tx * 73856093) ^ (ty * 19349663) ^ 0x5bd1e995;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  const light = (a: number) => `rgba(255, 255, 255, ${a})`;
+  const dark = (a: number) => `rgba(0, 0, 0, ${a})`;
+  // Glazed: a sheen on the upper left and a soft bevel, lit from above.
+  const glaze = (k = 1) => {
+    const g = ctx.createRadialGradient(x0 + c * 0.3, y0 + c * 0.26, 0, x0 + c * 0.3, y0 + c * 0.26, c * 0.8);
+    g.addColorStop(0, light(0.085 * k));
+    g.addColorStop(1, light(0));
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, y0, c, c);
+    const t = ctx.createLinearGradient(0, y0, 0, y0 + c * 0.1);
+    t.addColorStop(0, light(0.07 * k));
+    t.addColorStop(1, light(0));
+    ctx.fillStyle = t;
+    ctx.fillRect(x0, y0, c, c * 0.1);
+    const b = ctx.createLinearGradient(0, y0 + c, 0, y0 + c * 0.88);
+    b.addColorStop(0, dark(0.09 * k));
+    b.addColorStop(1, dark(0));
+    ctx.fillStyle = b;
+    ctx.fillRect(x0, y0 + c * 0.88, c, c * 0.12);
+  };
+  switch (style) {
+    case 'glaze':
+      glaze();
+      break;
+    case 'checker':
+      if ((tx + ty) % 2 === 0) {
+        ctx.fillStyle = light(0.05);
+        ctx.fillRect(x0, y0, c, c);
+      }
+      glaze(0.8);
+      break;
+    case 'scales': {
+      // Fish-scale ripples: two rows of soft arcs.
+      ctx.lineWidth = c * 0.028;
+      ctx.strokeStyle = light(0.09);
+      for (let r = 0; r < 2; r++)
+        for (let k = -1; k < 3; k++) {
+          const cx = x0 + c * (k * 0.5 + (r ? 0.25 : 0));
+          const cy = y0 + c * (r * 0.5 + 0.5);
+          ctx.beginPath();
+          ctx.arc(cx, cy, c * 0.25, Math.PI, Math.PI * 2);
+          ctx.stroke();
+        }
+      glaze(0.6);
+      break;
+    }
+    case 'circuit': {
+      // Neon: a faint glowing square set into each tile.
+      const i = c * 0.2;
+      ctx.lineWidth = c * 0.03;
+      ctx.strokeStyle = 'rgba(140, 120, 255, 0.16)';
+      ctx.beginPath();
+      ctx.roundRect(x0 + i, y0 + i, c - i * 2, c - i * 2, c * 0.12);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255, 90, 220, 0.14)';
+      ctx.beginPath();
+      ctx.arc(x0 + c / 2, y0 + c / 2, c * 0.05, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'diamond': {
+      ctx.fillStyle = light(0.055);
+      ctx.beginPath();
+      ctx.moveTo(x0 + c / 2, y0 + c * 0.16);
+      ctx.lineTo(x0 + c * 0.84, y0 + c / 2);
+      ctx.lineTo(x0 + c / 2, y0 + c * 0.84);
+      ctx.lineTo(x0 + c * 0.16, y0 + c / 2);
+      ctx.closePath();
+      ctx.fill();
+      glaze(0.7);
+      break;
+    }
+    case 'planks': {
+      // Wood grain running along each plank, a knot now and then.
+      ctx.lineWidth = c * 0.014;
+      for (let k = 0; k < 4; k++) {
+        const yy = y0 + c * (0.14 + k * 0.24 + rnd() * 0.06);
+        const amp = c * (0.015 + rnd() * 0.025);
+        const ph = rnd() * 6;
+        ctx.strokeStyle = k % 2 ? light(0.06) : dark(0.13);
+        ctx.beginPath();
+        for (let i = 0; i <= 12; i++) {
+          const xx = x0 + (i / 12) * c;
+          const y = yy + Math.sin(ph + i * 0.7) * amp;
+          if (i === 0) ctx.moveTo(xx, y);
+          else ctx.lineTo(xx, y);
+        }
+        ctx.stroke();
+      }
+      if (rnd() < 0.18) {
+        ctx.strokeStyle = dark(0.14);
+        ctx.beginPath();
+        ctx.ellipse(x0 + c * (0.3 + rnd() * 0.4), y0 + c * (0.3 + rnd() * 0.4), c * 0.09, c * 0.05, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Flat grain only: floors have no depth.
+      break;
+    }
+    case 'mosaic': {
+      // Four small squares per tile in two soft shades.
+      const h = c / 2;
+      for (let i = 0; i < 2; i++)
+        for (let j = 0; j < 2; j++) {
+          ctx.fillStyle = (i + j) % 2 ? light(0.07) : dark(0.04);
+          ctx.fillRect(x0 + i * h, y0 + j * h, h, h);
+        }
+      ctx.fillStyle = dark(0.09);
+      ctx.fillRect(x0 + h - c * 0.01, y0, c * 0.02, c);
+      ctx.fillRect(x0, y0 + h - c * 0.01, c, c * 0.02);
+      glaze(0.6);
+      break;
+    }
+    case 'marble': {
+      // A pale vein wandering across each slab, and a little mottling.
+      ctx.lineWidth = c * 0.016;
+      ctx.strokeStyle = light(0.12);
+      ctx.beginPath();
+      const sy = y0 + c * (0.15 + rnd() * 0.7);
+      ctx.moveTo(x0, sy);
+      ctx.bezierCurveTo(x0 + c * 0.35, sy + (rnd() - 0.5) * c * 0.8, x0 + c * 0.65, sy + (rnd() - 0.5) * c * 0.8, x0 + c, y0 + c * (0.15 + rnd() * 0.7));
+      ctx.stroke();
+      for (let k = 0; k < 5; k++) {
+        ctx.fillStyle = rnd() < 0.5 ? light(0.05) : dark(0.06);
+        ctx.beginPath();
+        ctx.arc(x0 + rnd() * c, y0 + rnd() * c, c * (0.03 + rnd() * 0.05), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      glaze(0.6);
+      break;
+    }
+  }
 }
 
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
@@ -272,10 +545,19 @@ export interface PaintStroke {
   axis?: Map<number, number>;
   /** Ball centre in cell units while a slide is in progress. */
   active?: { from: Point; pos: { x: number; y: number } };
-  /** Wet splatter on fresh paint; each speck dries away over about a second. */
-  dots: { x: number; y: number; r: number; t: number }[];
-  /** Light racing along a just-finished stroke: cell key and start time. */
-  shimmer?: { k: number; t: number }[];
+  /** The same for each other ball rolling just now (after an x3 split). */
+  more?: { from: Point; pos: { x: number; y: number } }[];
+  /**
+   * Splatter: lumpy blobs that pop up and shrink away over `life` ms
+   * (default 900); `red` ones are the smaller red drops, `top` ones sit on
+   * the ball.
+   */
+  dots: { x: number; y: number; r: number; t: number; life?: number; red?: boolean; top?: boolean }[];
+  /**
+   * When the ball last rolled over each tile, and along which axis (0 across,
+   * 1 down): fresh paint there has a wet sheen that dries away.
+   */
+  wet?: Map<number, { t: number; axis: number }>;
   /** Start tile drawn as a round puddle under the ball until the first move. */
   startRound?: number;
   /** Splash stains where the ball hit walls: groups of blobs in board px. */
@@ -283,24 +565,36 @@ export interface PaintStroke {
 }
 
 /** One level's board: static baked layers plus live paint and glow layers. */
+/** How much of a tile the near lip of an opening hides (see build). */
+const LIP = 0.25;
+/** How far down the floor the shade under a wall face reaches, in tiles. */
+const SHADE = 0.33;
+/** The darker rim paint keeps along a wall face, in tiles. */
+const PAINT_RIM = 0.14;
+
 export class Board extends Container {
   readonly cols: number;
   readonly rows: number;
   readonly pad: number;
   readonly paintLayer = new Container();
   readonly fxLayer = new Container();
-  private readonly trail = new Sprite(trailTexture());
   private gloss: PaintGloss | null = null;
   private readonly sawLayer = new Container();
   private readonly saws: Sprite[] = [];
   private sawAngle = 0;
+  /** Sparks, portal sparkles and arrow chevrons, redrawn every frame. */
+  private readonly mechG = new Graphics();
+  private readonly sawFx: { x: number; y: number; r: number; acc: number; sparks: { a: number; t: number; life: number; len: number; col: number }[] }[] = [];
+  private readonly arrowFx: { x: number; y: number; ang: number }[] = [];
   private sawHitAt = -1e9;
+  private lastMech = 0;
+  private socketLayer?: Container;
   private readonly studLayer = new Container();
   private readonly studFront = new Container();
   private readonly grips = new Map<number, Grip>();
 
-  private readonly portals: { s: Sprite; dir: number }[] = [];
-  private readonly pickups = new Map<number, { s: Sprite; glow: Graphics; base: number; y0: number; at: number }>();
+  private readonly portals: { s: Sprite; beam: Sprite; halo: Sprite }[] = [];
+  private readonly pickups = new Map<number, { s: Sprite; glow: Sprite; base: number; y0: number; at: number }>();
   private lastTime = 0;
 
   /** Where the board sits on screen, so paint patterns stay attached. */
@@ -311,10 +605,21 @@ export class Board extends Container {
     this.gloss.uniforms.uCell = cellPx;
   }
 
-  /** A coin or key was collected from this tile. */
+  /** A coin, key or x3 badge was taken from this tile. */
   pickup(p: Point) {
     const it = this.pickups.get(p.y * this.cols + p.x);
     if (it && it.at < 0) it.at = this.lastTime;
+  }
+
+  /** Put a taken pickup back (an undo to before it was taken). */
+  unpick(p: Point) {
+    const it = this.pickups.get(p.y * this.cols + p.x);
+    if (!it || it.at < 0) return;
+    it.at = -1;
+    it.s.scale.set(it.base);
+    it.s.alpha = 1;
+    it.glow.alpha = 1;
+    it.s.y = it.y0;
   }
 
   /** The ball hit a saw: it whirrs faster for a moment. */
@@ -322,15 +627,26 @@ export class Board extends Container {
     this.sawHitAt = time;
   }
   readonly ballLayer = new Container();
+  /**
+   * The floor's shape, for clipping things that lie on the floor (the
+   * ball's shadow) so nothing spills past its edges onto the page.
+   */
+  floorClip!: Sprite;
   private readonly paintG = new Graphics();
   private readonly wetG = new Graphics();
   private readonly dotsG = new Graphics();
+  /** Splatter that landed on the ball itself, drawn over it. */
+  private readonly topDotsG = new Graphics();
+  private palette: { paint: number; lump: number[]; red: number[] } | null = null;
+  private paintShade?: Container;
+  private wetHolder?: Container;
+  /** The lip's textured material, kept lined up with the page (see alignSlab). */
+  private slabTiles?: TilingSprite;
   private readonly glowG = new Graphics();
   private readonly hintG = new Graphics();
   private readonly coneG = new Graphics();
   private readonly waveG = new Graphics();
   private paintGlow?: Graphics;
-  private plate!: Sprite;
   private gridOver!: Sprite;
   private caustics?: ReturnType<typeof causticFilter>;
   private textures: Texture[] = [];
@@ -441,7 +757,7 @@ export class Board extends Container {
 
     // Floor shape (where the ball rolls). Everything else is raised wall.
     const floorMask = makeCanvas(W, H);
-    fillRoundedCells(floorMask.getContext('2d')!, this.isFloor, cols, rows, c, off, off, c * 0.4, '#fff');
+    fillRoundedCells(floorMask.getContext('2d')!, this.isFloor, cols, rows, c, off, off, c * 0.5, '#fff');
 
     // Wall top surface around the maze: same material as the background,
     // so the walls read as blocks standing on the page. A soft bevel tone
@@ -459,9 +775,11 @@ export class Board extends Container {
       c * 0.5,
       '#fff',
     );
-    const surfaceMask = dilate(slab, c * 0.85);
     // A wooden board is a frame of its own, set on the page with a soft
-    // shadow; other wall tops are the page itself and blend softly into it.
+    // shadow. Other wall tops are simply the page itself, so nothing is
+    // drawn for them (a page-coloured plate would show its outline where
+    // the page's drifting bubbles pass behind it), unless they carry an
+    // effect such as the ocean's moving caustics.
     const framed = theme.texture === 'wood';
     // Wide enough that frames around neighbouring arms close up.
     const plateMask = dilate(slab, c * (framed ? 0.56 : 0.45));
@@ -470,18 +788,20 @@ export class Board extends Container {
       sh.alpha = 0.32;
       sh.y += c * 0.12 / res;
       this.addChild(sh);
-    } else this.addChild(this.sprite(softBlur(tint(surfaceMask, theme.wallTop), c * 0.5)));
-    const surface = makeCanvas(W, H);
-    const sctx = surface.getContext('2d')!;
-    sctx.drawImage(tint(plateMask, theme.wallTop), 0, 0);
-    if (framed) texture(sctx, 'wood', W, H, c, false);
-    this.plate = this.sprite(surface);
-    if (theme.caustics) {
-      this.caustics = causticFilter();
-      this.caustics.uniforms.uScale = c * 3.2;
-      this.plate.filters = [this.caustics];
     }
-    this.addChild(this.plate);
+    if (framed || theme.caustics) {
+      const surface = makeCanvas(W, H);
+      const sctx = surface.getContext('2d')!;
+      sctx.drawImage(tint(plateMask, theme.wallTop), 0, 0);
+      if (framed) texture(sctx, 'wood', W, H, c, false);
+      const plate = this.sprite(surface);
+      if (theme.caustics) {
+        this.caustics = causticFilter();
+        this.caustics.uniforms.uScale = c * 3.2;
+        plate.filters = [this.caustics];
+      }
+      this.addChild(plate);
+    }
 
     if (theme.neon) {
       const halo = this.sprite(softBlur(tint(floorMask, hex(theme.neon.edge)), c * 0.3));
@@ -490,25 +810,85 @@ export class Board extends Container {
       this.addChild(halo);
     }
 
+    // A soft violet glow bleeding out round every opening, as in the
+    // original, so the floor reads as sunk into the page.
+    let glowCanvas: HTMLCanvasElement | null = null;
+    let visibleFloor: HTMLCanvasElement | null = null;
+    const glowAlpha = theme.edgeGlow ? 0.8 : 0.45;
+    if (!theme.neon) {
+      // It follows the floor as seen, i.e. without the strip the near lip
+      // hides (see below), so it wraps round the visible corners and leaves
+      // nothing beside or under the hidden edge.
+      const visible = makeCanvas(W, H);
+      const vctx = visible.getContext('2d')!;
+      // The floor lifted at its near edges: where the floor also lies LIP
+      // tiles below. (An intersection, so no faint residue of the hidden
+      // edge's soft rim is left to bloom into a ghost outline.)
+      vctx.drawImage(floorMask, 0, -LIP * c);
+      vctx.globalCompositeOperation = 'destination-in';
+      vctx.drawImage(floorMask, 0, 0);
+      visibleFloor = visible;
+      glowCanvas = softBlur(tint(dilate(visible, c * 0.04), theme.edgeGlow ?? theme.wallFace), c * 0.05);
+      // As in the original the glow lies along the sides and tops of each
+      // opening and thins away smoothly as an edge turns to face down,
+      // leaving the near (bottom) edges crisp. Weight it by which way the
+      // floor lies: compare how much floor is a little above each pixel
+      // with how much is a little below. Beside a side the two match (full
+      // glow); under a bottom edge there is only floor above (none).
+      const cw = glowCanvas.width;
+      const ch = glowCanvas.height;
+      const near = softBlur(visible, c * 0.14).getContext('2d')!.getImageData(0, 0, cw, ch).data;
+      const k = Math.max(1, Math.round(c * 0.16));
+      const gtc = glowCanvas.getContext('2d')!;
+      const img = gtc.getImageData(0, 0, cw, ch);
+      const gd = img.data;
+      for (let y = 0; y < ch; y++)
+        for (let x = 0; x < cw; x++) {
+          const i = (y * cw + x) * 4 + 3;
+          if (!gd[i]) continue;
+          const above = y >= k ? near[i - k * cw * 4] : 0;
+          const below = y + k < ch ? near[i + k * cw * 4] : 0;
+          const w = 1 - Math.min(1, Math.max(0, ((above - below) / 255) * 2.5));
+          gd[i] = Math.round(gd[i] * w);
+        }
+      gtc.putImageData(img, 0, 0);
+      const glow = this.sprite(glowCanvas);
+      glow.alpha = glowAlpha;
+      this.addChild(glow);
+    }
+
     // Flat floor with thin tile seams.
     const floorCanvas = makeCanvas(W, H);
     const fctx = floorCanvas.getContext('2d')!;
     fctx.drawImage(tint(floorMask, theme.floor), 0, 0);
     if (theme.texture) texture(fctx, theme.texture, W, H, c, true);
     fctx.globalCompositeOperation = 'source-atop';
+    // Each tile's finish (glaze, marble, planks...) under the seams.
+    if (theme.tiles)
+      for (let y = 0; y < rows; y++)
+        for (let x = 0; x < cols; x++)
+          if (this.isFloor(x, y)) tileFinish(fctx, theme.tiles, off + x * c, off + y * c, c, x, y);
     // Hairline seams, about one CSS pixel, softened so tiles read as a
     // clean grid rather than a drawn table.
     const gap = Math.max(1, Math.round(res * 1.1));
     fctx.globalAlpha = 0.6;
     this.drawGrout(fctx, theme.gridLine, c, off, gap);
     fctx.globalAlpha = 1;
+    // The shade the wall face casts on the floor just below it: a band of
+    // translucent darkening, so the grid still shows through.
+    const shadeBand = this.edgeBand(floorMask, c * SHADE);
+    const sbctx = shadeBand.getContext('2d')!;
+    sbctx.globalCompositeOperation = 'destination-in';
+    sbctx.drawImage(floorMask, 0, 0);
+    fctx.drawImage(tint(shadeBand, theme.wallShadow), 0, 0);
     this.addChild(this.sprite(floorCanvas));
 
     // Live paint, clipped to the floor.
     const paintMask = this.sprite(floorMask);
+    this.floorClip = this.sprite(floorMask);
     // Paint and its wet speckles get the glossy paint shader.
     const paintBody = new Container();
-    paintBody.addChild(this.paintG, this.dotsG);
+    paintBody.addChild(this.paintG);
     this.gloss = paintGloss(this.cell * 0.07 * res);
     this.gloss.uniforms.uMode = theme.paintMode ?? 0;
     const alt = theme.paintAlt ?? theme.paintLight;
@@ -516,7 +896,15 @@ export class Board extends Container {
     this.gloss.uniforms.uAlt[1] = ((alt >> 8) & 255) / 255;
     this.gloss.uniforms.uAlt[2] = (alt & 255) / 255;
     paintBody.filters = [this.gloss];
-    this.paintLayer.addChild(paintBody, this.wetG, this.waveG, paintMask);
+    // Fresh paint's glow (see drawSheen) is soft inside, but clipped to the
+    // paint itself (after the blur), so it never spills onto bare floor.
+    this.wetG.filters = [new BlurFilter({ strength: c * 0.22 / res, quality: 3, resolution: res })];
+    const wetClip = new Graphics(this.paintG.context);
+    const wet = new Container();
+    wet.addChild(this.wetG);
+    wet.mask = wetClip;
+    this.wetHolder = wet;
+    this.paintLayer.addChild(paintBody, wet, wetClip, this.waveG, paintMask);
     this.paintLayer.mask = paintMask;
     const seams = makeCanvas(W, H);
     const gctx = seams.getContext('2d')!;
@@ -524,7 +912,22 @@ export class Board extends Container {
     gctx.globalCompositeOperation = 'destination-in';
     gctx.drawImage(floorMask, 0, 0);
     this.gridOver = this.sprite(seams);
-    this.addChild(this.paintLayer, this.gridOver);
+    // Paint covers the floor's shade, keeping only a thin darker rim along
+    // the wall (as in the original: pink 238,40,143 becomes 212,27,101 for
+    // the top seventh of the tile): the same paint shapes drawn again,
+    // darkened, and shown only in that rim.
+    const rim = this.edgeBand(floorMask, c * PAINT_RIM);
+    const rimctx = rim.getContext('2d')!;
+    rimctx.globalCompositeOperation = 'destination-in';
+    rimctx.drawImage(floorMask, 0, 0);
+    const paintShade = new Container();
+    const shadeG = new Graphics(this.paintG.context);
+    shadeG.tint = 0xe3acb4;
+    const shadeMask = this.sprite(rim);
+    paintShade.addChild(shadeG, shadeMask);
+    paintShade.mask = shadeMask;
+    this.paintShade = paintShade;
+    this.addChild(this.paintLayer, paintShade, this.gridOver);
     // Stopper grips: four chunky glossy studs in sockets that stay visible
     // over the paint and clamp onto the ball when it stops here.
     const studs = makeCanvas(W, H);
@@ -577,8 +980,9 @@ export class Board extends Container {
         const x0 = off + (x + cx) * c;
         const y0 = off + (y + cy) * c;
         const ins = c * 0.15;
-        // A wall above shows its front face over the top of the cell.
-        const insY = sy > 0 ? ins + c * 0.24 : ins;
+        // Snug against the wall above (in its shade), or lifted clear of
+        // the near lip that hides the bottom of the tile below.
+        const insY = sy > 0 ? ins : ins + c * LIP;
         const len = c * 0.62;
         const lenY = insY + (len - ins) * 0.85;
         const r = c * 0.28;
@@ -605,13 +1009,10 @@ export class Board extends Container {
       this.addChild(glow);
     }
 
-    // The walls' front faces, seen along the top edge of the floor, and the
-    // shadow they cast just below. Drawn over the paint so it runs under them.
-    // Raised walls: the front face sits inside the wall, above the floor's
-    // top edges, so no floor tile is covered (the top row stays whole). The
-    // wall casts one soft shadow onto the floor below it.
-    const faceH = c * 0.26;
-    const shadowH = c * 0.26;
+    // The walls' front faces, seen along the top edge of the floor, after
+    // the original: one flat band of face colour standing above each
+    // opening's top edge (the shade it casts is drawn on the floor, above).
+    const faceH = c * 0.24;
     const rise = (h: number) => {
       const o = makeCanvas(W, H);
       const octx = o.getContext('2d')!;
@@ -622,114 +1023,213 @@ export class Board extends Container {
     };
     const walls = makeCanvas(W, H);
     const wctx = walls.getContext('2d')!;
-    const shade = makeCanvas(W, H);
-    const shctx = shade.getContext('2d')!;
-    shctx.drawImage(softBlur(tint(this.edgeBand(floorMask, shadowH), theme.wallShadow), c * 0.14), 0, 0);
-    shctx.globalCompositeOperation = 'destination-in';
-    shctx.drawImage(floorMask, 0, 0);
-    wctx.drawImage(shade, 0, 0);
+    // The face's top edge softens into the page over a thin stretch: fine
+    // nested bands one device pixel apart, so it is smooth with no steps.
+    // Its foot, at the floor, stays crisp.
+    const fade = Math.round(c * 0.06);
+    const tinted = tint(floorMask, theme.wallFace);
+    const fadeC = makeCanvas(W, H);
+    const fctx2 = fadeC.getContext('2d')!;
+    for (let i = fade; i >= 1; i--) {
+      fctx2.globalAlpha = Math.min(1, 2.2 / fade);
+      fctx2.drawImage(tinted, 0, -(faceH + i));
+    }
+    fctx2.globalAlpha = 1;
+    // Keep the fade to the wall: off the floor itself.
+    fctx2.globalCompositeOperation = 'destination-out';
+    fctx2.drawImage(floorMask, 0, 0);
+    wctx.drawImage(fadeC, 0, 0);
     wctx.drawImage(tint(rise(faceH), theme.wallFace), 0, 0);
-    // Darker foot where the face meets the floor, lit lip along its top.
-    wctx.drawImage(tint(rise(faceH * 0.3), theme.wallFaceDark), 0, 0);
-    const lip = rise(faceH);
-    const lctx = lip.getContext('2d')!;
-    lctx.globalCompositeOperation = 'destination-out';
-    lctx.drawImage(rise(faceH - res * 1.5), 0, 0);
-    wctx.drawImage(tint(lip, theme.wallLip), 0, 0);
-    // Arrow tiles: a bold white double chevron pointing the way.
+    // Arrow tiles: a soft raised pad (here) with white chevrons that pulse
+    // the way it sends the ball (drawn live in update).
     const arrowAngle: Record<number, number> = { [ARROW_R]: 0, [ARROW_D]: Math.PI / 2, [ARROW_L]: Math.PI, [ARROW_U]: -Math.PI / 2 };
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         const ang = arrowAngle[this.level.grid[y][x]];
         if (ang === undefined) continue;
         hasMarks = true;
-        mctx.save();
-        mctx.translate(off + (x + 0.5) * c, off + (y + 0.5) * c);
-        mctx.rotate(ang);
-        mctx.lineCap = 'round';
-        mctx.lineJoin = 'round';
-        for (const [dx, a] of [
-          [-0.12, 0.55],
-          [0.12, 1],
-        ]) {
-          for (const [col, w, oy] of [
-            ['rgba(20,10,50,0.3)', 0.13, 0.035],
-            [`rgba(255,255,255,${a})`, 0.1, 0],
-          ] as const) {
-            mctx.strokeStyle = col;
-            mctx.lineWidth = c * w;
-            mctx.beginPath();
-            mctx.moveTo((dx - 0.1) * c, -0.2 * c + oy * c);
-            mctx.lineTo((dx + 0.1) * c, 0 + oy * c);
-            mctx.lineTo((dx - 0.1) * c, 0.2 * c + oy * c);
-            mctx.stroke();
-          }
-        }
-        mctx.restore();
+        const px = off + (x + 0.14) * c;
+        const py = off + (y + 0.14) * c;
+        mctx.fillStyle = 'rgba(20, 10, 50, 0.25)';
+        mctx.beginPath();
+        mctx.roundRect(px, py + c * 0.04, c * 0.72, c * 0.72, c * 0.2);
+        mctx.fill();
+        const pg = mctx.createLinearGradient(0, py, 0, py + c * 0.72);
+        pg.addColorStop(0, 'rgba(255,255,255,0.2)');
+        pg.addColorStop(1, 'rgba(255,255,255,0.07)');
+        mctx.fillStyle = pg;
+        mctx.beginPath();
+        mctx.roundRect(px, py, c * 0.72, c * 0.72, c * 0.2);
+        mctx.fill();
+        this.arrowFx.push({ x: (x + 0.5) * this.cell, y: (y + 0.5) * this.cell, ang });
       }
     this.addChild(this.sprite(walls));
     if (hasMarks) this.addChild(this.sprite(marks));
 
-    // Saw blades spin in their notches, nudged toward the wall behind them.
+    // Saws, as in the original: a blade spinning in a dark socket set into
+    // the floor, throwing sparks off its rim (see update).
     const cs = this.cell;
-    const sawTex = sawBlade(cs * 0.46, res);
-    this.textures.push(sawTex);
+    const sawTex = sawBlade(cs * 0.4, res);
+    const socketTex = sawSocket(cs * 0.84, res);
+    const glowTex = glowTexture(cs * 0.5, res);
+    this.textures.push(sawTex, socketTex, glowTex);
+    // Sockets are clipped to the floor, so one in a rounded notch at the
+    // board's edge never pokes its corners out past it.
+    const sockets = new Container();
+    const sockMask = this.sprite(floorMask);
+    sockets.addChild(sockMask);
+    sockets.mask = sockMask;
+    this.socketLayer = sockets;
+    this.sawLayer.addChild(sockets);
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         if (this.level.grid[y][x] !== SAW) continue;
-        let ox = 0;
-        let oy = 0;
-        for (const [dx, dy] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ])
-          if (isFloor(this.level.grid, x + dx, y + dy)) {
-            ox = -dx * cs * 0.12;
-            oy = -dy * cs * 0.12;
-          }
+        const socket = new Sprite(socketTex);
+        socket.anchor.set(0.5);
+        socket.scale.set(1 / res);
+        socket.position.set((x + 0.5) * cs, (y + 0.5) * cs);
         const blade = new Sprite(sawTex);
         blade.anchor.set(0.5);
         blade.scale.set(1 / res);
-        blade.position.set((x + 0.5) * cs + ox, (y + 0.5) * cs + oy);
+        blade.position.copyFrom(socket.position);
         this.saws.push(blade);
+        this.sawFx.push({ x: blade.x, y: blade.y, r: cs * 0.4, acc: 0, sparks: [] });
+        sockets.addChild(socket);
         this.sawLayer.addChild(blade);
       }
-    // Portals: swirling rings, cyan for one end and orange for the other.
+    // Portals, as in the original: a glowing orb with a white rim and a
+    // column of light rising from it, sparkles drifting up (see update).
+    // One end pink, the other cyan.
+    const beamTex = beamTexture(cs * 0.95, cs * 1.9, res);
+    this.textures.push(beamTex);
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         const v = this.level.grid[y][x];
         if (v !== PORTAL_A && v !== PORTAL_B) continue;
-        const tex = portalTexture(cs * 0.46, res, v === PORTAL_A ? ['#bff6ff', '#38d8ff', '#1167d8'] : ['#ffe6b8', '#ffa13d', '#d8540f']);
+        const pink = v === PORTAL_A;
+        const col = pink ? 0xff5fe0 : 0x3fd8ff;
+        const tex = portalTexture(cs * 0.4, res, pink ? ['#fff0ff', '#ff86e8', '#c247f5'] : ['#effeff', '#6ee9ff', '#2a86f0']);
         this.textures.push(tex);
+        const cx = (x + 0.5) * cs;
+        const cy = (y + 0.5) * cs;
+        const halo = new Sprite(glowTex);
+        halo.anchor.set(0.5);
+        halo.scale.set((cs * 1.5) / glowTex.width);
+        halo.tint = col;
+        halo.blendMode = 'add';
+        halo.alpha = 0.55;
+        halo.position.set(cx, cy);
+        const beam = new Sprite(beamTex);
+        beam.anchor.set(0.5, 1);
+        beam.scale.set(1 / res);
+        beam.tint = col;
+        beam.blendMode = 'add';
+        beam.position.set(cx, cy + cs * 0.1);
         const sp = new Sprite(tex);
         sp.anchor.set(0.5);
         sp.scale.set(1 / res);
-        sp.position.set((x + 0.5) * cs, (y + 0.5) * cs);
-        this.portals.push({ s: sp, dir: v === PORTAL_A ? 1 : -1 });
-        this.sawLayer.addChild(sp);
+        sp.position.set(cx, cy);
+        this.portals.push({ s: sp, beam, halo });
+        this.sawLayer.addChild(halo, beam, sp);
       }
-    // Coins and keys lying on tiles, bobbing gently.
+    // Coins, keys and x3 badges lying on tiles, bobbing gently in a soft glow.
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         const v = this.level.grid[y][x];
-        if (v !== COIN && v !== KEY) continue;
-        const img = iconImage(v === COIN ? 'coin' : 'key');
+        if (v !== COIN && v !== KEY && v !== MULT) continue;
+        const img = v === MULT ? multBadge(cs * 0.27, res) : iconImage(v === COIN ? 'coin' : 'key');
         if (!img) continue;
-        const sp = new Sprite(Texture.from(img));
+        const tex = Texture.from(img);
+        if (v === MULT) this.textures.push(tex);
+        const sp = new Sprite(tex);
         sp.anchor.set(0.5);
-        const size = cs * (v === COIN ? 0.5 : 0.6);
+        const size = cs * (v === COIN ? 0.5 : v === MULT ? 0.67 : 0.6);
         sp.scale.set(size / Math.max(img.width, img.height));
         sp.position.set((x + 0.5) * cs, (y + 0.5) * cs);
-        const glow = new Graphics().circle(0, 0, size * 0.62).fill({ color: v === COIN ? 0xffe27a : 0xfff3c2, alpha: 0.35 });
+        const glow = new Sprite(glowTex);
+        glow.anchor.set(0.5);
+        glow.scale.set((size * 1.9) / glowTex.width);
+        glow.tint = v === COIN ? 0xffd84a : v === MULT ? 0xffffff : 0xfff0b0;
+        glow.blendMode = 'add';
         glow.position.copyFrom(sp.position);
         this.sawLayer.addChild(glow, sp);
         this.pickups.set(y * cols + x, { s: sp, glow, base: sp.scale.x, y0: sp.y, at: -1 });
       }
-    this.trail.anchor.set(1, 0.5);
-    this.trail.visible = false;
-    this.addChild(this.sawLayer, this.glowG, this.hintG, this.coneG, this.trail, this.fxLayer, this.ballLayer, this.studFront);
+    // Live effects over all of these: sparks, sparkles, arrow chevrons.
+    this.sawLayer.addChild(this.mechG);
+    // Splatter sits over the walls (in the original, lumps flung up the
+    // lane overlap the wall face above it), under the speed cone and ball.
+    this.addChild(this.sawLayer, this.glowG, this.dotsG, this.hintG, this.coneG, this.fxLayer, this.floorClip, this.ballLayer, this.topDotsG, this.studFront);
+
+    // The near lip: seen from slightly above and in front, the page's edge
+    // below each opening hides the bottom of the tiles beside it, and of the
+    // ball and paint on them, so the floor reads as sunk into the page (as
+    // in the original). It is the page itself, reaching a hair past the
+    // floor's own edge so no seam shows, with the same soft violet glow
+    // along its edge as the other sides of the opening.
+    if (!theme.neon) {
+      const lipH = c * LIP;
+      // Grown a little all round (curved sides too) so the floor's soft
+      // edge under it never peeks out as a ghost outline, but never over
+      // the visible floor.
+      const lipMask = dilate(this.edgeBand(floorMask, -lipH), res * 1.5);
+      if (visibleFloor) {
+        const lmctx = lipMask.getContext('2d')!;
+        lmctx.globalCompositeOperation = 'destination-out';
+        lmctx.drawImage(visibleFloor, 0, 0);
+      }
+      const lip = makeCanvas(W, H);
+      const lpctx = lip.getContext('2d')!;
+      lpctx.drawImage(tint(lipMask, theme.wallTop), 0, 0);
+      // A textured page (wood, terrazzo...): the lip shows the very same
+      // material, lined up with the page behind it (see alignSlab).
+      if (theme.slab) {
+        const mask = this.sprite(lipMask);
+        const tiles = new TilingSprite({ texture: slabTexture(theme.slab, res), width: W / res, height: H / res });
+        tiles.position.set(-this.pad, -this.pad);
+        tiles.mask = mask;
+        this.slabTiles = tiles;
+        this.addChild(tiles, mask);
+        // Only the glow and the edge line go on top of it.
+        lpctx.clearRect(0, 0, W, H);
+        lpctx.drawImage(lipMask, 0, 0);
+      }
+      if (theme.texture) {
+        lpctx.globalCompositeOperation = 'source-atop';
+        texture(lpctx, theme.texture, W, H, c, false);
+      }
+      lpctx.globalCompositeOperation = 'source-atop';
+      // The lip is the page, so it shows the same glow the page does
+      // beside it (no seam where it ends at the sides).
+      if (glowCanvas) {
+        lpctx.globalAlpha = glowAlpha;
+        lpctx.drawImage(glowCanvas, 0, 0);
+      }
+      // Along the near edge the original shows only a crisp, thin violet
+      // line that clears within about 0.04 tiles (the sides' glow is wider).
+      lpctx.globalAlpha = theme.edgeGlow ? 0.8 : 0.45;
+      lpctx.drawImage(softBlur(tint(this.edgeBand(lipMask, c * 0.012), theme.edgeGlow ?? theme.wallFace), c * 0.018), 0, 0);
+      lpctx.globalAlpha = 1;
+      if (theme.slab) {
+        // Start the overlay afresh: erasing the plain fill with the soft
+        // edged mask would leave a faint rim of it (a light line).
+        lpctx.globalCompositeOperation = 'source-over';
+        lpctx.globalAlpha = 1;
+        lpctx.clearRect(0, 0, W, H);
+        if (glowCanvas) {
+          const g = makeCanvas(W, H);
+          const gc = g.getContext('2d')!;
+          gc.globalAlpha = glowAlpha;
+          gc.drawImage(glowCanvas, 0, 0);
+          // No crisp edge line on a textured page: there it reads as an
+          // outline drawn round the board.
+          gc.globalCompositeOperation = 'destination-in';
+          gc.drawImage(lipMask, 0, 0);
+          lpctx.drawImage(g, 0, 0);
+        }
+      }
+      this.addChild(this.sprite(lip));
+    }
   }
 
   /** The ball stopped on the stopper at (x, y): its studs clamp onto it. */
@@ -773,6 +1273,88 @@ export class Board extends Container {
     return tex;
   }
 
+  /**
+   * Live touches on the mechanics: sparks streaking off each saw's rim the
+   * way it spins (thicker after a hit), sparkles drifting up each portal's
+   * beam, and arrow chevrons lighting up in turn the way they send the ball.
+   */
+  private drawMechanics(time: number, boost: number) {
+    const g = this.mechG;
+    g.clear();
+    const cell = this.cell;
+    const dt = Math.min(50, Math.max(0, time - this.lastMech));
+    this.lastMech = time;
+    const SPARK = [0xfff27a, 0xffd23f, 0xffa230, 0xff7a2a];
+    for (const s of this.sawFx) {
+      s.acc += dt * 0.028 * (1 + boost * 3);
+      while (s.acc >= 1) {
+        s.acc -= 1;
+        s.sparks.push({
+          a: Math.random() * Math.PI * 2,
+          t: time,
+          life: 150 + Math.random() * 200,
+          len: 0.3 + Math.random() * 0.55,
+          col: SPARK[Math.floor(Math.random() * SPARK.length)],
+        });
+      }
+      s.sparks = s.sparks.filter((k) => time - k.t < k.life);
+      for (const k of s.sparks) {
+        const u = (time - k.t) / k.life;
+        const head = k.a + u * 1.3;
+        const tail = head - k.len * (1 - u * 0.6);
+        const rr = s.r * (1.0 + u * 0.14);
+        g.moveTo(s.x + Math.cos(tail) * rr, s.y + Math.sin(tail) * rr)
+          .arc(s.x, s.y, rr, tail, head)
+          .stroke({ width: cell * 0.045 * (1 - u * 0.7), color: k.col, alpha: (1 - u) ** 0.7, cap: 'round' });
+      }
+    }
+    for (let i = 0; i < this.portals.length; i++) {
+      const { s } = this.portals[i];
+      for (let j = 0; j < 7; j++) {
+        const ph = (time / 1600 + j / 7 + i * 0.37) % 1;
+        const x = s.x + Math.sin(j * 2.1 + time * 0.0021) * cell * 0.17 * (0.4 + ph * 0.6);
+        const y = s.y - ph * cell * 1.35;
+        g.circle(x, y, cell * (0.022 + (j % 3) * 0.008)).fill({ color: 0xffffff, alpha: Math.sin(Math.PI * ph) * 0.9 });
+      }
+    }
+    const phase = (time * 0.0016) % 1;
+    for (const a of this.arrowFx) {
+      const cos = Math.cos(a.ang);
+      const sin = Math.sin(a.ang);
+      const at = (u: number, v: number) => [a.x + (u * cos - v * sin) * cell, a.y + (u * sin + v * cos) * cell] as const;
+      for (let j = 0; j < 2; j++) {
+        const dx = -0.1 + j * 0.2;
+        // A light runs through the chevrons, back to front.
+        const lit = 0.5 + 0.5 * Math.cos(Math.PI * 2 * (phase - j * 0.3));
+        for (const [col, w, oy, al] of [
+          [0x140a32, 0.12, 0.03, 0.3],
+          [0xffffff, 0.1, 0, 0.45 + 0.55 * lit],
+        ] as const) {
+          const p0 = at(dx - 0.09, -0.17);
+          const p1 = at(dx + 0.09, 0);
+          const p2 = at(dx - 0.09, 0.17);
+          g.moveTo(p0[0], p0[1] + oy * cell).lineTo(p1[0], p1[1] + oy * cell).lineTo(p2[0], p2[1] + oy * cell)
+            .stroke({ width: cell * w, color: col, alpha: al, cap: 'round', join: 'round' });
+        }
+      }
+    }
+  }
+
+  /**
+   * Line the lip's material up with the page behind the board: map each
+   * point of it back to its place on screen, at the page texture's scale.
+   */
+  alignSlab() {
+    const t = this.slabTiles;
+    if (!t) return;
+    // Where the board's origin and unit steps land on screen right now.
+    const o = this.toGlobal({ x: 0, y: 0 });
+    const a = this.toGlobal({ x: 1, y: 0 }).x - o.x || 1;
+    const d = this.toGlobal({ x: 0, y: 1 }).y - o.y || 1;
+    t.tileScale.set(1 / (a * this.res), 1 / (d * this.res));
+    t.tilePosition.set(-(t.x + o.x / a), -(t.y + o.y / d));
+  }
+
   cellCenter(x: number, y: number): Point {
     return { x: (x + 0.5) * this.cell, y: (y + 0.5) * this.cell };
   }
@@ -785,16 +1367,20 @@ export class Board extends Container {
     const boost = Math.max(0, 1 - (time - this.sawHitAt) / 900);
     this.sawAngle += 0.16 * (1 + boost * 2.5);
     for (const b of this.saws) b.rotation = this.sawAngle;
-    for (const p of this.portals) {
-      p.s.rotation = time * 0.003 * p.dir;
-      p.s.scale.set((1 / this.res) * (1 + Math.sin(time * 0.004) * 0.05));
+    this.drawMechanics(time, boost);
+    for (let i = 0; i < this.portals.length; i++) {
+      const p = this.portals[i];
+      const pulse = Math.sin(time * 0.004 + i * 1.7);
+      p.s.scale.set((1 / this.res) * (1 + pulse * 0.04));
+      p.halo.alpha = 0.5 + pulse * 0.12;
+      p.beam.alpha = 0.95 + Math.sin(time * 0.0067 + i) * 0.05;
     }
     let i = 0;
     for (const p of this.pickups.values()) {
       i++;
       if (p.at < 0) {
         p.s.y = p.y0 + Math.sin(time * 0.004 + i) * this.cell * 0.05;
-        p.glow.alpha = 0.75 + Math.sin(time * 0.006 + i) * 0.25;
+        p.glow.alpha = 0.55 + Math.sin(time * 0.006 + i) * 0.2;
       } else {
         // Picked up: pop up and fade out.
         const t = Math.min(1, (time - p.at) / 320);
@@ -841,7 +1427,7 @@ export class Board extends Container {
     // Painted tiles form one soft blob, like the floor itself: convex corners
     // are rounded and concave corners filleted wherever paint meets unpainted
     // floor (the floor mask already shapes the edges against walls).
-    const r = cell * 0.4;
+    const r = cell * 0.5;
     for (const [k, t] of stroke.painted) {
       if (time < t) continue;
       const x = k % w;
@@ -849,7 +1435,9 @@ export class Board extends Container {
       const age = time - t;
       if (k === stroke.startRound) {
         const grow = Math.min(1, age / 200);
-        g.circle((x + 0.53) * cell, (y + 0.55) * cell, half * (0.4 + 0.66 * (1 - (1 - grow) ** 3)));
+        // A puddle centred under the ball (which sits a little up-tile),
+        // just wider than it so it shows evenly all round.
+        g.circle((x + 0.5) * cell, (y + 0.42) * cell, cell * 0.56 * (0.4 + 0.6 * (1 - (1 - grow) ** 3)));
         continue;
       }
       if (age >= SPREAD_MS) {
@@ -903,33 +1491,22 @@ export class Board extends Container {
           .lineTo(px - sx * 0.5, py + sy * r)
           .closePath();
       }
-    for (const sh of stroke.shimmer ?? []) {
-      const age = time - sh.t;
-      if (age < 0 || age > 220) continue;
-      const a = Math.sin((age / 220) * Math.PI);
-      // Rounded only where the stroke ends, so the glint runs as one band.
-      roundedCell(wet, sh.k % w, Math.floor(sh.k / w), cell, r, has);
-      wet.fill({ color: 0xffffff, alpha: 0.26 * a });
-    }
-    if (stroke.active) {
-      // The stream pouring out under the ball: a narrow rounded ribbon from
-      // the start of this run to just ahead of the ball, which the tiles
-      // behind it then swell out from.
-      const { from, pos } = stroke.active;
+    this.drawSheen(time, stroke, has);
+    for (const band of [stroke.active, ...(stroke.more ?? [])]) {
+      if (!band) continue;
+      // The full width of the lane from the start of this run up to the
+      // ball's nose (its centre plus a radius), under the ball. Ahead of
+      // that the paint only shows as whole tiles (as in the original).
+      const { from, pos } = band;
       const ax = (from.x + 0.5) * cell;
       const ay = (from.y + 0.5) * cell;
       const bx = (pos.x + 0.5) * cell;
       const by = (pos.y + 0.5) * cell;
-      const sx = Math.sign(bx - ax);
-      const sy = Math.sign(by - ay);
-      const hw = half * 0.4;
-      const lead = cell * 0.18;
-      const hx = bx + sx * lead;
-      const hy = by + sy * lead;
-      const x0 = Math.min(ax, hx) - hw;
-      const y0 = Math.min(ay, hy) - hw;
-      const x1 = Math.max(ax, hx) + hw;
-      const y1 = Math.max(ay, hy) + hw;
+      const hw = half;
+      const x0 = Math.min(ax, bx) - hw;
+      const y0 = Math.min(ay, by) - hw;
+      const x1 = Math.max(ax, bx) + hw;
+      const y1 = Math.max(ay, by) + hw;
       g.roundRect(x0, y0, x1 - x0, y1 - y0, hw);
     }
     for (const sp of stroke.splats) {
@@ -939,14 +1516,19 @@ export class Board extends Container {
     }
     g.fill({ color: theme.paint });
 
-    const d = this.dotsG;
-    d.clear();
+    if (this.palette?.paint !== theme.paint) this.palette = { paint: theme.paint, ...splatPalette(theme.paint) };
+    const pal = this.palette;
+    this.dotsG.clear();
+    this.topDotsG.clear();
     for (const dot of stroke.dots) {
       const age = time - dot.t;
-      if (age < 0) continue;
-      const fade = age < 200 ? 1 : Math.max(0, 1 - (age - 200) / 550);
-      if (fade <= 0) continue;
-      d.circle(dot.x, dot.y, dot.r * (0.6 + 0.4 * fade)).fill({ color: theme.paintLight, alpha: 0.85 * fade });
+      const life = dot.life ?? 900;
+      if (age < 0 || age >= life) continue;
+      // As in the original: each lump pops up, holds, then shrinks away.
+      const hold = life * 0.5;
+      const size = Math.min(1, 0.45 + age / 90) * (age < hold ? 1 : (1 - (age - hold) / (life - hold)) ** 0.8);
+      if (size < 0.05) continue;
+      lump(dot.top ? this.topDotsG : this.dotsG, dot.x, dot.y, dot.r * size, dot.x * 0.37 + dot.y * 0.61, dot.red ? pal.red : pal.lump);
     }
 
     if (this.paintGlow) {
@@ -957,30 +1539,57 @@ export class Board extends Container {
     }
   }
 
-  /** Pale speed cone fanning from where the swipe started to the ball. */
-  drawCone(from: Point | null, to: { x: number; y: number }, alpha: number) {
-    const sp = this.trail;
-    if (!from || alpha <= 0.01) {
-      sp.visible = false;
-      return;
+  /**
+   * Fresh paint glows, as in the original: the lane the ball has just
+   * painted (or rolled back over) lights up with a soft wash of the paint's
+   * light shade, brightest where the ball passed last, melting away over
+   * about a second. Drawn as plain tiles and blurred into one soft glow.
+   */
+  private drawSheen(time: number, stroke: PaintStroke, has: (x: number, y: number) => boolean) {
+    const wetMap = stroke.wet;
+    const g = this.wetG;
+    if (!wetMap?.size) return;
+    const { cell, theme } = this;
+    const w = this.cols;
+    const DRY = 900;
+    for (const [k, e] of wetMap) {
+      const x = k % w;
+      const y = Math.floor(k / w);
+      const age = time - e.t;
+      if (age < 0 || age >= DRY || !has(x, y)) continue;
+      const a = (1 - age / DRY) ** 1.6;
+      g.rect(x * cell, y * cell, cell, cell).fill({ color: theme.paintLight, alpha: 0.75 * a });
     }
-    const { cell } = this;
-    const ax = (from.x + 0.5) * cell;
-    const ay = (from.y + 0.5) * cell;
-    const bx = (to.x + 0.5) * cell;
-    const by = (to.y + 0.5) * cell;
-    const len = Math.hypot(bx - ax, by - ay);
-    if (len < 2) {
-      sp.visible = false;
-      return;
+    // The stretch from the middle of the last tile crossed up to the ball.
+    if (stroke.active) {
+      const { pos, from } = stroke.active;
+      const ax = (from.x + 0.5) * cell;
+      const ay = (from.y + 0.5) * cell;
+      const bx = (pos.x + 0.5) * cell;
+      const by = (pos.y + 0.5) * cell;
+      const x0 = Math.min(ax, bx) - cell / 2;
+      const y0 = Math.min(ay, by) - cell / 2;
+      g.rect(x0, y0, Math.max(ax, bx) + cell / 2 - x0, Math.max(ay, by) + cell / 2 - y0).fill({ color: theme.paintLight, alpha: 0.35 });
     }
-    // A soft, feathered streak: transparent at the tail, a milky glow that
-    // widens toward the ball. Drawn from one blurred texture.
-    sp.visible = true;
-    sp.position.set(bx, by);
-    sp.rotation = Math.atan2(by - ay, bx - ax);
-    sp.scale.set((len + cell * 0.3) / TRAIL_W, (cell * 1.05) / TRAIL_H);
-    sp.alpha = alpha;
+  }
+
+  /**
+   * The speed cone, as in the original: a crisp, see-through wedge of the
+   * ball's colour from a point near where the run started (`apex`) out to
+   * the ball's centre (`base`, board px), where it is 0.72 tiles across.
+   */
+  drawCone(apex: { x: number; y: number } | null, base: { x: number; y: number }, color: number) {
+    const g = this.coneG;
+    g.clear();
+    if (!apex) return;
+    const dx = base.x - apex.x;
+    const dy = base.y - apex.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return;
+    const w = this.cell * 0.36;
+    const nx = (-dy / len) * w;
+    const ny = (dx / len) * w;
+    g.poly([apex.x, apex.y, base.x + nx, base.y + ny, base.x - nx, base.y - ny]).fill({ color, alpha: 0.5 });
   }
 
   /** Diagonal light sweep across the painted floor (level complete). */
@@ -1026,30 +1635,64 @@ export class Board extends Container {
     }
   }
 
-  /** Animated chevrons along a slide path, used by hints and the tutorial. */
-  drawHint(time: number, path: Point[] | null, dir?: Point) {
+  /**
+   * The hint guide: a soft glowing lane from the ball along the next slide,
+   * arrows flowing along it, and a pulsing landing ring with a ghost ball
+   * where the move ends. Fades in so each new step reads as "next".
+   */
+  drawHint(time: number, hint: { from: Point; path: Point[]; dir: Point; since: number } | null) {
     const g = this.hintG;
     g.clear();
-    if (!path || !dir) return;
+    if (!hint || !hint.path.length) return;
     const { cell } = this;
-    path.forEach((p, i) => {
-      const cx = (p.x + 0.5) * cell;
-      const cy = (p.y + 0.5) * cell;
-      const wave = Math.max(0, Math.sin(time * 0.006 - i * 0.9));
-      const s = cell * 0.17;
-      // Each chevron points the way the ball travels there (curves turn it).
-      const ax = i === 0 ? dir.x : p.x - path[i - 1].x;
-      const ay = i === 0 ? dir.y : p.y - path[i - 1].y;
-      // Chevron pointing along (ax, ay).
-      const tipX = cx + ax * s;
-      const tipY = cy + ay * s;
-      const backX = cx - ax * s;
-      const backY = cy - ay * s;
-      g.moveTo(backX - ay * s * 1.3, backY + ax * s * 1.3)
-        .lineTo(tipX, tipY)
-        .lineTo(backX + ay * s * 1.3, backY - ax * s * 1.3)
-        .stroke({ color: 0xffffff, width: cell * 0.09, alpha: 0.25 + 0.6 * wave, cap: 'round', join: 'round' });
-    });
+    const pts = [hint.from, ...hint.path];
+    const c = (p: Point) => ({ x: (p.x + 0.5) * cell, y: (p.y + 0.5) * cell });
+    const linked = (a: Point, b: Point) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
+    const fade = Math.min(1, (time - hint.since) / 260);
+    const appear = 1 - (1 - fade) ** 3;
+    // Lane: a wide soft glow and a brighter core, broken at portal jumps.
+    const lane = (width: number, alpha: number, color: number) => {
+      for (let i = 1; i < pts.length; i++) {
+        if (!linked(pts[i - 1], pts[i])) continue;
+        const a = c(pts[i - 1]);
+        const b = c(pts[i]);
+        g.moveTo(a.x, a.y).lineTo(b.x, b.y);
+      }
+      g.stroke({ color, width, alpha: alpha * appear, cap: 'round', join: 'round' });
+    };
+    lane(cell * 0.62, 0.16, 0xffffff);
+    lane(cell * 0.36, 0.28, 0xffffff);
+    lane(cell * 0.1, 0.5, this.theme.paintLight);
+
+    // Arrows flowing from the ball toward the landing tile.
+    const segs: { a: { x: number; y: number }; b: { x: number; y: number }; d: Point }[] = [];
+    for (let i = 1; i < pts.length; i++)
+      if (linked(pts[i - 1], pts[i]))
+        segs.push({ a: c(pts[i - 1]), b: c(pts[i]), d: { x: pts[i].x - pts[i - 1].x, y: pts[i].y - pts[i - 1].y } });
+    const total = segs.length;
+    const gap = 0.62;
+    const s = cell * 0.15;
+    for (let d = ((time * 0.0022) % gap) + 0.35; d < total - 0.15; d += gap) {
+      const seg = segs[Math.min(total - 1, Math.floor(d))];
+      const f = d - Math.floor(d);
+      const x = seg.a.x + (seg.b.x - seg.a.x) * f;
+      const y = seg.a.y + (seg.b.y - seg.a.y) * f;
+      const { x: ax, y: ay } = seg.d;
+      // Fade in near the ball and out near the target.
+      const edge = Math.min(1, (d - 0.35) / 0.5, (total - 0.15 - d) / 0.6);
+      g.moveTo(x - ax * s - ay * s * 1.25, y - ay * s + ax * s * 1.25)
+        .lineTo(x + ax * s, y + ay * s)
+        .lineTo(x - ax * s + ay * s * 1.25, y - ay * s - ax * s * 1.25)
+        .stroke({ color: 0xffffff, width: cell * 0.1, alpha: 0.95 * edge * appear, cap: 'round', join: 'round' });
+    }
+
+    // Landing marker: ghost ball inside a ring that pulses outward.
+    const end = c(pts[pts.length - 1]);
+    const beat = (time * 0.0014) % 1;
+    g.circle(end.x, end.y, cell * 0.33).fill({ color: 0xffffff, alpha: 0.22 * appear });
+    g.circle(end.x, end.y, cell * 0.33).stroke({ color: 0xffffff, width: cell * 0.065, alpha: 0.9 * appear });
+    g.circle(end.x, end.y, cell * (0.34 + beat * 0.2)).stroke({ color: 0xffffff, width: cell * 0.05, alpha: 0.6 * (1 - beat) * appear });
+    g.circle(end.x - cell * 0.1, end.y - cell * 0.1, cell * 0.07).fill({ color: 0xffffff, alpha: 0.7 * appear });
   }
 
   floorPoints(): Point[] {
@@ -1061,6 +1704,12 @@ export class Board extends Container {
     // still-attached mask leaves a stale effect that later renders at a
     // garbage (huge) size.
     this.paintLayer.mask = null;
+    if (this.paintShade) this.paintShade.mask = null;
+    if (this.wetHolder) this.wetHolder.mask = null;
+    if (this.slabTiles) this.slabTiles.mask = null;
+    if (this.socketLayer) this.socketLayer.mask = null;
+    // Anything on the ball layer clipped to the floor (the ball's shadow).
+    for (const c of this.ballLayer.children) (c as Container & { clipShadow?: (m: Sprite | null) => void }).clipShadow?.(null);
     super.destroy({ children: true });
     for (const t of this.textures) t.destroy(true);
     this.textures = [];
