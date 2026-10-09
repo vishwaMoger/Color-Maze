@@ -178,7 +178,13 @@ export class Hud {
     // How the weekly ranking works, after the original: three steps on a
     // bright screen; any tap closes it.
     on('btn-league-info', () => {
-      $('league-info').style.setProperty('--zoom', String(Math.max(1, Math.min(1.6, Math.min(innerWidth / 430, innerHeight / 820)))));
+      const info = $('league-info');
+      // Fit the 360 px design on any screen, small phones included.
+      info.style.setProperty('--zoom', String(Math.max(0.7, Math.min(1.5, (innerWidth - 24) / 360, innerHeight / 760))));
+      // The game's own rendered balls for the illustration and avatars.
+      const art = (i: number) => (BALL_ART[i] ? `url(${BALL_ART[i]})` : '');
+      for (const [v, i] of [['--ball-soccer', 8], ['--ball-basket', 7], ['--ball-soft', 4]] as const)
+        if (art(i)) info.style.setProperty(v, art(i));
       this.open('league-info');
     });
     $('league-info').addEventListener('click', (e) => {
