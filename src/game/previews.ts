@@ -14,6 +14,12 @@ import { slabTexture } from './slabs.ts';
 
 const cache = new Map<string, string>();
 
+/** Cache keys, so callers can check for a ready image without rendering. */
+export const paintKey = (p: PaintColor) => `paint:${p.id}`;
+export const boardKey = (look: Theme, ball: BallSkin) => `board:${look.id}:${look.paint}:${look.paintMode ?? 0}:${ball.id}`;
+/** A preview already rendered, or undefined (never renders). */
+export const peekPreview = (key: string) => cache.get(key);
+
 // A freshly poured puddle of paint seen from above: a soft dome in the
 // middle with gentle folds where the pour coiled over itself, lit by a key
 // light and a bright studio reflection. Pattern modes match the in-game
@@ -132,7 +138,7 @@ function extract(renderer: Renderer, target: Container, resolution = 1): HTMLCan
 
 /** A paint as a glossy pour of liquid, for the shop. */
 export function paintPreview(renderer: Renderer, p: PaintColor, size = 160): string {
-  const id = `paint:${p.id}`;
+  const id = paintKey(p);
   const hit = cache.get(id);
   if (hit) return hit;
   const s = new Sprite(Texture.WHITE);
@@ -162,7 +168,7 @@ const MINI_PAINTED: Point[] = [
  * same materials), half painted in the player's paint with their ball.
  */
 export function boardPreview(renderer: Renderer, look: Theme, ball: BallSkin, size = 200): string {
-  const id = `board:${look.id}:${look.paint}:${look.paintMode ?? 0}:${ball.id}`;
+  const id = boardKey(look, ball);
   const hit = cache.get(id);
   if (hit) return hit;
   const level = parseLevel(MINI);
