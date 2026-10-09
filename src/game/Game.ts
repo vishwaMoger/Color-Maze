@@ -10,7 +10,7 @@ import { Ball, ballCanvas, ballPreview } from './Ball.ts';
 import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
 import { adsAvailable, gameplayStart, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
-import { boardPreview, paintPreview } from './previews.ts';
+import { boardKey, boardPreview, paintKey, paintPreview, peekPreview } from './previews.ts';
 import { boardLight, type BoardLight } from './shaders.ts';
 import { Confetti } from './confetti.ts';
 import { slabTexture } from './slabs.ts';
@@ -114,13 +114,14 @@ class Ambient {
 }
 
 /** Rich tile colours behind the balls in the shop (light, deep). */
+/** Ball card colours: a bright tone and a deep one per card, rich and candy-like. */
 const TILE_COLORS: [string, string][] = [
-  ['#ff5fa8', '#d6146a'],
-  ['#38c8ff', '#1255e6'],
-  ['#a978ff', '#5b22e0'],
-  ['#2fe08a', '#0a9a5c'],
-  ['#ffa53a', '#ec4f08'],
-  ['#ffd93d', '#f08c00'],
+  ['#ff4fa3', '#c2005e'],
+  ['#2ad4ff', '#0b4fe0'],
+  ['#b57bff', '#5212d6'],
+  ['#21eb8f', '#008a52'],
+  ['#ffae2e', '#e83d00'],
+  ['#ffe03a', '#f07a00'],
 ];
 
 export class Game {
@@ -293,7 +294,12 @@ export class Game {
       this.sound.setMuted(muted || document.hidden);
     });
     hud.setAdsAvailable(adsAvailable());
-    hud.setBallArt(BALLS.map((b) => this.spherePreview(b.id)));
+    // Shop previews and the league's ball avatars are drawn in idle moments
+    // after the start, so neither the first frame nor the shop waits.
+    window.setTimeout(() => {
+      this.shopItems();
+      this.queuePreview('ball-art', () => this.hud.setBallArt(BALLS.map((b) => this.spherePreview(b.id))));
+    }, 800);
     // HUD height changes once the web font arrives.
     void document.fonts?.ready.then(() => this.invalidateLayout());
   }
@@ -393,7 +399,54 @@ export class Game {
     return { have: this.save.adProgress[it.id] ?? 0, need: it.ads };
   }
 
+  /**
+   * A shop preview as CSS: ready at once if already rendered; otherwise
+   * empty for now, with the render queued for an idle moment (the tile
+   * fills in when it is done), so opening the shop never waits on it.
+   */
+  private previewCss(tab: ShopTab, id: string, key: string, ready: string | undefined, render: () => string): string {
+    if (ready) return `background-image: url(${ready})`;
+    this.queuePreview(key, () => {
+      const url = render();
+      this.hud.setTilePreview(tab, id, `background-image: url(${url})`);
+    });
+    return '';
+  }
+
+  private previewJobs = new Map<string, () => void>();
+  private previewBusy = false;
+
+  private queuePreview(key: string, job: () => void) {
+    if (!this.previewJobs.has(key)) this.previewJobs.set(key, job);
+    if (this.previewBusy) return;
+    this.previewBusy = true;
+    const ric = (window as { requestIdleCallback?: (cb: () => void, o: { timeout: number }) => number }).requestIdleCallback;
+    const idle = (cb: () => void) => (ric ? ric(cb, { timeout: 150 }) : setTimeout(cb, 16));
+    // One render per idle slot keeps every frame smooth.
+    const step = () => {
+      // Never while the ball rolls: a render could cost a frame mid-slide.
+      if (this.slideState) {
+        window.setTimeout(() => idle(step), 120);
+        return;
+      }
+      const next = this.previewJobs.entries().next();
+      if (next.done) {
+        this.previewBusy = false;
+        return;
+      }
+      this.previewJobs.delete(next.value[0]);
+      try {
+        next.value[1]();
+      } catch {
+        /* a failed preview just stays blank */
+      }
+      idle(step);
+    };
+    idle(step);
+  }
+
   private shopItems(): Record<ShopTab, ShopItem[]> {
+    const ball = this.ballSkin();
     return {
       ball: BALLS.map((b, i) => {
         const [c1, c2] = TILE_COLORS[i % TILE_COLORS.length];
@@ -404,7 +457,7 @@ export class Game {
           ads: this.adsFor(b),
           kind: 'ball' as const,
           bg: `--c1:${c1};--c2:${c2}`,
-          preview: `background-image: url(${this.spherePreview(b.id)})`,
+          preview: this.previewCss('ball', b.id, `ball:${b.id}`, this.previews.get(b.id), () => this.spherePreview(b.id)),
         };
       }),
       paint: PAINTS.map((p) => ({
@@ -413,7 +466,7 @@ export class Game {
         unlock: this.save.owned.includes(p.id) ? 1 : p.unlock,
         ads: this.adsFor(p),
         kind: 'paint' as const,
-        preview: `background-image: url(${paintPreview(this.app.renderer as Renderer, p)})`,
+        preview: this.previewCss('paint', p.id, paintKey(p), peekPreview(paintKey(p)), () => paintPreview(this.app.renderer as Renderer, p)),
       })),
       board: THEMES.map((t) => ({
         id: t.id,
@@ -421,7 +474,11 @@ export class Game {
         unlock: this.save.owned.includes(t.id) ? 1 : t.unlock,
         ads: this.adsFor(t),
         kind: 'board' as const,
-        preview: `background-image: url(${boardPreview(this.app.renderer as Renderer, this.makeLook(t), this.ballSkin())})`,
+        preview: (() => {
+          const look = this.makeLook(t);
+          const key = boardKey(look, ball);
+          return this.previewCss('board', t.id, key, peekPreview(key), () => boardPreview(this.app.renderer as Renderer, look, ball));
+        })(),
       })),
     };
   }
@@ -587,7 +644,7 @@ export class Game {
     // after a curve has turned the ball queues an unwanted extra move.)
     let origin: { x: number; y: number; id: number; dir?: Dir } | null = null;
     const threshold = (e: PointerEvent) =>
-      e.pointerType === 'mouse' ? 12 : Math.max(14, Math.min(28, Math.min(innerWidth, innerHeight) * 0.03));
+      e.pointerType === 'mouse' ? 10 : Math.max(10, Math.min(22, Math.min(innerWidth, innerHeight) * 0.028));
     el.addEventListener('pointerdown', (e) => {
       this.sound.unlock();
       if (this.hud.modalOpen) return;

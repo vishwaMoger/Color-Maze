@@ -705,7 +705,20 @@ export class Hud {
   setShop(tab: ShopTab, items: ShopItem[], equipped: string, unlockedTo: number) {
     this.shopData[tab] = { items, equipped };
     this.unlockedTo = unlockedTo;
-    this.renderShop();
+    // Only the tab on show is drawn; the others draw when picked.
+    if (tab === this.shopTab) this.renderShop();
+  }
+
+  /** A preview finished rendering: fill its tile in place. */
+  setTilePreview(tab: ShopTab, id: string, css: string) {
+    const it = this.shopData[tab]?.items.find((x) => x.id === id);
+    if (it) it.preview = css;
+    if (tab !== this.shopTab) return;
+    const sw = document.querySelector<HTMLElement>(`#shop-grid .tile[data-id="${CSS.escape(id)}"] .swatch`);
+    if (sw) {
+      sw.setAttribute('style', css);
+      sw.classList.remove('loading');
+    }
   }
 
   /**
@@ -822,12 +835,13 @@ export class Hud {
       const locked = byAds || this.unlockedTo < it.unlock;
       const b = document.createElement('button');
       b.className = `tile ${it.kind}${locked ? ' locked' : ''}${it.id === equipped ? ' on' : ''}`;
+      b.dataset.id = it.id;
       b.setAttribute(
         'aria-label',
         `${it.name}${byAds ? `, watch ${it.ads!.need - it.ads!.have} more ads to unlock` : locked ? `, unlocks at level ${it.unlock}` : ''}`,
       );
       if (it.bg) b.setAttribute('style', it.bg);
-      b.innerHTML = `<span class="swatch" style="${it.preview}"></span>${
+      b.innerHTML = `<span class="swatch${it.preview ? '' : ' loading'}" style="${it.preview}"></span>${
         byAds
           ? `<span class="chip">${it.ads!.have}/${it.ads!.need} ads</span><span class="lockb video"></span>`
           : locked
