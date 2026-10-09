@@ -118,10 +118,38 @@ void main(void) {
     float crack = 1.0 - smoothstep(0.0, 0.12, e);
     float pulse = 0.8 + 0.2 * sin(uTime * 2.0 + q.x * 2.0);
     base = mix(base * (0.75 + 0.25 * fbm(q * 2.5)), uAlt, crack * pulse);
-  } else if (uMode > 3.5) {
+  } else if (uMode > 3.5 && uMode < 4.5) {
     // Water: dancing caustic light.
     float l = caustic(q * 0.45, uTime * 0.7);
     base = mix(base, uAlt, l * 0.9);
+  } else if (uMode > 4.5) {
+    // Potion: a slowly swirling witch's brew with glowing bubbles that
+    // rise through it, swell and pop, and the odd twinkle of magic.
+    vec2 w = vec2(fbm(q * 0.9 + vec2(0.0, uTime * 0.08)), fbm(q * 0.9 + vec2(5.2, -uTime * 0.07)));
+    float s = fbm(q * 1.3 + w * 2.2);
+    vec3 brew = mix(base * 0.5, mix(base, vec3(0.95, 0.5, 1.0), 0.35), smoothstep(0.3, 0.75, s));
+    brew += vec3(0.85, 0.6, 1.0) * smoothstep(0.64, 0.74, s) * (1.0 - smoothstep(0.74, 0.8, s)) * 0.3;
+    vec2 bp = q * 1.7 + vec2(0.0, uTime * 0.45);
+    vec2 bid = floor(bp);
+    vec2 f = fract(bp) - 0.5;
+    vec2 h = hash2(bid);
+    float life = fract(uTime * 0.35 + h.x * 7.0);
+    vec2 ctr = (h - 0.5) * 0.3;
+    float rad = (0.08 + 0.14 * h.y) * smoothstep(0.0, 0.25, life) * (1.0 - smoothstep(0.86, 1.0, life));
+    float d = length(f - ctr);
+    float body = 1.0 - smoothstep(rad - 0.025, rad, d);
+    float rim = body * smoothstep(rad - 0.08, rad - 0.015, d);
+    float halo = rad > 0.01 ? exp(-max(d - rad, 0.0) * 22.0) * (1.0 - body) : 0.0;
+    brew = mix(brew, brew * 0.35 + uAlt * 0.55, body * 0.75);
+    brew += uAlt * (rim * 0.85 + halo * 0.22);
+    float spec = 1.0 - smoothstep(0.0, max(rad * 0.32, 0.001), length(f - ctr + vec2(rad * 0.38)));
+    brew += vec3(1.0) * spec * body * 0.7;
+    vec2 sq = q * 4.0;
+    vec2 sf = fract(sq) - 0.5;
+    vec2 sh = hash2(floor(sq) + 3.1);
+    float tw = pow(max(0.0, sin(uTime * 2.2 + sh.x * 40.0)), 14.0) * step(0.55, sh.y);
+    brew += mix(uAlt, vec3(1.0), 0.5) * (1.0 - smoothstep(0.015, 0.06, length(sf - (sh - 0.5) * 0.6))) * tw;
+    base = brew;
   }
   if (uMode < 0.5) {
     finalColor = vec4(base * c.a, c.a);
