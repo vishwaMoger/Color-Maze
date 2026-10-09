@@ -91,46 +91,59 @@ export async function initPlatform(): Promise<void> {
 
 /**
  * The banner ad. CrazyGames allows banners only on screens that stay open
- * a while (shop, ranking, settings, rewards), never during gameplay, so the
- * HUD shows it as such a screen opens and hides it as it closes. A strip at
- * the bottom is kept free for it only while it shows. Off in Basic Launch
- * (the SDK refuses): then no space is kept at all. Each refresh at least
- * 30 s apart, as required.
+ * a while (shop, ranking, settings, rewards), so the HUD asks for one as
+ * such a screen opens and drops it as it closes. The strip stays invisible
+ * and takes no room until an ad has actually rendered into it; with no ad
+ * (no SDK, Basic Launch, no fill, ad removed) nothing shows at all. Each
+ * refresh at least 30 s apart, as required.
  */
 export const BANNER_ID = 'ad-banner';
 let lastBanner = -Infinity;
 let bannersOff = false;
 let bannerOn = false;
+let watcher: MutationObserver | null = null;
+
+/** Whether an ad creative is in the strip and has size. */
+function bannerFilled(el: HTMLElement) {
+  for (const c of el.querySelectorAll<HTMLElement>('*')) {
+    const r = c.getBoundingClientRect();
+    if (r.width > 1 && r.height > 1) return true;
+  }
+  return false;
+}
+
+/** Reveal the strip (and keep room for it) only while an ad fills it. */
+function syncBanner() {
+  const el = document.getElementById(BANNER_ID);
+  if (!el) return;
+  const filled = bannerOn && bannerFilled(el);
+  el.classList.toggle('filled', filled);
+  document.body.classList.toggle('has-banner', filled);
+}
+
 export function showBanner() {
   const el = document.getElementById(BANNER_ID);
-  if (!el || bannersOff || bannerOn) return;
-  if (!sdk?.banner && !import.meta.env.DEV) return;
+  if (!el || bannersOff || bannerOn || !sdk?.banner) return;
   bannerOn = true;
+  // Laid out (the SDK needs a sized container) but invisible until filled.
   el.hidden = false;
-  document.body.classList.add('has-banner');
-  if (sdk?.banner) {
-    el.classList.remove('placeholder');
-    el.textContent = '';
-    const now = performance.now();
-    if (now - lastBanner < 30_000) return;
-    lastBanner = now;
-    // Wait a frame so the strip is laid out (the SDK needs it visible).
-    requestAnimationFrame(() => {
-      if (!bannerOn) return;
-      Promise.resolve()
-        .then(() => sdk!.banner!.requestResponsiveBanner(BANNER_ID))
-        .catch((e: { code?: string } | undefined) => {
-          // Disabled (Basic Launch, mobile app): give the space back for good.
-          if (e?.code && /disabled/i.test(e.code)) {
-            bannersOff = true;
-            hideBanner();
-          }
-        });
-    });
-  } else {
-    el.classList.add('placeholder');
-    el.textContent = 'Banner ad';
-  }
+  el.textContent = '';
+  watcher ??= new MutationObserver(() => requestAnimationFrame(syncBanner));
+  watcher.observe(el, { childList: true, subtree: true, attributes: true });
+  const now = performance.now();
+  if (now - lastBanner < 30_000) return;
+  lastBanner = now;
+  requestAnimationFrame(() => {
+    if (!bannerOn) return;
+    Promise.resolve()
+      .then(() => sdk!.banner!.requestResponsiveBanner(BANNER_ID))
+      .then(() => setTimeout(syncBanner, 50))
+      .catch((e: { code?: string } | undefined) => {
+        // Disabled (Basic Launch, mobile app): stop asking for good.
+        if (e?.code && /disabled/i.test(e.code)) bannersOff = true;
+        hideBanner();
+      });
+  });
 }
 /** Ask for a fresh banner in the same strip (at most once a minute). */
 export function refreshBanner() {
@@ -145,13 +158,15 @@ export function hideBanner() {
   const el = document.getElementById(BANNER_ID);
   if (!el || !bannerOn) return;
   bannerOn = false;
+  watcher?.disconnect();
   try {
     sdk?.banner?.clearBanner?.(BANNER_ID);
   } catch {
     /* nothing to clear */
   }
+  el.textContent = '';
   el.hidden = true;
-  document.body.classList.remove('has-banner');
+  syncBanner();
 }
 
 /** When a rewarded ad last played: no midgame ad soon after one. */

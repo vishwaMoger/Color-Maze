@@ -304,7 +304,7 @@ export class Hud {
     return {
       top: $('level-info').getBoundingClientRect().bottom,
       // Clear of the banner ad strip at the bottom, if there is one.
-      bottom: 12 + ($('ad-banner').hidden ? 0 : $('ad-banner').getBoundingClientRect().height),
+      bottom: 12 + (document.body.classList.contains('has-banner') ? $('ad-banner').getBoundingClientRect().height : 0),
       left: Math.max(0, ...left.map((r) => r.right)),
       right: W - Math.min(W, ...right.map((r) => r.left)),
     };
