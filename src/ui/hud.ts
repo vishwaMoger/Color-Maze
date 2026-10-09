@@ -27,11 +27,18 @@ function tierLadder(current: number): string {
 // Players are shown by their ball, like the original. Rendered by the game's
 // 3D ball shader and handed over once at start.
 let BALL_ART: string[] = [];
+/** The player's CrazyGames name and picture, once known (else "You"). */
+let PLAYER: { name: string; avatar?: string } | null = null;
+const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const youName = () => (PLAYER ? esc(PLAYER.name) : 'You');
 const SPHERES = ['#ffd23a', '#ff4f7a', '#4fdca0', '#5aa8ff', '#b67bff', '#ff9a3d', '#3d3d55', '#f2f0ff'];
 const avatarStyle = (r: { name: string; you?: boolean; avatar: string }) => {
   let h = 7;
   for (const ch of r.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const balls = BALL_ART;
+  // Quotes encoded: the style ends up inside a double-quoted HTML attribute.
+  if (r.you && PLAYER?.avatar)
+    return `background:#fff url('${PLAYER.avatar.replace(/'/g, '%27').replace(/"/g, '%22').replace(/[\\\n]/g, '')}') center / cover no-repeat`;
   if (!r.you && h % 3 === 0 && balls.length) return `background:url('${balls[h % balls.length]}') center / cover no-repeat`;
   const c = r.you ? '#ffc21a' : SPHERES[h % SPHERES.length];
   return `background:radial-gradient(circle at 35% 30%, #fff 0 8%, ${c} 38%, color-mix(in srgb, ${c} 60%, #000) 100%)`;
@@ -686,6 +693,11 @@ export class Hud {
     this.coinsTimer = window.setInterval(tick, 1000);
   }
 
+  /** Show the player's CrazyGames name and picture in the league. */
+  setPlayer(p: { name: string; avatar?: string } | null) {
+    PLAYER = p;
+  }
+
   setBallArt(urls: string[]) {
     BALL_ART = urls;
   }
@@ -891,7 +903,7 @@ export class Hud {
         i < 3
           ? `<span class="avwrap">${i === 0 ? '<i class="ico ico-crown crown"></i>' : ''}<span class="avatar" style="${avatarStyle(r)}"></span></span>`
           : `<span class="avatar" style="${avatarStyle(r)}"></span>`
-      }<span class="who">${r.you ? 'You' : r.name}</span>${i < 3 ? '<i class="ico ico-gift gift"></i>' : ''}<span class="score">${r.stars}<i class="ico ico-star"></i></span>${
+      }<span class="who">${r.you ? youName() : r.name}</span>${i < 3 ? '<i class="ico ico-gift gift"></i>' : ''}<span class="score">${r.stars}<i class="ico ico-star"></i></span>${
         i === 0 ? '<i class="tw t1"></i><i class="tw t2"></i><i class="tw t3"></i>' : ''
       }`;
     // The top three stand on a podium (1st in the middle, raised); the
@@ -905,7 +917,7 @@ export class Hud {
         return `<div class="pod p${i + 1}${r.you ? ' you' : ''}">
           ${i === 0 ? '<i class="ico ico-crown crown"></i>' : ''}
           <span class="pav ${medal[i]}" style="${avatarStyle(r)}"></span>
-          <span class="pname">${r.you ? 'You' : r.name}</span>
+          <span class="pname">${r.you ? youName() : r.name}</span>
           <span class="pstars">${r.stars}<i class="ico ico-star"></i></span>
           <span class="pblock ${medal[i]}"><b>${i + 1}</b><i class="ico ico-gift"></i></span>
         </div>`;
@@ -1136,8 +1148,48 @@ export class Hud {
   // ------------------------------------------------------------ messages
 
   showTip(text: string | null) {
+    const changed = text !== null && (this.tip.hidden || this.tip.textContent !== text);
     this.tip.hidden = !text;
-    if (text) this.tip.textContent = text;
+    if (!text) return;
+    this.tip.textContent = text;
+    // A new message pops in so it gets noticed.
+    if (changed) {
+      this.tip.classList.remove('pop');
+      void this.tip.offsetWidth;
+      this.tip.classList.add('pop');
+    }
+  }
+
+  /**
+   * Tutorial hand: its fingertip on the ball (page px), swiping along
+   * (dx, dy) on a loop. Hidden with null.
+   */
+  showHand(at: { x: number; y: number; dx: number; dy: number } | null) {
+    const h = $('tut-hand');
+    if (!at) {
+      h.hidden = true;
+      return;
+    }
+    h.style.left = `${at.x}px`;
+    h.style.top = `${at.y}px`;
+    const dist = 86;
+    const key = `${at.dx},${at.dy}`;
+    if (h.dataset.dir !== key || h.hidden) {
+      h.dataset.dir = key;
+      h.style.setProperty('--dx', `${at.dx * dist}px`);
+      h.style.setProperty('--dy', `${at.dy * dist}px`);
+      // Restart the loop from the ball when the direction changes.
+      h.hidden = true;
+      void h.offsetWidth;
+    }
+    h.hidden = false;
+  }
+
+  /** Draw the eye to a button for a few seconds (tutorial). */
+  pulse(id: string, ms = 4000) {
+    const el = $(id);
+    el.classList.add('tut-pulse');
+    window.setTimeout(() => el.classList.remove('tut-pulse'), ms);
   }
 
   toast(text: string) {
@@ -1476,7 +1528,7 @@ export class Hud {
     const others = after.filter((r) => !r.you);
     const rowH = 48;
     const rowHtml = (r: LeagueRow, rank: number) =>
-      `<span class="pos">#${rank + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? 'You' : r.name}</span><span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
+      `<span class="pos">#${rank + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? youName() : r.name}</span><span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
     inner.innerHTML = '';
     const rows = others.map((r) => {
       const el = document.createElement('div');

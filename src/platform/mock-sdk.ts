@@ -80,6 +80,19 @@ export function installMockSdk() {
           }, 400);
         },
       },
+      user: {
+        isUserAccountAvailable: true,
+        getUser: async () => {
+          note('user.getUser');
+          return {
+            username: 'PaintPro42',
+            profilePictureUrl:
+              'data:image/svg+xml;utf8,' +
+              encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#ff7a3d"/><circle cx="20" cy="16" r="8" fill="#fff3e6"/><rect x="8" y="27" width="24" height="14" rx="7" fill="#fff3e6"/></svg>'),
+          };
+        },
+        addAuthListener: () => note('user.addAuthListener'),
+      },
       data: {
         getItem: (k: string) => store.get(k) ?? null,
         setItem: (k: string, v: string) => (store.set(k, v), note(`data.setItem ${k}`)),

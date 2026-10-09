@@ -170,23 +170,27 @@ function splatPalette(paint: number) {
  * lobes) lit from above, dark at its foot, light on its upper left.
  */
 function lump(g: Graphics, x: number, y: number, r: number, seed: number, [dark, mid, light]: number[]) {
+  // A rounded drop with only gentle lobes, so a scatter of them reads as
+  // glossy wet paint rather than jagged chunks.
   const lobes: number[] = [];
   for (let j = 0; j < 4; j++) {
     const a = seed * 6.283 + j * 1.71;
     const k = (Math.sin(seed * 91.7 + j * 12.9) + 1) / 2;
-    lobes.push(Math.cos(a) * r * 0.42, Math.sin(a) * r * 0.42, r * (0.5 + 0.14 * k));
+    lobes.push(Math.cos(a) * r * 0.26, Math.sin(a) * r * 0.26, r * (0.6 + 0.1 * k));
   }
   const shape = (ox: number, oy: number, s: number) => {
-    g.circle(x + ox, y + oy, r * 0.78 * s);
+    g.circle(x + ox, y + oy, r * 0.8 * s);
     for (let j = 0; j < 12; j += 3) g.circle(x + ox + lobes[j] * s, y + oy + lobes[j + 1] * s, lobes[j + 2] * s);
   };
-  shape(0, r * 0.08, 1);
-  g.fill(dark);
-  shape(0, -r * 0.02, 0.95);
+  // A soft see-through shadow at its foot instead of a hard dark rim.
+  shape(0, r * 0.14, 1);
+  g.fill({ color: dark, alpha: 0.45 });
+  shape(0, 0, 0.94);
   g.fill(mid);
-  g.circle(x - r * 0.24, y - r * 0.3, r * 0.4);
-  g.circle(x - r * 0.02, y - r * 0.4, r * 0.24);
-  g.fill({ color: light, alpha: 0.8 });
+  g.circle(x - r * 0.22, y - r * 0.28, r * 0.34);
+  g.fill({ color: light, alpha: 0.65 });
+  g.circle(x - r * 0.3, y - r * 0.36, r * 0.13);
+  g.fill({ color: 0xffffff, alpha: 0.7 });
 }
 
 /** A glowing portal orb: a bright core in the portal's colour inside a softly wobbling white rim. */
