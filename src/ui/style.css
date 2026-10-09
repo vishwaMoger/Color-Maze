@@ -5516,3 +5516,17 @@ body.has-banner {
   top: -14px;
   z-index: 2;
 }
+
+/* Shop pages: two rows of tiles always fit the panel's height (squares
+   shrink to fit instead of being cut off), with room under the bottom row
+   for the selection ring and its tick. */
+#shop .spage {
+  container-type: size;
+  grid-template-rows: repeat(2, auto);
+  padding: 7px 8px 38px;
+  align-content: start;
+  justify-items: center;
+}
+#shop .spage .tile {
+  width: min(100%, calc((100cqh - 12px) / 2));
+}
