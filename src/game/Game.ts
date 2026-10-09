@@ -15,6 +15,7 @@ import { boardLight, type BoardLight } from './shaders.ts';
 import { Confetti } from './confetti.ts';
 import { slabTexture } from './slabs.ts';
 import { THEMES, type Theme } from './themes.ts';
+import { liveEvent, type EventPrize } from './events.ts';
 
 interface Slide {
   dir: Dir;
@@ -39,6 +40,8 @@ type XY = { x: number; y: number };
 /** A video offer lasts three hours and takes three videos. */
 const OFFER_MS = 3 * 60 * 60 * 1000;
 const OFFER_ADS = 3;
+/** Unlock level that hides an item: an event item its event ended without. */
+const EVENT_GONE = 99999;
 const BANNER_SCREENS = ['shop', 'settings', 'league', 'vault', 'super', 'climb'];
 /**
  * Banner during play too? Off: CrazyGames' ad requirements forbid banners
@@ -421,7 +424,7 @@ export class Game {
       ...BALLS.map((x) => ({ kind: 'ball', x })),
       ...PAINTS.map((x) => ({ kind: 'paint', x })),
       ...THEMES.map((x) => ({ kind: 'board', x })),
-    ].filter(({ x }) => x.unlock > this.save.best && !owned.has(x.id));
+    ].filter(({ x }) => !x.event && x.unlock > this.save.best && !owned.has(x.id));
     // Not the two just offered, while there are others to choose from.
     const last = new Set(o?.ids ?? []);
     const fresh = pool.filter((p) => !last.has(`${p.kind}:${p.x.id}`));
@@ -442,6 +445,49 @@ export class Game {
   private adsWatched(kind: ShopTab, id: string): number {
     // Older saves counted by id alone.
     return this.save.adProgress[`${kind}:${id}`] ?? this.save.adProgress[id] ?? 0;
+  }
+
+  /**
+   * An event item not yet won: its progress while the event runs, or
+   * (once it is over) an unlock past reach, which keeps it out of the shop.
+   */
+  private eventFor(it: { id: string; event?: EventPrize }): Partial<ShopItem> {
+    if (!it.event || this.save.owned.includes(it.id)) return {};
+    const ev = liveEvent();
+    if (!ev || ev.id !== it.event.id) return { unlock: EVENT_GONE };
+    const have = this.save.eventLevels?.[ev.id] ?? 0;
+    return { unlock: 1, event: { have, need: it.event.levels, until: ev.ends, icon: ev.icon, name: ev.name } };
+  }
+
+  /** Event items still to win, nearest first. */
+  private eventPending(): { kind: ShopTab; id: string; name: string; need: number }[] {
+    const ev = liveEvent();
+    if (!ev) return [];
+    const all = [
+      ...BALLS.map((x) => ({ kind: 'ball' as ShopTab, x })),
+      ...PAINTS.map((x) => ({ kind: 'paint' as ShopTab, x })),
+      ...THEMES.map((x) => ({ kind: 'board' as ShopTab, x })),
+    ];
+    return all
+      .filter(({ x }) => x.event?.id === ev.id && !this.save.owned.includes(x.id))
+      .map(({ kind, x }) => ({ kind, id: x.id, name: x.name, need: x.event!.levels }))
+      .sort((a, b) => a.need - b.need);
+  }
+
+  /** A level won during an event counts toward its items. */
+  private advanceEvent(): { kind: ShopTab; id: string; name: string; need: number; prev: number; have: number; won: boolean } | null {
+    const ev = liveEvent();
+    const next = this.eventPending()[0];
+    if (!ev || !next) return null;
+    const counts = (this.save.eventLevels ??= {});
+    const have = (counts[ev.id] ?? 0) + 1;
+    counts[ev.id] = have;
+    // Where this item's stretch began: the item before it, or the start.
+    const prev = Math.max(0, ...[...BALLS, ...PAINTS, ...THEMES].filter((x) => x.event?.id === ev.id && x.event.levels < next.need).map((x) => x.event!.levels));
+    const won = have >= next.need;
+    if (won) this.save.owned.push(next.id);
+    this.persist();
+    return { ...next, prev, have, won };
   }
 
   /** Progress on an item's video offer, if it has one now. */
@@ -500,7 +546,9 @@ export class Game {
   private shopItems(): Record<ShopTab, ShopItem[]> {
     const ball = this.ballSkin();
     // Shop order: what is owned, then video offers, then soonest unlock.
-    const byUnlock = (list: ShopItem[]) => list.sort((a, b) => (a.ads ? 2 : a.unlock) - (b.ads ? 2 : b.unlock));
+    // Event items lead while their event runs; afterwards only won ones stay.
+    const rank = (it: ShopItem) => (it.event ? 1.5 : it.ads ? 2 : it.unlock);
+    const byUnlock = (list: ShopItem[]) => list.filter((it) => it.unlock < EVENT_GONE).sort((a, b) => rank(a) - rank(b));
     return {
       ball: byUnlock(BALLS.map((b, i) => {
         const [c1, c2] = TILE_COLORS[i % TILE_COLORS.length];
@@ -509,6 +557,7 @@ export class Game {
           name: b.name,
           unlock: this.save.owned.includes(b.id) ? 1 : b.unlock,
           ads: this.adsFor('ball', b),
+          ...this.eventFor(b),
           kind: 'ball' as const,
           bg: `--c1:${c1};--c2:${c2}`,
           preview: this.previewCss('ball', b.id, `ball:${b.id}`, this.previews.get(b.id), () => this.spherePreview(b.id)),
@@ -519,6 +568,7 @@ export class Game {
         name: p.name,
         unlock: this.save.owned.includes(p.id) ? 1 : p.unlock,
         ads: this.adsFor('paint', p),
+        ...this.eventFor(p),
         kind: 'paint' as const,
         preview: this.previewCss('paint', p.id, paintKey(p), peekPreview(paintKey(p)), () => paintPreview(this.app.renderer as Renderer, p)),
       }))),
@@ -527,6 +577,7 @@ export class Game {
         name: t.name,
         unlock: this.save.owned.includes(t.id) ? 1 : t.unlock,
         ads: this.adsFor('board', t),
+        ...this.eventFor(t),
         kind: 'board' as const,
         preview: (() => {
           const look = this.makeLook(t);
@@ -688,7 +739,7 @@ export class Game {
   private nextLockedItem(): { id: string; name: string } | null {
     const owned = new Set(this.save.owned);
     const pool = [...BALLS, ...PAINTS]
-      .filter((x) => x.unlock > this.save.best && !owned.has(x.id))
+      .filter((x) => !x.event && x.unlock > this.save.best && !owned.has(x.id))
       .sort((a, b) => a.unlock - b.unlock);
     return pool[0] ?? null;
   }
@@ -1991,15 +2042,32 @@ export class Game {
   }
 
   /** Progress toward the next unlock after a level, or the unlock itself. */
-  private showUnlockProgress(prevBest: number, best: number) {
-    if (best <= prevBest) return;
+  private showUnlockProgress(prevBest: number, best: number, ev: ReturnType<Game['advanceEvent']> = null) {
+    if (best <= prevBest && !ev) return;
     // Never stack on top of a reward screen or panel; wait for it to close.
     if (this.hud.modalOpen) {
-      window.setTimeout(() => this.showUnlockProgress(prevBest, best), 400);
+      window.setTimeout(() => this.showUnlockProgress(prevBest, best, ev), 400);
       return;
     }
     const items = this.shopItems();
-    const all = [...items.ball, ...items.paint, ...items.board].sort((a, b) => a.unlock - b.unlock);
+    if (ev) {
+      const it = items[ev.kind].find((x) => x.id === ev.id);
+      if (ev.won) {
+        this.sound.complete();
+        this.hud.unlocked(ev.name, it?.preview ?? '', () => this.equip(ev.kind, ev.id));
+        this.hud.setShopDot(true);
+        return;
+      }
+      // While an event runs, its next prize is the goal shown after levels
+      // (a level unlock reached at the same time still gets its moment).
+      if (!items.ball.concat(items.paint, items.board).some((x) => x.unlock > prevBest && x.unlock <= best && !x.event)) {
+        const icon = it?.event?.icon ?? '';
+        this.hud.newItemProgress(`${icon} ${it?.event?.name ?? 'Event'}: ${ev.name}`.trim(), it?.preview ?? '', ev.have - 1 - ev.prev, ev.have - ev.prev, ev.need - ev.prev);
+        return;
+      }
+    }
+    if (best <= prevBest) return;
+    const all = [...items.ball, ...items.paint, ...items.board].filter((x) => !x.event).sort((a, b) => a.unlock - b.unlock);
     const just = all.find((x) => x.unlock > prevBest && x.unlock <= best);
     if (just) {
       this.sound.complete();
@@ -2032,6 +2100,7 @@ export class Game {
     this.hud.hideResult();
     this.hud.endCelebrate();
     const prevBest = this.save.best;
+    const ev = this.advanceEvent();
     this.loadLevel(this.levelNo + 1, true);
     // Between levels is the only place a midgame ad may appear.
     // Between levels only, and gently: never in the first few levels, at
@@ -2043,7 +2112,7 @@ export class Game {
       this.levelsSinceAd = 0;
       void midgameAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted));
     }
-    window.setTimeout(() => this.showUnlockProgress(prevBest, this.save.best), 650);
+    window.setTimeout(() => this.showUnlockProgress(prevBest, this.save.best, ev), 650);
   }
 
   // ---------------------------------------------------------------- themes

@@ -6540,3 +6540,10 @@ body.has-banner {
   background: #ff3d5a;
   box-shadow: 0 0 0 2px #fff;
 }
+/* Event items: the countdown pill in pumpkin orange. */
+#shop .tile .offer-time.event {
+  background:
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="white" stroke-width="2.6"/><path d="M12 9v4.5l2.8 1.8" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round"/><path d="M9.5 2.5h5" stroke="white" stroke-width="2.4" stroke-linecap="round"/></svg>') 6px 50% / 13px no-repeat,
+    linear-gradient(180deg, #ffa13a, #f06a0a);
+  box-shadow: 0 2px 0 #b84300, 0 4px 8px rgba(180, 70, 0, 0.3);
+}

@@ -1,6 +1,7 @@
 // Unlockable ball skins and paint colours. Boards live in themes.ts.
 
 import type { SphereMode } from './sphere.ts';
+import type { EventPrize } from './events.ts';
 
 export interface BallSkin {
   id: string;
@@ -10,11 +11,8 @@ export interface BallSkin {
   mode: SphereMode;
   /** Pattern colours: accent, body, detail. */
   colors: [string, string, string];
-  /**
-   * A special item unlocked by watching this many rewarded ads (where ads
-   * run); `unlock` is the level it opens at instead when ads are off.
-   */
-  ads?: number;
+  /** Limited-time item: won by finishing levels during its event. */
+  event?: EventPrize;
 }
 
 export type PaintPattern = 'marble' | 'slime' | 'lava' | 'water';
@@ -30,8 +28,8 @@ export interface PaintColor {
   /** Animated shader pattern and its second colour. */
   pattern?: PaintPattern;
   alt?: number;
-  /** Special: unlocked by rewarded ads (see BallSkin.ads). */
-  ads?: number;
+  /** Limited-time item: won by finishing levels during its event. */
+  event?: EventPrize;
 }
 
 export const PATTERN_MODE: Record<PaintPattern, number> = { marble: 1, slime: 2, lava: 3, water: 4 };
@@ -50,6 +48,8 @@ export const BALLS: BallSkin[] = [
   { id: 'eight', name: '8-Ball', unlock: 440, mode: 'eight', colors: ['#ffffff', '#15151c', '#000000'] },
   { id: 'gold', name: 'Gold', unlock: 600, mode: 'metal', colors: ['#fff3b0', '#f7c22e', '#8a5200'] },
   // A deep violet swirl.
+  // Halloween: a carved jack-o'-lantern whose face glows as it rolls.
+  { id: 'pumpkin', name: 'Pumpkin', unlock: 99999, event: { id: 'halloween26', levels: 8 }, mode: 'pumpkin', colors: ['#ffe45c', '#ff7a12', '#b84300'] },
   { id: 'galaxy', name: 'Galaxy', unlock: 250, mode: 'swirl', colors: ['#7ef0ff', '#5b2bd8', '#ff5fd2'] },
 ];
 
@@ -66,6 +66,8 @@ export const PAINTS: PaintColor[] = [
   { id: 'marble', name: 'Marble', paint: 0xf06ad8, dark: 0xb03aa0, light: 0xffc2f2, cone: 0xffe2fa, unlock: 235, pattern: 'marble', alt: 0xffd0f6 },
   { id: 'slime', name: 'Slime', paint: 0x2ea81c, dark: 0x1a6e10, light: 0xb8ff66, cone: 0xeaffd0, unlock: 340, pattern: 'slime', alt: 0xc8ff3a },
   { id: 'lava', name: 'Lava', paint: 0x8f1606, dark: 0x5a0a02, light: 0xff8a3a, cone: 0xffd0a0, unlock: 530, pattern: 'lava', alt: 0xff6a12 },
+  // Halloween: a bubbling purple witch's brew with green fizz.
+  { id: 'potion', name: 'Potion', paint: 0x7a1fd6, dark: 0x4a0d8a, light: 0xc08bff, cone: 0xe6d4ff, unlock: 99999, event: { id: 'halloween26', levels: 18 }, pattern: 'slime', alt: 0x9dff3a },
 ];
 
 export const hexCss = (n: number) => `#${n.toString(16).padStart(6, '0')}`;

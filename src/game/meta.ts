@@ -40,6 +40,8 @@ export interface Save {
    * that open for three videos each, until `until` (ms); then two others.
    */
   offers?: { until: number; ids: string[] };
+  /** Levels finished during each limited-time event (see events.ts). */
+  eventLevels?: Record<string, number>;
   /** Super Rewards seen: the first Multiply is free, later ones take an ad. */
   superRewards: number;
   /**

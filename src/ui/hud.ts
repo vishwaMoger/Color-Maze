@@ -81,6 +81,8 @@ export interface ShopItem {
   kind: 'ball' | 'paint' | 'board';
   /** On video offer: how many watched of how many, and when it ends (ms). */
   ads?: { have: number; need: number; until: number };
+  /** Limited-time event item: levels finished of those needed, and the end. */
+  event?: { have: number; need: number; until: number; icon: string; name: string };
 }
 
 export interface HudActions {
@@ -861,7 +863,7 @@ export class Hud {
   private markOfferTabs() {
     for (const t of document.querySelectorAll<HTMLElement>('#shop .tab[data-tab]')) {
       const tab = t.dataset.tab as ShopTab;
-      t.classList.toggle('has-offer', !!this.shopData[tab]?.items.some((x) => x.ads));
+      t.classList.toggle('has-offer', !!this.shopData[tab]?.items.some((x) => x.ads || x.event));
     }
   }
 
@@ -883,17 +885,20 @@ export class Hud {
         grid.appendChild(page);
       }
       const byAds = !!it.ads;
-      const locked = byAds || this.unlockedTo < it.unlock;
+      const ev = it.event;
+      const locked = byAds || !!ev || this.unlockedTo < it.unlock;
       const b = document.createElement('button');
       b.className = `tile ${it.kind}${locked ? ' locked' : ''}${it.id === equipped ? ' on' : ''}`;
       b.dataset.id = it.id;
       b.setAttribute(
         'aria-label',
-        `${it.name}${byAds ? `, watch ${it.ads!.need - it.ads!.have} more ads to unlock` : locked ? `, unlocks at level ${it.unlock}` : ''}`,
+        `${it.name}${byAds ? `, watch ${it.ads!.need - it.ads!.have} more ads to unlock` : ev ? `, ${ev.name} prize: finish ${ev.need - ev.have} more levels` : locked ? `, unlocks at level ${it.unlock}` : ''}`,
       );
       if (it.bg) b.setAttribute('style', it.bg);
       b.innerHTML = `<span class="swatch${it.preview ? '' : ' loading'}" style="${it.preview}"></span>${
-        byAds
+        ev
+          ? `<span class="offer-time event" data-until="${ev.until}">${countdown(ev.until)}</span><span class="chip">${ev.icon} ${Math.min(ev.have, ev.need)}/${ev.need}</span><span class="lockb"></span>`
+          : byAds
           ? `<span class="offer-time" data-until="${it.ads!.until}">${countdown(it.ads!.until)}</span><span class="chip">${it.ads!.have}/${it.ads!.need} ads</span><span class="lockb video"></span>`
           : locked
           ? // Three-digit goals drop the word so the chip still fits the tile.
@@ -908,6 +913,11 @@ export class Hud {
         if (byAds) {
           // A special item: each ad watched brings it closer.
           this.actions.adUnlock(this.shopTab, it.id);
+          return;
+        }
+        if (ev) {
+          const left = ev.need - ev.have;
+          this.toast(`${ev.icon} Finish ${left} more level${left === 1 ? '' : 's'} before ${ev.name} ends to win ${it.name}!`);
           return;
         }
         if (locked) {
@@ -1811,6 +1821,8 @@ class ClimbFx {
 /** Time left until `until` (ms), as 2:41:09. */
 function countdown(until: number): string {
   const t = Math.max(0, Math.floor((until - Date.now()) / 1000));
+  // Days away: days and hours are enough.
+  if (t >= 86400) return `${Math.floor(t / 86400)}d ${Math.floor((t % 86400) / 3600)}h`;
   const h = Math.floor(t / 3600);
   const m = Math.floor((t % 3600) / 60);
   const sec = t % 60;
