@@ -6504,3 +6504,39 @@ body.has-banner {
   box-shadow: 0 3px 0 #b81d3a;
   animation: btnpulse 1s ease-in-out infinite;
 }
+
+/* Video offers: a countdown pill on the tile, a red dot on its tab. */
+#shop .tile .offer-time {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 3px 8px 3px 22px;
+  border-radius: 10px;
+  background:
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="white" stroke-width="2.6"/><path d="M12 9v4.5l2.8 1.8" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round"/><path d="M9.5 2.5h5" stroke="white" stroke-width="2.4" stroke-linecap="round"/></svg>') 6px 50% / 13px no-repeat,
+    linear-gradient(180deg, #ff5f73, #e52b48);
+  box-shadow: 0 2px 0 #b81d36, 0 4px 8px rgba(160, 20, 50, 0.3);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#shop .tab.has-offer {
+  position: relative;
+}
+#shop .tab.has-offer::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff3d5a;
+  box-shadow: 0 0 0 2px #fff;
+}

@@ -33,8 +33,13 @@ export interface Save {
   tips: string[];
   /** Local day of the last visit: a new day tops up one free hint. */
   day: number;
-  /** Ads watched toward each ad-unlock item (see `ads` on cosmetics). */
+  /** Ads watched toward each item offered for videos (see `offers`). */
   adProgress: Record<string, number>;
+  /**
+   * Video offers: two locked items (as 'ball:id', 'paint:id', 'board:id')
+   * that open for three videos each, until `until` (ms); then two others.
+   */
+  offers?: { until: number; ids: string[] };
   /** Super Rewards seen: the first Multiply is free, later ones take an ad. */
   superRewards: number;
   /**
@@ -88,6 +93,8 @@ export function loadSave(): Save {
     // has no `pace` and is brought over by the game (keepOldUnlocks).
     const s: Save = raw ? { ...fallback, ...JSON.parse(raw) } : { ...fallback, pace: 2 };
     s.best = Math.max(s.best, s.level);
+    // The Teal maze was once id 'mint', the same as the Mint ball.
+    if (s.theme === 'mint') s.theme = 'teal';
     if (s.day !== dayIndex()) {
       s.day = dayIndex();
       s.hints = Math.max(s.hints, 1);

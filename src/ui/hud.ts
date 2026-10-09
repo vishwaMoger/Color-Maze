@@ -79,8 +79,8 @@ export interface ShopItem {
   /** CSS for the tile's own background (ball tiles). */
   bg?: string;
   kind: 'ball' | 'paint' | 'board';
-  /** Special item still to unlock by ads: how many watched of how many. */
-  ads?: { have: number; need: number };
+  /** On video offer: how many watched of how many, and when it ends (ms). */
+  ads?: { have: number; need: number; until: number };
 }
 
 export interface HudActions {
@@ -846,6 +846,25 @@ export class Hud {
     });
   }
 
+  private offerTick = 0;
+
+  /** Video offers count down on their tiles while the shop is open. */
+  private tickOffers() {
+    window.clearTimeout(this.offerTick);
+    const els = document.querySelectorAll<HTMLElement>('#shop-grid .offer-time');
+    if (!els.length || $('shop').hidden) return;
+    for (const el of els) el.textContent = countdown(Number(el.dataset.until));
+    this.offerTick = window.setTimeout(() => this.tickOffers(), 1000);
+  }
+
+  /** Mark the shop tabs that hold a video offer. */
+  private markOfferTabs() {
+    for (const t of document.querySelectorAll<HTMLElement>('#shop .tab[data-tab]')) {
+      const tab = t.dataset.tab as ShopTab;
+      t.classList.toggle('has-offer', !!this.shopData[tab]?.items.some((x) => x.ads));
+    }
+  }
+
   private renderShop() {
     for (const t of document.querySelectorAll<HTMLElement>('#shop .tab'))
       t.setAttribute('aria-selected', String(t.dataset.tab === this.shopTab));
@@ -875,7 +894,7 @@ export class Hud {
       if (it.bg) b.setAttribute('style', it.bg);
       b.innerHTML = `<span class="swatch${it.preview ? '' : ' loading'}" style="${it.preview}"></span>${
         byAds
-          ? `<span class="chip">${it.ads!.have}/${it.ads!.need} ads</span><span class="lockb video"></span>`
+          ? `<span class="offer-time" data-until="${it.ads!.until}">${countdown(it.ads!.until)}</span><span class="chip">${it.ads!.have}/${it.ads!.need} ads</span><span class="lockb video"></span>`
           : locked
           ? // Three-digit goals drop the word so the chip still fits the tile.
             `<span class="chip">${Math.min(this.unlockedTo, it.unlock)}/${it.unlock}${it.unlock < 100 ? ' lvls' : ''}</span><span class="lockb"></span>`
@@ -902,6 +921,8 @@ export class Hud {
       });
       page!.appendChild(b);
     });
+    this.markOfferTabs();
+    this.tickOffers();
     const dots = $('shop-dots');
     const pages = grid.children.length;
     dots.innerHTML = pages > 1 ? Array.from({ length: pages }, (_, i) => `<i${i === 0 ? ' class="on"' : ''}></i>`).join('') : '';
@@ -1785,4 +1806,13 @@ class ClimbFx {
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.clearRect(0, 0, this.cv.width, this.cv.height);
   }
+}
+
+/** Time left until `until` (ms), as 2:41:09. */
+function countdown(until: number): string {
+  const t = Math.max(0, Math.floor((until - Date.now()) / 1000));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = t % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }

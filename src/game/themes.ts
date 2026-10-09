@@ -125,10 +125,10 @@ const BASE_THEMES: Theme[] = [
     page: '#7b45f2', face: '#5126c4', floor: '#3a1a92', grid: '#2f137c', glow: '#8a57f5',
     shade: 'rgba(10, 0, 40, 0.38)',
     ui: { ink: '#4a1fb8', deep: '#2e0f80', p1: '#9d7fff', p2: '#7650ef', p3: '#5534c4', panelEdge: '#cbbff7', pageInk: '#ffffff' },
-    swatchPaint: '#ff2d8b', root: 246.94, unlock: 160, ads: 5,
+    swatchPaint: '#ff2d8b', root: 246.94, unlock: 160,
   }),
   board({
-    id: 'mint', name: 'Teal',
+    id: 'teal', name: 'Teal',
     page: '#5fdcc9', face: '#24a593', floor: '#16786b', grid: '#11655a', glow: '#8ff0e2',
     ui: { ink: '#0f7a64', deep: '#0a5244', p1: '#4fd6b4', p2: '#1fae8c', p3: '#127a62', panelEdge: '#a6ead8' },
     swatchPaint: '#ff2d8b', root: 329.63, unlock: 10,
