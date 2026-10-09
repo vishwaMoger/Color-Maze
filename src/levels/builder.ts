@@ -385,7 +385,7 @@ function search(
    */
   variety = 0,
 ): Candidate | null {
-  const rng = mulberry32(seed);
+  const rng = mulberry32(seed + salt * 0x9e3779b1);
   let best: Candidate | null = null;
   for (let i = 0; i < tries; i++) {
     const c = make(rng);
@@ -414,7 +414,7 @@ function search(
 
 /** Open room with stopper tiles; mirrored stoppers for a tidy look. */
 function room(n: number, effort = 1): Candidate | null {
-  const rng = mulberry32(n * 4409 + 77);
+  const rng = mulberry32(n * 4409 + 77 + salt * 0x9e3779b1);
   const target = 9 + Math.min(9, Math.floor(n / 14));
   let best: Candidate | null = null;
   for (let attempt = 0; attempt < Math.max(200, Math.round(2500 * effort)); attempt++) {
@@ -607,7 +607,23 @@ export function encodeLevel(c: Candidate, bonus: boolean): string {
  * Build level n (deterministic: every player gets the same level).
  * `effort` scales the search; 1 is the offline quality, lower is faster.
  */
-export function buildLevel(n: number, effort = 1): { c: Candidate; bonus: boolean } {
+export function buildLevel(n: number, effort = 1, reroll = 0): { c: Candidate; bonus: boolean } {
+  salt = reroll;
+  try {
+    return buildWith(n, effort);
+  } finally {
+    salt = 0;
+  }
+}
+
+/**
+ * Reroll number of the level being built: 0 normally; 1, 2, ... give the
+ * same kind of level from fresh random choices (used when a build would
+ * repeat a maze the player has already had; see list.ts).
+ */
+let salt = 0;
+
+function buildWith(n: number, effort: number): { c: Candidate; bonus: boolean } {
   const tries = (k: number) => Math.max(60, Math.round(k * effort));
   const kind = levelKind(n);
   const bonus = kind === 'bonus';

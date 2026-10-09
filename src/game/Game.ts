@@ -36,6 +36,9 @@ interface Slide {
 type XY = { x: number; y: number };
 
 /** Screens that may carry the banner ad (see showBanner). */
+/** A video offer lasts three hours and takes three videos. */
+const OFFER_MS = 3 * 60 * 60 * 1000;
+const OFFER_ADS = 3;
 const BANNER_SCREENS = ['shop', 'settings', 'league', 'vault', 'super', 'climb'];
 /**
  * Banner during play too? Off: CrazyGames' ad requirements forbid banners
@@ -221,17 +224,18 @@ export class Game {
       anyInput: () => this.sound.unlock(),
       adUnlock: (tab, id) => {
         this.sound.click();
-        const item = [...BALLS, ...PAINTS, ...THEMES].find((x) => x.id === id);
-        if (!item?.ads) return;
+        const item = (tab === 'ball' ? BALLS : tab === 'paint' ? PAINTS : THEMES).find((x) => x.id === id);
+        if (!item || !this.offerIds().includes(`${tab}:${id}`)) return;
+        const key = `${tab}:${id}`;
         void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
           if (!ok) {
             this.hud.toast('No video available right now. Try again soon!');
             this.refreshShop();
             return;
           }
-          const have = (this.save.adProgress[id] ?? 0) + 1;
-          this.save.adProgress[id] = have;
-          if (have >= item.ads!) {
+          const have = this.adsWatched(tab, id) + 1;
+          this.save.adProgress[key] = have;
+          if (have >= OFFER_ADS) {
             this.save.owned.push(id);
             this.persist();
             this.equip(tab, id);
@@ -239,7 +243,7 @@ export class Game {
             this.sound.star(2);
           } else {
             this.persist();
-            this.hud.toast(`${have}/${item.ads} — ${item.ads! - have} more to unlock ${item.name}`);
+            this.hud.toast(`${have}/${OFFER_ADS} — ${OFFER_ADS - have} more to unlock ${item.name}`);
           }
           this.refreshShop();
         });
@@ -403,12 +407,48 @@ export class Game {
   }
 
   /**
-   * A special item still to unlock by ads: its progress, shown in the shop.
-   * Owned items, or any when ads are off, use their level unlock instead.
+   * Video offers: two locked items at a time (of different kinds where it
+   * can be) open for three videos each, for three hours; then two others
+   * take their place. An item won stays won; one not finished keeps its
+   * videos watched for whenever it is offered again.
    */
-  private adsFor(it: { id: string; ads?: number }): ShopItem['ads'] {
-    if (!it.ads || this.save.owned.includes(it.id) || !adsAvailable()) return undefined;
-    return { have: this.save.adProgress[it.id] ?? 0, need: it.ads };
+  private offerIds(): string[] {
+    const now = Date.now();
+    const o = this.save.offers;
+    if (o && now < o.until && o.until - now <= OFFER_MS) return o.ids;
+    const owned = new Set(this.save.owned);
+    const pool = [
+      ...BALLS.map((x) => ({ kind: 'ball', x })),
+      ...PAINTS.map((x) => ({ kind: 'paint', x })),
+      ...THEMES.map((x) => ({ kind: 'board', x })),
+    ].filter(({ x }) => x.unlock > this.save.best && !owned.has(x.id));
+    // Not the two just offered, while there are others to choose from.
+    const last = new Set(o?.ids ?? []);
+    const fresh = pool.filter((p) => !last.has(`${p.kind}:${p.x.id}`));
+    const from = fresh.length >= 2 ? fresh : pool;
+    const ids: string[] = [];
+    for (let i = 0; i < 2 && from.length; i++) {
+      const other = from.filter((p) => !ids.some((id) => id.startsWith(p.kind + ':')));
+      const choice = (other.length ? other : from)[Math.floor(Math.random() * (other.length || from.length))];
+      ids.push(`${choice.kind}:${choice.x.id}`);
+      from.splice(from.indexOf(choice), 1);
+    }
+    this.save.offers = { until: now + OFFER_MS, ids };
+    this.persist();
+    return ids;
+  }
+
+  /** Videos watched toward an item (kept between its offers). */
+  private adsWatched(kind: ShopTab, id: string): number {
+    // Older saves counted by id alone.
+    return this.save.adProgress[`${kind}:${id}`] ?? this.save.adProgress[id] ?? 0;
+  }
+
+  /** Progress on an item's video offer, if it has one now. */
+  private adsFor(kind: ShopTab, it: { id: string }): ShopItem['ads'] {
+    if (this.save.owned.includes(it.id) || !adsAvailable()) return undefined;
+    if (!this.offerIds().includes(`${kind}:${it.id}`)) return undefined;
+    return { have: this.adsWatched(kind, it.id), need: OFFER_ADS, until: this.save.offers!.until };
   }
 
   /**
@@ -459,42 +499,41 @@ export class Game {
 
   private shopItems(): Record<ShopTab, ShopItem[]> {
     const ball = this.ballSkin();
-    // Shop order: soonest unlock first, with the ad specials up front.
-    const byUnlock = <T extends { unlock: number; ads?: number }>(list: readonly T[]) =>
-      [...list].sort((a, b) => (a.ads ? 2 : a.unlock) - (b.ads ? 2 : b.unlock));
+    // Shop order: what is owned, then video offers, then soonest unlock.
+    const byUnlock = (list: ShopItem[]) => list.sort((a, b) => (a.ads ? 2 : a.unlock) - (b.ads ? 2 : b.unlock));
     return {
-      ball: byUnlock(BALLS).map((b, i) => {
+      ball: byUnlock(BALLS.map((b, i) => {
         const [c1, c2] = TILE_COLORS[i % TILE_COLORS.length];
         return {
           id: b.id,
           name: b.name,
           unlock: this.save.owned.includes(b.id) ? 1 : b.unlock,
-          ads: this.adsFor(b),
+          ads: this.adsFor('ball', b),
           kind: 'ball' as const,
           bg: `--c1:${c1};--c2:${c2}`,
           preview: this.previewCss('ball', b.id, `ball:${b.id}`, this.previews.get(b.id), () => this.spherePreview(b.id)),
         };
-      }),
-      paint: byUnlock(PAINTS).map((p) => ({
+      })),
+      paint: byUnlock(PAINTS.map((p) => ({
         id: p.id,
         name: p.name,
         unlock: this.save.owned.includes(p.id) ? 1 : p.unlock,
-        ads: this.adsFor(p),
+        ads: this.adsFor('paint', p),
         kind: 'paint' as const,
         preview: this.previewCss('paint', p.id, paintKey(p), peekPreview(paintKey(p)), () => paintPreview(this.app.renderer as Renderer, p)),
-      })),
-      board: byUnlock(THEMES).map((t) => ({
+      }))),
+      board: byUnlock(THEMES.map((t) => ({
         id: t.id,
         name: t.name,
         unlock: this.save.owned.includes(t.id) ? 1 : t.unlock,
-        ads: this.adsFor(t),
+        ads: this.adsFor('board', t),
         kind: 'board' as const,
         preview: (() => {
           const look = this.makeLook(t);
           const key = boardKey(look, ball);
           return this.previewCss('board', t.id, key, peekPreview(key), () => boardPreview(this.app.renderer as Renderer, look, ball));
         })(),
-      })),
+      }))),
     };
   }
 
@@ -511,8 +550,13 @@ export class Game {
     return url;
   }
 
+  private offerTimer = 0;
+
   private refreshShop() {
     const items = this.shopItems();
+    // New offers the moment the current ones run out, shop open or not.
+    window.clearTimeout(this.offerTimer);
+    if (this.save.offers) this.offerTimer = window.setTimeout(() => document.getElementById('shop')?.hidden === false && this.refreshShop(), Math.max(1000, this.save.offers.until - Date.now() + 500));
     this.hud.setShop('ball', items.ball, this.save.ball, this.save.best);
     this.hud.setShop('paint', items.paint, this.save.paint, this.save.best);
     this.hud.setShop('board', items.board, this.theme.id, this.save.best);
@@ -2486,10 +2530,8 @@ function keepOldUnlocks(save: Save) {
   if ((save.pace ?? 1) >= 2) return;
   const keep = new Set(save.owned);
   for (const [id, at] of Object.entries(OLD_UNLOCKS)) if (at <= save.best) keep.add(id);
-  // Whatever is equipped stays usable. (The Teal board shares the id "mint"
-  // with the Mint ball, and still opens at the same level, so it is skipped.)
-  keep.add(save.ball).add(save.paint);
-  if (save.theme !== 'mint') keep.add(save.theme);
+  // Whatever is equipped stays usable.
+  keep.add(save.ball).add(save.paint).add(save.theme);
   save.owned = [...keep];
   save.pace = 2;
   storeSave(save);

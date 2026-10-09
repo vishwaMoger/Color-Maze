@@ -49,8 +49,8 @@ export const BALLS: BallSkin[] = [
   { id: 'moon', name: 'Moon', unlock: 370, mode: 'moon', colors: ['#e9e6ef', '#cfcbd8', '#7d7889'] },
   { id: 'eight', name: '8-Ball', unlock: 440, mode: 'eight', colors: ['#ffffff', '#15151c', '#000000'] },
   { id: 'gold', name: 'Gold', unlock: 600, mode: 'metal', colors: ['#fff3b0', '#f7c22e', '#8a5200'] },
-  // Special: a deep violet swirl, unlocked by watching ads.
-  { id: 'galaxy', name: 'Galaxy', unlock: 250, ads: 3, mode: 'swirl', colors: ['#7ef0ff', '#5b2bd8', '#ff5fd2'] },
+  // A deep violet swirl.
+  { id: 'galaxy', name: 'Galaxy', unlock: 250, mode: 'swirl', colors: ['#7ef0ff', '#5b2bd8', '#ff5fd2'] },
 ];
 
 export const PAINTS: PaintColor[] = [
@@ -61,8 +61,8 @@ export const PAINTS: PaintColor[] = [
   { id: 'violet', name: 'Violet', paint: 0x9b30ff, dark: 0x6b1fbf, light: 0xdcafff, cone: 0xf0deff, unlock: 66 },
   { id: 'aqua', name: 'Lagoon', paint: 0x18c2f2, dark: 0x0a7fb0, light: 0xa8f2ff, cone: 0xe0fbff, unlock: 150, pattern: 'water', alt: 0xe8fdff },
   { id: 'orange', name: 'Tangerine', paint: 0xff8a1f, dark: 0xc2560a, light: 0xffc38a, cone: 0xffe2b8, unlock: 105 },
-  // Special: a shimmering violet-and-cyan marble, unlocked by watching ads.
-  { id: 'aurora', name: 'Aurora', paint: 0x8a5cff, dark: 0x5a2fd0, light: 0xc9b3ff, cone: 0xe4dcff, unlock: 320, ads: 3, pattern: 'marble', alt: 0x7ef0ff },
+  // A shimmering violet-and-cyan marble.
+  { id: 'aurora', name: 'Aurora', paint: 0x8a5cff, dark: 0x5a2fd0, light: 0xc9b3ff, cone: 0xe4dcff, unlock: 320, pattern: 'marble', alt: 0x7ef0ff },
   { id: 'marble', name: 'Marble', paint: 0xf06ad8, dark: 0xb03aa0, light: 0xffc2f2, cone: 0xffe2fa, unlock: 235, pattern: 'marble', alt: 0xffd0f6 },
   { id: 'slime', name: 'Slime', paint: 0x2ea81c, dark: 0x1a6e10, light: 0xb8ff66, cone: 0xeaffd0, unlock: 340, pattern: 'slime', alt: 0xc8ff3a },
   { id: 'lava', name: 'Lava', paint: 0x8f1606, dark: 0x5a0a02, light: 0xff8a3a, cone: 0xffd0a0, unlock: 530, pattern: 'lava', alt: 0xff6a12 },
