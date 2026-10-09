@@ -37,6 +37,11 @@ export interface Save {
   adProgress: Record<string, number>;
   /** Super Rewards seen: the first Multiply is free, later ones take an ad. */
   superRewards: number;
+  /**
+   * Unlock schedule the save was made under. Saves from before the long
+   * schedule (no value) keep everything the old one had already given.
+   */
+  pace?: number;
 }
 
 const SAVE_KEY = 'colormaze.v1';
@@ -79,7 +84,9 @@ export function loadSave(): Save {
         raw = null;
       }
     }
-    const s: Save = raw ? { ...fallback, ...JSON.parse(raw) } : fallback;
+    // A brand-new save starts on the current unlock schedule; an older one
+    // has no `pace` and is brought over by the game (keepOldUnlocks).
+    const s: Save = raw ? { ...fallback, ...JSON.parse(raw) } : { ...fallback, pace: 2 };
     s.best = Math.max(s.best, s.level);
     if (s.day !== dayIndex()) {
       s.day = dayIndex();
@@ -91,7 +98,7 @@ export function loadSave(): Save {
     }
     return s;
   } catch {
-    return fallback;
+    return { ...fallback, pace: 2 };
   }
 }
 
