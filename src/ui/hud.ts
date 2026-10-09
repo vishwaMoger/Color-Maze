@@ -877,7 +877,8 @@ export class Hud {
         byAds
           ? `<span class="chip">${it.ads!.have}/${it.ads!.need} ads</span><span class="lockb video"></span>`
           : locked
-          ? `<span class="chip">${Math.min(this.unlockedTo, it.unlock)}/${it.unlock} lvls</span><span class="lockb"></span>`
+          ? // Three-digit goals drop the word so the chip still fits the tile.
+            `<span class="chip">${Math.min(this.unlockedTo, it.unlock)}/${it.unlock}${it.unlock < 100 ? ' lvls' : ''}</span><span class="lockb"></span>`
           : it.id === equipped
             ? '<span class="tick"></span>'
             : ''

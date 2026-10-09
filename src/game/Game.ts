@@ -193,6 +193,7 @@ export class Game {
     private readonly hud: Hud,
   ) {
     this.save = loadSave();
+    keepOldUnlocks(this.save);
     this.theme = THEMES.find((t) => t.id === this.save.theme) ?? THEMES[0];
     this.look = this.makeLook();
     this.hud.setPaintColors(this.look.paint, this.look.paintLight, this.look.paintDark);
@@ -459,8 +460,11 @@ export class Game {
 
   private shopItems(): Record<ShopTab, ShopItem[]> {
     const ball = this.ballSkin();
+    // Shop order: soonest unlock first, with the ad specials up front.
+    const byUnlock = <T extends { unlock: number; ads?: number }>(list: readonly T[]) =>
+      [...list].sort((a, b) => (a.ads ? 2 : a.unlock) - (b.ads ? 2 : b.unlock));
     return {
-      ball: BALLS.map((b, i) => {
+      ball: byUnlock(BALLS).map((b, i) => {
         const [c1, c2] = TILE_COLORS[i % TILE_COLORS.length];
         return {
           id: b.id,
@@ -472,7 +476,7 @@ export class Game {
           preview: this.previewCss('ball', b.id, `ball:${b.id}`, this.previews.get(b.id), () => this.spherePreview(b.id)),
         };
       }),
-      paint: PAINTS.map((p) => ({
+      paint: byUnlock(PAINTS).map((p) => ({
         id: p.id,
         name: p.name,
         unlock: this.save.owned.includes(p.id) ? 1 : p.unlock,
@@ -480,7 +484,7 @@ export class Game {
         kind: 'paint' as const,
         preview: this.previewCss('paint', p.id, paintKey(p), peekPreview(paintKey(p)), () => paintPreview(this.app.renderer as Renderer, p)),
       })),
-      board: THEMES.map((t) => ({
+      board: byUnlock(THEMES).map((t) => ({
         id: t.id,
         name: t.name,
         unlock: this.save.owned.includes(t.id) ? 1 : t.unlock,
@@ -2457,4 +2461,28 @@ export class Game {
     this.layoutCache = null;
     this.relayout();
   }
+}
+
+/**
+ * Level each item unlocked at before unlocks were spread out to level 600.
+ * A player who already passed one keeps it: nothing they had is taken away.
+ * (Ad-unlock specials are left out; those stay earned by ads.)
+ */
+const OLD_UNLOCKS: Record<string, number> = {
+  pearl: 3, earth: 6, ruby: 9, softball: 12, volley: 16, mint: 20, basket: 24, soccer: 30, moon: 36, eight: 44, gold: 55,
+  sun: 5, blue: 10, lime: 16, violet: 24, aqua: 32, orange: 40, marble: 50, slime: 65, lava: 80,
+  wood: 15, terrazzo: 20, candy: 25, ocean: 30, birch: 40, neon: 50, knit: 60, terrawood: 70, grass: 80,
+};
+
+function keepOldUnlocks(save: Save) {
+  if ((save.pace ?? 1) >= 2) return;
+  const keep = new Set(save.owned);
+  for (const [id, at] of Object.entries(OLD_UNLOCKS)) if (at <= save.best) keep.add(id);
+  // Whatever is equipped stays usable. (The Teal board shares the id "mint"
+  // with the Mint ball, and still opens at the same level, so it is skipped.)
+  keep.add(save.ball).add(save.paint);
+  if (save.theme !== 'mint') keep.add(save.theme);
+  save.owned = [...keep];
+  save.pace = 2;
+  storeSave(save);
 }
