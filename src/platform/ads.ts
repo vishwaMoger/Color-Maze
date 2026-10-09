@@ -1,8 +1,8 @@
 // CrazyGames SDK v3, wrapped so the rest of the game never touches it.
-// The SDK is only loaded when the build sets VITE_CRAZYGAMES=1; everywhere
-// else these calls are no-ops. Rewarded ads are granted for free only in the
-// dev server, so the flow can be tried locally without handing out coins in
-// a real build. In the dev server, ?sdk=mock installs a fake SDK that logs
+// The SDK is only loaded when the build sets VITE_CRAZYGAMES=1 (npm run
+// build:crazygames). Builds without it (the dev server, the preview link)
+// simulate rewarded ads: every video offer shows and grants at once, so the
+// whole game can be tried; the CrazyGames build always uses real ads. In the dev server, ?sdk=mock installs a fake SDK that logs
 // every call (window.__sdkLog), to test the wiring without the portal.
 
 type AdCallbacks = { adStarted?: () => void; adFinished?: () => void; adError?: (e: unknown) => void };
@@ -38,6 +38,8 @@ interface CrazySdk {
 
 const ENABLED = import.meta.env.VITE_CRAZYGAMES === '1';
 const MOCK = import.meta.env.DEV && new URLSearchParams(location.search).get('sdk') === 'mock';
+/** No ad platform in this build: rewarded ads are simulated (granted). */
+const SIMULATED = !ENABLED && !MOCK;
 const SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js';
 /** Midgame ads at most this often (CrazyGames enforces 3 minutes too). */
 const MIDGAME_GAP_MS = 3 * 60 * 1000;
@@ -178,7 +180,7 @@ let rewardFails = 0;
 
 /** True when rewarded ads can actually be shown (or faked in dev). */
 export function adsAvailable(): boolean {
-  return (!!sdk && rewardFails < 2) || (import.meta.env.DEV && !sdk);
+  return (!!sdk && rewardFails < 2) || SIMULATED;
 }
 
 /**
@@ -265,8 +267,8 @@ function requestAd(type: 'rewarded' | 'midgame', onStart?: () => void, onEnd?: (
 /** Show a rewarded ad; resolves true when the player earned the reward. */
 export function rewardedAd(onStart?: () => void, onEnd?: () => void): Promise<boolean> {
   if (!sdk) {
-    if (import.meta.env.DEV) lastRewarded = performance.now();
-    return Promise.resolve(import.meta.env.DEV);
+    if (SIMULATED) lastRewarded = performance.now();
+    return Promise.resolve(SIMULATED);
   }
   return requestAd('rewarded', onStart, onEnd).then((ok) => {
     // Ads off (Basic Launch) or none to be had: after two misses in a row

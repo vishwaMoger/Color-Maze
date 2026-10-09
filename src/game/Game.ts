@@ -1785,8 +1785,9 @@ export class Game {
       { tick: () => this.sound.click(), win: () => this.sound.complete() },
       {
         // The first Super Reward multiplies for free; after that it is a
-        // rewarded ad (when ads run), always with Continue beside it.
-        free: this.save.superRewards++ === 0,
+        // rewarded ad, always with Continue beside it. With no ads to be had
+        // (e.g. Basic Launch) it stays free, so Multiply never goes missing.
+        free: this.save.superRewards++ === 0 || !adsAvailable(),
         watchAd: adsAvailable() ? () => rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)) : null,
       },
     );
