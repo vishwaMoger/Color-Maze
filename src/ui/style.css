@@ -5608,23 +5608,180 @@ body.has-banner {
   clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
 }
-#league .ranking li.top1 {
-  background: linear-gradient(105deg, #ffea2b 0%, #ffd200 62%, #ffbc00 62.2%, #ffb000 100%);
+
+/* The top three: polished gold, silver and bronze nameplates, taller than
+   the rest, each with a 3D medal, a metal ring round the avatar, a glow
+   in its metal's colour and a sheen sweeping across now and then. */
+#league .ranking li.top1,
+#league .ranking li.top2,
+#league .ranking li.top3 {
+  position: relative;
+  height: 62px;
+  margin: 2px 0;
+  padding-left: 6px;
+  border-radius: 20px;
+  font-size: 19px;
 }
-#league .ranking li.top1 .pos b {
-  background: linear-gradient(180deg, #ffd23f, #e89a00);
+#league .ranking li.top1 {
+  --metal: #ffcf3a;
+  background: linear-gradient(180deg, #fff6b8 0%, #ffdc4a 42%, #f5b400 100%);
+  color: #6b3d00;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -4px 0 #cf8a00,
+    0 0 0 2px #fff1a6,
+    0 6px 14px rgba(230, 150, 0, 0.45),
+    0 0 24px rgba(255, 214, 60, 0.75);
 }
 #league .ranking li.top2 {
-  background: linear-gradient(105deg, #ffffff 0%, #ececf2 62%, #dcdce6 62.2%, #d2d2de 100%);
-}
-#league .ranking li.top2 .pos b {
-  background: linear-gradient(180deg, #b9c2cf, #7d8899);
+  --metal: #c9d2e3;
+  background: linear-gradient(180deg, #ffffff 0%, #e9edf5 45%, #bcc6d8 100%);
+  color: #3d4659;
+  box-shadow:
+    inset 0 2px 0 #fff,
+    inset 0 -4px 0 #8f9ab0,
+    0 0 0 2px #f4f6fb,
+    0 6px 14px rgba(90, 100, 140, 0.35),
+    0 0 18px rgba(220, 230, 255, 0.7);
 }
 #league .ranking li.top3 {
-  background: linear-gradient(105deg, #ffb27e 0%, #ffc39c 62%, #ffd8bd 62.2%, #ffe6d4 100%);
+  --metal: #f0a070;
+  background: linear-gradient(180deg, #ffe1c8 0%, #f6b083 45%, #d17a42 100%);
+  color: #5a2600;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -4px 0 #a2521f,
+    0 0 0 2px #ffe0c6,
+    0 6px 14px rgba(170, 80, 20, 0.35),
+    0 0 18px rgba(255, 160, 100, 0.6);
 }
-#league .ranking li.top3 .pos b {
-  background: linear-gradient(180deg, #e88a52, #b8541e);
+#league .ranking li.top1::after,
+#league .ranking li.top2::after,
+#league .ranking li.top3::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.7) 50%, transparent 60%) 0 0 / 260% 100% no-repeat;
+  animation: lbsheen 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+#league .ranking li.top2::after {
+  animation-delay: 0.5s;
+}
+#league .ranking li.top3::after {
+  animation-delay: 1s;
+}
+@keyframes lbsheen {
+  0% {
+    background-position: 140% 0;
+  }
+  45%,
+  100% {
+    background-position: -40% 0;
+  }
+}
+#league .ranking li.top1 .pos,
+#league .ranking li.top2 .pos,
+#league .ranking li.top3 .pos {
+  display: grid;
+  place-items: center;
+  min-width: 50px;
+}
+#league .ranking .medal {
+  width: 46px;
+  height: 46px;
+  filter: drop-shadow(0 3px 3px rgba(60, 20, 0, 0.35));
+  animation: lbswing 2.6s ease-in-out infinite;
+  transform-origin: 50% 10%;
+}
+@keyframes lbswing {
+  50% {
+    transform: rotate(-8deg);
+  }
+}
+#league .ranking .avwrap {
+  position: relative;
+  flex: none;
+  display: grid;
+}
+#league .ranking li.top1 .avatar,
+#league .ranking li.top2 .avatar,
+#league .ranking li.top3 .avatar {
+  width: 40px;
+  height: 40px;
+  box-shadow: 0 0 0 3px var(--metal), 0 0 0 5px rgba(255, 255, 255, 0.85), 0 0 12px 3px var(--metal);
+}
+#league .ranking .crown {
+  position: absolute;
+  left: 50%;
+  top: -19px;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  transform: rotate(-14deg);
+  filter: drop-shadow(0 2px 2px rgba(90, 50, 0, 0.4));
+  animation: lbcrown 2.2s ease-in-out infinite;
+  z-index: 1;
+}
+@keyframes lbcrown {
+  50% {
+    transform: rotate(-6deg) translateY(-3px);
+  }
+}
+#league .ranking li.top1 .gift,
+#league .ranking li.top2 .gift,
+#league .ranking li.top3 .gift {
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 3px 3px rgba(60, 20, 0, 0.3));
+  animation: lbgift 1.8s ease-in-out infinite;
+}
+@keyframes lbgift {
+  50% {
+    transform: translateY(-4px) rotate(6deg);
+  }
+}
+#league .ranking li.top1 .score .ico,
+#league .ranking li.top2 .score .ico,
+#league .ranking li.top3 .score .ico {
+  width: 20px;
+  height: 20px;
+}
+/* Twinkles on first place. */
+#league .ranking .tw {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  filter: drop-shadow(0 0 3px #fff3a0);
+  animation: lbtw 1.8s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+#league .ranking .tw.t1 { left: 42%; top: 6px; }
+#league .ranking .tw.t2 { left: 64%; bottom: 7px; width: 9px; height: 9px; animation-delay: 0.6s; }
+#league .ranking .tw.t3 { right: 22px; top: 4px; width: 10px; height: 10px; animation-delay: 1.2s; }
+@keyframes lbtw {
+  0%,
+  100% {
+    transform: scale(0.2) rotate(0deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1) rotate(45deg);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #league .ranking li::after,
+  #league .ranking .medal,
+  #league .ranking .crown,
+  #league .ranking .gift,
+  #league .ranking .tw {
+    animation: none;
+  }
 }
 #league .ranking li.you,
 #league-you li.you {

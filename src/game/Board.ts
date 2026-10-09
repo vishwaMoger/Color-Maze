@@ -79,7 +79,7 @@ function causticFilter(): Filter & { uniforms: { uTime: number; uScale: number; 
     uStrength: { value: 0.55, type: 'f32' },
   });
   const f = new Filter({
-    glProgram: GlProgram.from({ vertex: FILTER_VERT, fragment: CAUSTIC_FRAG, name: 'caustics' }),
+    glProgram: GlProgram.from({ vertex: FILTER_VERT, fragment: CAUSTIC_FRAG, name: 'caustics', preferredFragmentPrecision: 'highp' }),
     resources: { causticUniforms: uniforms },
   });
   return Object.assign(f, { uniforms: uniforms.uniforms as { uTime: number; uScale: number; uStrength: number } });

@@ -23,7 +23,9 @@ type Uniforms = Record<string, { value: number | Float32Array; type: 'f32' | 've
 export function make<U>(name: string, fragment: string, uniforms: Uniforms, padding = 0): Filter & { uniforms: U } {
   const group = new UniformGroup(uniforms);
   const f = new Filter({
-    glProgram: GlProgram.from({ vertex: FILTER_VERT, fragment, name }),
+    // Full float precision: phones otherwise default to 16-bit floats, where
+    // the noise maths overflows and patterned surfaces come out black.
+    glProgram: GlProgram.from({ vertex: FILTER_VERT, fragment, name, preferredFragmentPrecision: 'highp' }),
     resources: { [`${name}Uniforms`]: group },
   });
   f.padding = padding;
