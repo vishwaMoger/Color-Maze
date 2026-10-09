@@ -275,6 +275,8 @@ export class Hud {
   hideSplash(progress: number) {
     const bar = document.querySelector<HTMLElement>('#splash .loadbar span');
     if (bar) bar.style.width = `${Math.round(progress * 100)}%`;
+    // The little paint ball rides the front of the bar.
+    document.querySelector<HTMLElement>('#splash .loadbar')?.style.setProperty('--p', String(progress));
     if (progress >= 1) window.setTimeout(() => $('splash').classList.add('hide'), 350);
   }
 
@@ -422,7 +424,8 @@ export class Hud {
     $('revive-streak').textContent = String(o.streak);
     // The streak chip only matters when there is a streak to lose.
     ($('revive-streak').parentElement as HTMLElement).hidden = o.streak <= 0;
-    $('revive-sub').textContent = o.streak > 0 ? `You'll lose your ${o.streak}-win streak!` : "You'll lose this level's stars";
+    $('revive-sub').textContent =
+      o.level > 1 ? `Or go back to level ${o.level - 1}` : o.streak > 0 ? `You'll lose your ${o.streak}-win streak!` : "You'll lose this level's stars";
     const bar = $('revive-bar');
     const count = $('revive-count');
     const circ = 2 * Math.PI * 52;

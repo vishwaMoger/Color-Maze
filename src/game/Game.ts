@@ -1366,6 +1366,23 @@ export class Game {
         if (!ball.destroyed) ball.unsplit();
         this.restart();
       };
+      // Turning the revive down costs a level: play the one before again
+      // (the streak goes too). On level 1 there is nowhere to go back to.
+      const stepBack = () => {
+        if (this.levelNo <= 1) {
+          giveUp();
+          return;
+        }
+        this.dead = false;
+        this.endSlowMo();
+        if (!ball.destroyed) ball.unsplit();
+        if (this.save.streak > 0) {
+          this.save.streak = 0;
+          this.hud.streakLost();
+        }
+        this.hud.toast(`Back to level ${this.levelNo - 1}`);
+        this.loadLevel(this.levelNo - 1, true);
+      };
       // Revive is always a rewarded ad (Give up beside it). With no ads to
       // be had, just retry.
       if (!adsAvailable()) {
@@ -1390,7 +1407,7 @@ export class Game {
             return true;
           });
         },
-        onGiveUp: giveUp,
+        onGiveUp: stepBack,
       });
     }, REDUCED_MOTION ? 950 : 1500);
   }
