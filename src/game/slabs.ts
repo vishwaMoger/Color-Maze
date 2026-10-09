@@ -172,7 +172,7 @@ export function slabCanvas(style: SlabStyle, res: number): HTMLCanvasElement {
     case 'spooky': {
       // A haunted night: violet sky, drifting glows, pale stars and a
       // scatter of bats, all wrapped so the tile repeats seamlessly.
-      fill('#3b1d6e');
+      fill('#43217f');
       for (let i = 0; i < 6; i++) {
         const x = r() * TILE;
         const y = r() * TILE;
@@ -196,6 +196,65 @@ export function slabCanvas(style: SlabStyle, res: number): HTMLCanvasElement {
           ctx.beginPath();
           ctx.arc(px, py, s, 0, Math.PI * 2);
           ctx.fill();
+        });
+      }
+      // Faint little ghosts drifting in the dark.
+      for (let i = 0; i < 2; i++) {
+        const x = r() * TILE;
+        const y = r() * TILE;
+        const k = 0.8 + r() * 0.4;
+        wrap(x, y, 20, (px, py) => {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.scale(k, k);
+          ctx.fillStyle = 'rgba(240, 230, 255, 0.2)';
+          ctx.beginPath();
+          ctx.moveTo(-9, 10);
+          ctx.lineTo(-9, -2);
+          ctx.arc(0, -2, 9, Math.PI, 0);
+          ctx.lineTo(9, 10);
+          for (let j = 0; j < 3; j++) ctx.quadraticCurveTo(6 - j * 6, 6, 3 - j * 6, 10);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = 'rgba(30, 10, 60, 0.45)';
+          ctx.beginPath();
+          ctx.ellipse(-3.2, -2.5, 1.6, 2.3, 0, 0, Math.PI * 2);
+          ctx.ellipse(3.2, -2.5, 1.6, 2.3, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      }
+      // Small jack-o'-lanterns, their faces lit from inside.
+      for (let i = 0; i < 3; i++) {
+        const x = r() * TILE;
+        const y = r() * TILE;
+        const k = 0.7 + r() * 0.5;
+        const tilt = (r() - 0.5) * 0.5;
+        wrap(x, y, 24, (px, py) => {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(tilt);
+          ctx.scale(k, k);
+          const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 22);
+          halo.addColorStop(0, 'rgba(255, 140, 30, 0.35)');
+          halo.addColorStop(1, 'rgba(255, 140, 30, 0)');
+          ctx.fillStyle = halo;
+          ctx.fillRect(-22, -22, 44, 44);
+          ctx.fillStyle = '#5a7a1e';
+          ctx.fillRect(-1.5, -14, 3, 6);
+          for (const [dx, w, col] of [[-5, 6.5, '#d65e08'], [5, 6.5, '#d65e08'], [0, 7, '#ff8a1c']] as const) {
+            ctx.fillStyle = col;
+            ctx.beginPath();
+            ctx.ellipse(dx, 0, w, 9, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.fillStyle = '#ffe066';
+          ctx.beginPath();
+          ctx.moveTo(-6, -1); ctx.lineTo(-3.5, -5); ctx.lineTo(-1.5, -1);
+          ctx.moveTo(1.5, -1); ctx.lineTo(3.5, -5); ctx.lineTo(6, -1);
+          ctx.moveTo(-6, 2.5); ctx.quadraticCurveTo(0, 8.5, 6, 2.5); ctx.quadraticCurveTo(0, 5, -6, 2.5);
+          ctx.fill();
+          ctx.restore();
         });
       }
       for (let i = 0; i < 7; i++) {

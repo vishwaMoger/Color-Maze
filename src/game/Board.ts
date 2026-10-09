@@ -431,6 +431,38 @@ function tileFinish(ctx: CanvasRenderingContext2D, style: TileStyle, x0: number,
     case 'glaze':
       glaze();
       break;
+    case 'stone': {
+      // Old crypt flagstones: each slab its own shade, with a mottled
+      // surface, a worn lighter top edge and now and then a crack.
+      ctx.fillStyle = rnd() < 0.5 ? light(0.02 + rnd() * 0.05) : dark(0.04 + rnd() * 0.1);
+      ctx.fillRect(x0, y0, c, c);
+      for (let i = 0; i < 7; i++) {
+        const r = c * (0.06 + rnd() * 0.12);
+        ctx.fillStyle = rnd() < 0.5 ? light(0.025) : dark(0.06);
+        ctx.beginPath();
+        ctx.ellipse(x0 + c * (0.1 + rnd() * 0.8), y0 + c * (0.1 + rnd() * 0.8), r, r * (0.6 + rnd() * 0.4), rnd() * 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (rnd() < 0.35) {
+        ctx.strokeStyle = dark(0.4);
+        ctx.lineWidth = Math.max(1, c * 0.018);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        let x = x0 + c * (0.15 + rnd() * 0.3);
+        let y = y0 + c * (0.15 + rnd() * 0.3);
+        ctx.moveTo(x, y);
+        for (let k = 0; k < 4; k++) {
+          x += c * (0.06 + rnd() * 0.12);
+          y += c * (rnd() * 0.2 - 0.04);
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.fillStyle = light(0.06);
+      ctx.fillRect(x0 + c * 0.04, y0 + c * 0.03, c * 0.92, Math.max(1, c * 0.025));
+      glaze(0.5);
+      break;
+    }
     case 'checker':
       if ((tx + ty) % 2 === 0) {
         ctx.fillStyle = light(0.05);

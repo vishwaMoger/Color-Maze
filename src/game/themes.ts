@@ -3,7 +3,7 @@ import type { EventPrize } from './events.ts';
 
 export type Ambient = 'bokeh' | 'bubbles' | 'stars' | 'none';
 /** The finish of the floor tiles (see tileFinish in Board). */
-export type TileStyle = 'glaze' | 'scales' | 'checker' | 'circuit' | 'diamond' | 'planks' | 'mosaic' | 'marble';
+export type TileStyle = 'glaze' | 'scales' | 'checker' | 'circuit' | 'diamond' | 'planks' | 'mosaic' | 'marble' | 'stone';
 
 export interface Theme {
   id: string;
@@ -199,8 +199,8 @@ const BASE_THEMES: Theme[] = [
   // Halloween: a haunted night with bats, under an orange lantern glow.
   board({
     id: 'spooky', name: 'Spooky',
-    page: '#3b1d6e', face: '#24104a', floor: '#1b0d36', grid: '#140829', glow: '#ff8a1f',
-    shade: 'rgba(5, 0, 20, 0.5)', slab: 'spooky',
+    page: '#43217f', face: '#2b1259', floor: '#2a1846', grid: '#1a0d2e', glow: '#ff8a1f',
+    shade: 'rgba(5, 0, 20, 0.5)', slab: 'spooky', tiles: 'stone',
     ui: { ink: '#4a1fa0', deep: '#2a0e66', p1: '#ffa040', p2: '#f27a12', p3: '#c25800', panelEdge: '#d8c4ff', pageInk: '#ffffff' },
     swatchPaint: '#9dff3a', root: 207.65, unlock: 99999, event: { id: 'halloween26', levels: 30 },
   }),

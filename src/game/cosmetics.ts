@@ -15,7 +15,7 @@ export interface BallSkin {
   event?: EventPrize;
 }
 
-export type PaintPattern = 'marble' | 'slime' | 'lava' | 'water';
+export type PaintPattern = 'marble' | 'slime' | 'lava' | 'water' | 'potion';
 
 export interface PaintColor {
   id: string;
@@ -32,7 +32,7 @@ export interface PaintColor {
   event?: EventPrize;
 }
 
-export const PATTERN_MODE: Record<PaintPattern, number> = { marble: 1, slime: 2, lava: 3, water: 4 };
+export const PATTERN_MODE: Record<PaintPattern, number> = { marble: 1, slime: 2, lava: 3, water: 4, potion: 5 };
 
 export const BALLS: BallSkin[] = [
   { id: 'sunny', name: 'Sunny', unlock: 1, mode: 'toy', colors: ['#fdff5a', '#fadc52', '#f58c3e'] },
@@ -67,7 +67,7 @@ export const PAINTS: PaintColor[] = [
   { id: 'slime', name: 'Slime', paint: 0x2ea81c, dark: 0x1a6e10, light: 0xb8ff66, cone: 0xeaffd0, unlock: 340, pattern: 'slime', alt: 0xc8ff3a },
   { id: 'lava', name: 'Lava', paint: 0x8f1606, dark: 0x5a0a02, light: 0xff8a3a, cone: 0xffd0a0, unlock: 530, pattern: 'lava', alt: 0xff6a12 },
   // Halloween: a bubbling purple witch's brew with green fizz.
-  { id: 'potion', name: 'Potion', paint: 0x7a1fd6, dark: 0x4a0d8a, light: 0xc08bff, cone: 0xe6d4ff, unlock: 99999, event: { id: 'halloween26', levels: 18 }, pattern: 'slime', alt: 0x9dff3a },
+  { id: 'potion', name: 'Potion', paint: 0x8a2be8, dark: 0x4a0d8a, light: 0xc08bff, cone: 0xe6d4ff, unlock: 99999, event: { id: 'halloween26', levels: 18 }, pattern: 'potion', alt: 0x8dff4a },
 ];
 
 export const hexCss = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
