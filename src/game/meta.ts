@@ -42,6 +42,8 @@ export interface Save {
   offers?: { until: number; ids: string[] };
   /** Levels finished during each limited-time event (see events.ts). */
   eventLevels?: Record<string, number>;
+  /** Event video boosts used today (local day, see dayIndex). */
+  eventBoost?: { day: number; n: number };
   /** Super Rewards seen: the first Multiply is free, later ones take an ad. */
   superRewards: number;
   /**

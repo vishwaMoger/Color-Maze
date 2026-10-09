@@ -3,9 +3,9 @@ import { Sound } from '../audio/sound.ts';
 import { analyze, ARROW_R, ARROW_U, DIRS, floorCount, isFloor, nextPaintingMove, PORTAL_A, SAW, slide, solve, solveMulti, splitDirs, STOPPER, type Dir, type Level, type Point, type SlideResult, isCurve, COIN, KEY, MULT } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
 import { prefetchLevels } from '../levels/prefetch.ts';
-import type { Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
+import type { EventView, Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
 import { BALLS, PAINTS, PATTERN_MODE } from './cosmetics.ts';
-import { eraseSave, league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
+import { dayIndex, eraseSave, league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball, ballCanvas, ballPreview } from './Ball.ts';
 import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
 import { adsAvailable, gameplayStart, getPlayer, onPlayerChange, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
@@ -40,6 +40,9 @@ type XY = { x: number; y: number };
 /** A video offer lasts three hours and takes three videos. */
 const OFFER_MS = 3 * 60 * 60 * 1000;
 const OFFER_ADS = 3;
+/** Event video boost: levels it counts for, and how many a day. */
+const EVENT_BOOST = 2;
+const EVENT_BOOSTS_A_DAY = 4;
 /** Unlock level that hides an item: an event item its event ended without. */
 const EVENT_GONE = 99999;
 const BANNER_SCREENS = ['shop', 'settings', 'league', 'vault', 'super', 'climb'];
@@ -250,6 +253,14 @@ export class Game {
           }
           this.refreshShop();
         });
+      },
+      openEvent: () => {
+        this.sound.click();
+        this.openEvent();
+      },
+      eventBoost: () => {
+        this.sound.click();
+        this.eventBoost();
       },
       startOver: () => {
         eraseSave();
@@ -488,6 +499,101 @@ export class Game {
     if (won) this.save.owned.push(next.id);
     this.persist();
     return { ...next, prev, have, won };
+  }
+
+  /** Video boosts left today for the running event. */
+  private boostsLeft(): number {
+    const b = this.save.eventBoost;
+    return EVENT_BOOSTS_A_DAY - (b && b.day === dayIndex() ? b.n : 0);
+  }
+
+  /** Count `k` levels toward the event; returns the prizes this wins. */
+  private addEventLevels(k: number): { kind: ShopTab; id: string; name: string }[] {
+    const ev = liveEvent();
+    if (!ev) return [];
+    const counts = (this.save.eventLevels ??= {});
+    counts[ev.id] = (counts[ev.id] ?? 0) + k;
+    const won = this.eventPending().filter((p) => p.need <= counts[ev.id]);
+    for (const p of won) this.save.owned.push(p.id);
+    this.persist();
+    return won;
+  }
+
+  /** The event button: shown while an event has prizes left to win. */
+  private refreshEventHud() {
+    const ev = liveEvent();
+    const pending = this.eventPending();
+    this.hud.setEvent(ev && pending.length ? ev : null, adsAvailable() && this.boostsLeft() > 0);
+  }
+
+  private eventView(): EventView | null {
+    const ev = liveEvent();
+    if (!ev) return null;
+    const have = this.save.eventLevels?.[ev.id] ?? 0;
+    const renderer = this.app.renderer as Renderer;
+    const prizes = [
+      ...BALLS.filter((x) => x.event?.id === ev.id).map((x) => ({ kind: 'ball' as ShopTab, x, preview: () => `background-image: url(${this.spherePreview(x.id)})` })),
+      ...PAINTS.filter((x) => x.event?.id === ev.id).map((x) => ({ kind: 'paint' as ShopTab, x, preview: () => `background-image: url(${paintPreview(renderer, x)})` })),
+      ...THEMES.filter((x) => x.event?.id === ev.id).map((x) => ({
+        kind: 'board' as ShopTab,
+        x,
+        preview: () => `background-image: url(${boardPreview(renderer, this.makeLook(x), this.ballSkin())})`,
+      })),
+    ]
+      .map(({ kind, x, preview }) => ({
+        name: `${x.name} ${kind === 'board' ? 'maze' : kind}`,
+        kind,
+        preview: preview(),
+        have,
+        need: x.event!.levels,
+        won: this.save.owned.includes(x.id),
+      }))
+      .sort((a, b) => a.need - b.need);
+    return { icon: ev.icon, name: ev.name, ends: ev.ends, prizes, boostsLeft: this.boostsLeft(), perBoost: EVENT_BOOST, adsOn: adsAvailable() };
+  }
+
+  private openEvent() {
+    const v = this.eventView();
+    if (!v) {
+      this.hud.toast('The event has ended. See you at the next one!');
+      return;
+    }
+    this.hud.showEvent(v);
+  }
+
+  /** A video for extra event progress (a few a day). */
+  private eventBoost() {
+    if (this.boostsLeft() <= 0 || !liveEvent()) return;
+    void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
+      if (!ok) {
+        this.hud.toast('No video available right now. Try again soon!');
+        return;
+      }
+      const day = dayIndex();
+      const b = this.save.eventBoost;
+      this.save.eventBoost = { day, n: (b && b.day === day ? b.n : 0) + 1 };
+      const won = this.addEventLevels(EVENT_BOOST);
+      this.sound.star(2);
+      this.vibrate([20, 40, 20]);
+      this.refreshEventHud();
+      if (won.length) {
+        // Straight to the prize: the event panel closes for its moment.
+        this.hud.close('event');
+        if (!document.getElementById('shop')!.hidden) this.refreshShop();
+        const first = won[0];
+        const it = this.shopItems()[first.kind].find((x) => x.id === first.id);
+        window.setTimeout(() => {
+          this.sound.complete();
+          this.hud.unlocked(first.name, it?.preview ?? '', () => this.equip(first.kind, first.id));
+          this.hud.setShopDot(true);
+        }, 350);
+        return;
+      }
+      this.hud.toast(`${liveEvent()!.icon} +${EVENT_BOOST} levels!`);
+      const v = this.eventView();
+      if (v) this.hud.showEvent(v);
+      if (!document.getElementById('shop')!.hidden) this.refreshShop();
+    });
   }
 
   /** Progress on an item's video offer, if it has one now. */
@@ -837,6 +943,7 @@ export class Game {
     this.floorTotal = 0;
     this.floorTotal = floorCount(this.level.grid);
     this.refreshPrices();
+    this.refreshEventHud();
     this.resetState();
     const old = this.board;
     this.buildBoard();
