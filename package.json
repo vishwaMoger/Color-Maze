@@ -10,7 +10,8 @@
     "test": "tsc --noEmit && node --experimental-strip-types scripts/check-levels.ts 60",
     "preview": "vite preview",
     "check-levels": "node --experimental-strip-types scripts/check-levels.ts",
-    "build:artifact": "npm run build && node scripts/make-artifact.mjs"
+    "build:artifact": "npm run build && node scripts/make-artifact.mjs",
+    "build:crazygames": "tsc --noEmit && node scripts/build-crazygames.mjs"
   },
   "dependencies": {
     "@fontsource/fredoka": "^5.3.0",

@@ -2,3 +2,5 @@ node_modules/
 dist/
 artifact/
 *.log
+dist-crazygames/
+crazygames/

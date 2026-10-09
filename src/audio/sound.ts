@@ -187,6 +187,41 @@ export class Sound {
     this.note(110, ctx.currentTime, 0.12, 0.08, 'sine');
   }
 
+  /**
+   * The saw slicing the ball, heard in slow motion: a bright metallic shing
+   * with a ringing tail over a deep boom whose pitch sinks away.
+   */
+  slice() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 6;
+    bp.frequency.setValueAtTime(5200, t);
+    bp.frequency.exponentialRampToValueAtTime(1700, t + 0.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    src.connect(bp).connect(g).connect(this.sfx);
+    src.start(t, Math.random() * 0.3, 0.6);
+    this.note(1320, t, 0.7, 0.045, 'sine');
+    this.note(1980, t + 0.01, 0.5, 0.025, 'sine');
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(36, t + 0.95);
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.34, t + 0.03);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 1.05);
+    o.connect(og).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 1.1);
+  }
+
   /** Stopper studs clamping onto the ball: a short, firm double snap. */
   grip() {
     const ctx = this.ready();

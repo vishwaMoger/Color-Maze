@@ -587,6 +587,8 @@ export class Board extends Container {
   private readonly sawFx: { x: number; y: number; r: number; acc: number; sparks: { a: number; t: number; life: number; len: number; col: number }[] }[] = [];
   private readonly arrowFx: { x: number; y: number; ang: number }[] = [];
   private sawHitAt = -1e9;
+  /** Game clock speed (slow motion slows the saws too). */
+  timeScale = 1;
   private lastMech = 0;
   private socketLayer?: Container;
   private readonly studLayer = new Container();
@@ -1365,7 +1367,7 @@ export class Board extends Container {
     if (this.gloss) this.gloss.uniforms.uTime = time * 0.001;
     // Saws spin; after a hit they whirr faster for a moment.
     const boost = Math.max(0, 1 - (time - this.sawHitAt) / 900);
-    this.sawAngle += 0.16 * (1 + boost * 2.5);
+    this.sawAngle += 0.16 * (1 + boost * 2.5) * this.timeScale;
     for (const b of this.saws) b.rotation = this.sawAngle;
     this.drawMechanics(time, boost);
     for (let i = 0; i < this.portals.length; i++) {

@@ -38,11 +38,10 @@ type XY = { x: number; y: number };
 /** Screens that may carry the banner ad (see showBanner). */
 const BANNER_SCREENS = ['shop', 'settings', 'league', 'vault', 'super', 'climb'];
 /**
- * Keep the banner at the bottom during play too. Note: CrazyGames' ad
- * requirements say banners should not show during gameplay, so this may
- * be refused at review; set to false to show it on menu screens only.
+ * Banner during play too? Off: CrazyGames' ad requirements forbid banners
+ * during gameplay, so it shows on the menu and reward screens only.
  */
-const GAMEPLAY_BANNER = true;
+const GAMEPLAY_BANNER = false;
 
 interface Snapshot {
   pos: Point;
@@ -768,7 +767,7 @@ export class Game {
     this.resultShown = false;
     this.autoNextAt = null;
     this.hint = null;
-    this.timeScale = 1;
+    this.endSlowMo();
     this.sound.resetMelody();
     this.updateRemaining();
   }
@@ -1297,6 +1296,9 @@ export class Game {
   private wave: { x: number; y: number; t: number; power: number } | null = null;
 
   private dead = false;
+  /** Bullet time after the saw bites: when, and the cut point (board px). */
+  private slowMo: { at: number; x: number; y: number; dx: number; dy: number } | null = null;
+  private vignette: HTMLElement | null = null;
 
   /**
    * The ball rolled into a saw: it is pushed into the blade and sliced in
@@ -1319,7 +1321,11 @@ export class Game {
         const still = Texture.from(ballCanvas(this.app.renderer as Renderer, this.ballSkin(), px));
         ball.split(dir, (x, y) => isFloor(this.level.grid, Math.floor(x / this.cell), Math.floor(y / this.cell)), still);
         this.board.sawHit(this.time);
-        this.boardFx.sparkle(hx, hy, 16, this.cell * 1.8, 0xffd27a);
+        if (!REDUCED_MOTION) {
+          this.slowMo = { at: this.time, x: hx, y: hy, dx: dir.x, dy: dir.y };
+          this.slash(hx, hy, dir);
+        }
+        this.boardFx.sparkle(hx, hy, 24, this.cell * 2, 0xffd27a);
         this.boardFx.flash(hx, hy, this.cell * 1.6, 0xff5a5a, 0.8);
         this.boardFx.splash(hx, hy, -dir.x, -dir.y, 10, this.look.paint, this.cell * 3.4, this.cell * 0.08, (x, y, r) => this.addDot(x, y, r));
         if (!REDUCED_MOTION) {
@@ -1327,8 +1333,8 @@ export class Game {
           this.nudge.vy -= dir.y * 260;
         }
         this.hud.hurt();
-        this.sound.thock(1.3);
-        this.sound.bump();
+        this.sound.slice();
+        this.sound.thock(0.8);
         this.vibrate([40, 30, 60]);
       },
     });
@@ -1337,6 +1343,7 @@ export class Game {
       const revive = () => {
         // Undo the fatal move and drop the ball back in.
         this.dead = false;
+        this.endSlowMo();
         if (!ball.destroyed) ball.unsplit();
         this.undo();
         this.introAt = this.time;
@@ -1344,6 +1351,7 @@ export class Game {
       };
       const giveUp = () => {
         this.dead = false;
+        this.endSlowMo();
         if (!ball.destroyed) ball.unsplit();
         this.restart();
       };
@@ -1372,7 +1380,61 @@ export class Game {
         },
         onGiveUp: giveUp,
       });
-    }, 950);
+    }, REDUCED_MOTION ? 950 : 1500);
+  }
+
+  /** A blade of light flashing along the cut, drawn slowly in bullet time. */
+  private slash(x: number, y: number, dir: Point) {
+    const g = new Graphics();
+    g.blendMode = 'add';
+    this.board.fxLayer.addChild(g);
+    const len = this.cell * 1.5;
+    this.tweens.push({
+      t: 0,
+      dur: 900,
+      step: (p) => {
+        const grow = Math.min(1, p / 0.18);
+        const fade = p < 0.35 ? 1 : 1 - (p - 0.35) / 0.65;
+        const l = len * (1 - (1 - grow) ** 3);
+        const ax = x - dir.x * l * 0.5;
+        const ay = y - dir.y * l * 0.5;
+        const bx = x + dir.x * l * 0.5;
+        const by = y + dir.y * l * 0.5;
+        g.clear();
+        g.moveTo(ax, ay).lineTo(bx, by).stroke({ width: this.cell * 0.32 * fade, color: 0xff9ad8, alpha: 0.35 * fade, cap: 'round' });
+        g.moveTo(ax, ay).lineTo(bx, by).stroke({ width: this.cell * 0.09 * fade, color: 0xffffff, alpha: fade, cap: 'round' });
+      },
+      done: () => g.destroy(),
+    });
+  }
+
+  private endSlowMo() {
+    this.slowMo = null;
+    this.timeScale = 1;
+    if (this.vignette) this.vignette.style.opacity = '0';
+  }
+
+  /**
+   * Bullet time: the clock drops to a tenth, holds, then eases back; the
+   * camera punches in on the cut and pulls back out. Returns the zoom (0-1).
+   */
+  private stepSlowMo(): number {
+    const s = this.slowMo;
+    if (!s) return 0;
+    const t = this.time - s.at;
+    const back = Math.min(1, Math.max(0, (t - 420) / 900));
+    this.timeScale = 0.1 + 0.9 * back * back * (3 - 2 * back);
+    const zin = 1 - (1 - Math.min(1, t / 260)) ** 3;
+    const zo = Math.min(1, Math.max(0, (t - 900) / 650));
+    const zoom = zin * (1 - zo * zo * (3 - 2 * zo));
+    if (!this.vignette) {
+      this.vignette = document.createElement('div');
+      this.vignette.id = 'slowmo-vignette';
+      document.getElementById('stage')?.after(this.vignette);
+    }
+    this.vignette.style.opacity = String(zoom.toFixed(3));
+    if (t > 1600) this.endSlowMo();
+    return zoom;
   }
 
   undo() {
@@ -1973,7 +2035,9 @@ export class Game {
 
   private tick(rawDt: number) {
     // Cap long frames so slow devices skip ahead rather than crawl.
+    const slowZoom = this.stepSlowMo();
     const dt = Math.min(rawDt, 90) * this.timeScale;
+    this.board.timeScale = this.timeScale;
     this.lastFrameDt = rawDt;
     this.time += rawDt;
     const time = this.time;
@@ -2033,6 +2097,17 @@ export class Game {
     this.board.scale.set(sc, sc * this.foreshorten);
     this.board.rotation = e.rot;
     this.board.position.set(cx + n.x + e.x, cy + n.y + v.dy);
+    // Bullet-time punch-in: zoom about the cut point, drifting it a little
+    // toward the middle of the screen.
+    if (slowZoom > 0 && this.slowMo) {
+      const z = 1 + 0.22 * slowZoom;
+      const sx = sc * this.foreshorten;
+      const px = (this.slowMo.x - this.board.pivot.x) * sc;
+      const py = (this.slowMo.y - this.board.pivot.y) * sx;
+      this.board.scale.set(sc * z, sx * z);
+      this.board.position.x -= px * (z - 1) + px * 0.4 * slowZoom;
+      this.board.position.y -= py * (z - 1) + py * 0.4 * slowZoom;
+    }
     // At rest, put the board's corner on a whole device pixel so the tile
     // lines and edges are razor sharp.
     if (e.rot === 0 && Math.abs(this.board.scale.x - 1) < 1e-3) {

@@ -5818,3 +5818,12 @@ body.has-banner {
 #shop .spage .tile {
   width: min(100%, calc((100cqh - 12px) / 2));
 }
+
+/* Bullet time after the saw cut: the edges darken around the action. */
+#slowmo-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse 75% 65% at 50% 50%, transparent 35%, rgba(28, 0, 60, 0.42) 75%, rgba(16, 0, 40, 0.7) 100%);
+}
