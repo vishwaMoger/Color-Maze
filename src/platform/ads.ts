@@ -65,6 +65,8 @@ export async function initPlatform(): Promise<void> {
         s.src = SDK_URL;
         s.onload = () => resolve();
         s.onerror = () => reject(new Error('sdk load failed'));
+        // Never hold the game hostage to a script that hangs.
+        setTimeout(() => reject(new Error('sdk load timeout')), 10_000);
         document.head.appendChild(s);
       });
     }
