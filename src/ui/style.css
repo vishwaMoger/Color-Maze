@@ -4719,9 +4719,10 @@ body.page-open .hud {
   gap: clamp(18px, 4.5vh, 40px);
   padding: 16px;
   background:
-    radial-gradient(120% 70% at 50% 0%, #a58cff 0%, rgba(165, 140, 255, 0) 60%),
-    radial-gradient(90% 60% at 50% 110%, #3a1d9e 0%, rgba(58, 29, 158, 0) 70%),
-    linear-gradient(180deg, #7d5cf5 0%, #5b3fd0 55%, #4a2cb8 100%);
+    radial-gradient(60% 34% at 50% 30%, rgba(255, 190, 250, 0.55) 0%, rgba(255, 190, 250, 0) 70%),
+    radial-gradient(120% 70% at 50% 0%, #c58cff 0%, rgba(197, 140, 255, 0) 60%),
+    radial-gradient(90% 60% at 50% 110%, #2e148c 0%, rgba(46, 20, 140, 0) 70%),
+    linear-gradient(180deg, #8a5cf8 0%, #6440dc 50%, #4426b0 100%);
   transition:
     opacity 0.55s ease,
     visibility 0.55s,
@@ -4734,7 +4735,7 @@ body.page-open .hud {
   transform: scale(1.06);
 }
 
-#splash > :not(.sp-blobs, .sp-stars) {
+#splash > :not(.sp-blobs, .sp-stars, .sp-rays, .sp-balls) {
   position: relative;
   z-index: 1;
 }
@@ -4762,6 +4763,66 @@ body.page-open .hud {
 @keyframes sp-drift {
   to {
     transform: translate(6vmin, -5vmin) scale(1.15);
+  }
+}
+
+/* Slow light rays fanning out behind the logo. */
+.sp-rays {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  width: 160vmax;
+  height: 160vmax;
+  margin: -80vmax 0 0 -80vmax;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.13) 0 7deg, rgba(255, 255, 255, 0) 7deg 20deg);
+  -webkit-mask: radial-gradient(circle, #000 0%, transparent 42%);
+  mask: radial-gradient(circle, #000 0%, transparent 42%);
+  animation: sp-spin 40s linear infinite;
+}
+@keyframes sp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Glossy paint balls floating up through the scene. */
+.sp-balls i {
+  position: absolute;
+  left: var(--x);
+  bottom: -60px;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #fff 0 12%, var(--c) 45%, color-mix(in srgb, var(--c) 55%, #1a0050) 100%);
+  box-shadow: 0 6px 14px rgba(20, 0, 70, 0.35);
+  opacity: 0.9;
+  animation: sp-float var(--t) linear var(--d) infinite;
+}
+.sp-balls i:nth-child(1) { --c: #ff3d8e; --s: 26px; --x: 8%; --t: 9s; --d: -2s; }
+.sp-balls i:nth-child(2) { --c: #ffd21f; --s: 18px; --x: 22%; --t: 12s; --d: -7s; }
+.sp-balls i:nth-child(3) { --c: #2fb8ff; --s: 30px; --x: 84%; --t: 10s; --d: -4s; }
+.sp-balls i:nth-child(4) { --c: #3fd06a; --s: 16px; --x: 70%; --t: 13s; --d: -10s; }
+.sp-balls i:nth-child(5) { --c: #ff8a1f; --s: 22px; --x: 92%; --t: 11s; --d: -1s; }
+.sp-balls i:nth-child(6) { --c: #c06bff; --s: 20px; --x: 40%; --t: 14s; --d: -12s; }
+.sp-balls i:nth-child(7) { --c: #ff6bd2; --s: 14px; --x: 58%; --t: 12s; --d: -5s; }
+.sp-balls i:nth-child(8) { --c: #5fe3ff; --s: 24px; --x: 2%; --t: 15s; --d: -9s; }
+@keyframes sp-float {
+  0% {
+    transform: translate(0, 0) scale(0.8);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(18px, -55vh) scale(1);
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(-10px, -115vh) scale(0.9);
+    opacity: 0;
   }
 }
 
@@ -4827,35 +4888,28 @@ body.page-open .hud {
   text-shadow:
     0 4px 0 #fff, 4px 0 0 #fff, -4px 0 0 #fff, 0 -4px 0 #fff, 3px 3px 0 #fff, -3px 3px 0 #fff, 3px -3px 0 #fff,
     -3px -3px 0 #fff, 0 9px 0 #2c1488, 4px 8px 0 #2c1488, -4px 8px 0 #2c1488, 0 18px 24px rgba(20, 0, 80, 0.45);
-  animation: drop 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+  /* Drop in one by one, then ripple in a gentle wave. */
+  animation:
+    drop 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) calc(var(--i, 0) * 0.06s) both,
+    sp-wave 2.2s ease-in-out calc(1.1s + var(--i, 0) * 0.12s) infinite;
+}
+@keyframes sp-wave {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  30% {
+    translate: 0 -7px;
+  }
+  60% {
+    translate: 0 1px;
+  }
 }
 
-.logo-row span:nth-child(2) {
-  animation-delay: 0.06s;
-}
-.logo-row span:nth-child(3) {
-  animation-delay: 0.12s;
-}
-.logo-row span:nth-child(4) {
-  animation-delay: 0.18s;
-}
-.logo-row span:nth-child(5) {
-  animation-delay: 0.24s;
-}
 
 .logo-row.maze span {
   color: var(--p2);
   font-size: clamp(58px, min(19vw, 13vh), 118px);
-  animation-delay: 0.3s;
-}
-.logo-row.maze span:nth-child(2) {
-  animation-delay: 0.36s;
-}
-.logo-row.maze span:nth-child(3) {
-  animation-delay: 0.42s;
-}
-.logo-row.maze span:nth-child(4) {
-  animation-delay: 0.48s;
 }
 
 @keyframes drop {
@@ -4869,18 +4923,47 @@ body.page-open .hud {
   }
 }
 
-/* The little maze. */
+/* The little maze: a real 3D board, tilted toward you and floating, with a
+   thick slab edge, tile seams and wet paint. */
+.sp-stage {
+  perspective: 700px;
+  animation: drop 0.7s cubic-bezier(0.3, 1.5, 0.5, 1) 0.45s both;
+}
 .sp-maze {
+  display: block;
   width: clamp(120px, min(46vw, 26vh), 210px);
   height: auto;
   overflow: visible;
-  filter: drop-shadow(0 14px 22px rgba(20, 0, 80, 0.45));
-  animation: drop 0.7s cubic-bezier(0.3, 1.5, 0.5, 1) 0.45s both;
+  filter: drop-shadow(0 22px 22px rgba(20, 0, 80, 0.5));
+  transform: rotateX(20deg) rotateZ(-4deg);
+  animation: sp-hover 3.2s ease-in-out 1.2s infinite;
+}
+@keyframes sp-hover {
+  0%,
+  100% {
+    transform: rotateX(20deg) rotateZ(-4deg) translateY(0);
+  }
+  50% {
+    transform: rotateX(14deg) rotateZ(-2deg) translateY(-8px);
+  }
+}
+.sp-side {
+  fill: #2c1488;
 }
 .sp-board {
-  fill: #e4ddff;
+  fill: url(#sp-top);
   stroke: #fff;
   stroke-width: 5;
+}
+.sp-shine {
+  fill: none;
+  stroke: rgba(255, 200, 230, 0.5);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 640 700;
+  stroke-dashoffset: 640;
+  transform: translate(-6px, -6px);
 }
 .sp-floor,
 .sp-floor-shade,
@@ -4914,6 +4997,7 @@ body.page-open .hud {
   animation: drop 0.6s ease 0.6s both;
 }
 .loadbar {
+  position: relative;
   width: min(280px, 66vw);
   height: 20px;
   padding: 4px;
@@ -4948,25 +5032,94 @@ body.page-open .hud {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.55);
 }
+/* A paint ball rolling at the front of the bar, as if painting it. */
+.sp-lball {
+  position: absolute;
+  top: 50%;
+  left: calc(4px + (100% - 8px) * min(1, max(0.08, var(--p, 0.08))));
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 30%, #fff 0 10%, #ffb3d6 28%, #ff2d8b 70%, #b40c5c 100%);
+  box-shadow: 0 4px 6px rgba(60, 0, 40, 0.4), inset -3px -4px 6px rgba(120, 0, 60, 0.35);
+  transition: left 0.45s cubic-bezier(0.3, 1.2, 0.5, 1);
+  animation: sp-roll 0.6s linear infinite;
+}
+.sp-lball::after {
+  /* A stripe on the ball so you can see it rolling. */
+  content: '';
+  position: absolute;
+  inset: 3px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.35);
+}
+@keyframes sp-roll {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @keyframes sp-stripes {
   to {
     background-position: 22.63px 0, 0 0;
   }
 }
 .sp-tip {
+  display: grid;
   margin: 0;
   font: 600 15px var(--font);
   letter-spacing: 0.03em;
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(255, 255, 255, 0.86);
   text-shadow: 0 2px 0 rgba(30, 10, 100, 0.35);
+}
+/* Three tips taking turns in the same spot. */
+.sp-tip span {
+  grid-area: 1 / 1;
+  text-align: center;
+  opacity: 0;
+  animation: sp-tips 7.5s ease-in-out infinite;
+}
+.sp-tip span:nth-child(2) {
+  animation-delay: 2.5s;
+}
+.sp-tip span:nth-child(3) {
+  animation-delay: 5s;
+}
+@keyframes sp-tips {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  5%,
+  28% {
+    opacity: 1;
+    transform: none;
+  }
+  33%,
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .sp-blobs i,
   .sp-stars i,
+  .sp-rays,
+  .sp-balls i,
   .logo,
+  .logo span,
+  .sp-maze,
+  .sp-lball,
   .loadbar span {
     animation: none;
+  }
+  .sp-tip span:first-child {
+    opacity: 1;
+    animation: none;
+  }
+  .sp-tip span + span {
+    display: none;
   }
 }
 
