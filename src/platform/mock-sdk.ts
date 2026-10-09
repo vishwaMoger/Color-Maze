@@ -69,11 +69,15 @@ export function installMockSdk() {
         requestResponsiveBanner: (id: string) => {
           check('requestResponsiveBanner');
           note(`banner ${id}`);
-          const el = document.getElementById(id);
-          if (el) {
-            el.classList.add('placeholder');
-            el.textContent = 'Banner ad (mock)';
-          }
+          // A stand-in creative arrives a moment later, as a real one would.
+          setTimeout(() => {
+            const el = document.getElementById(id);
+            if (!el || el.hidden) return;
+            const ad = document.createElement('div');
+            ad.className = 'mock-banner';
+            ad.textContent = 'Banner ad (mock)';
+            el.replaceChildren(ad);
+          }, 400);
         },
       },
       data: {

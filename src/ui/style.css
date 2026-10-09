@@ -4893,18 +4893,35 @@ body.has-banner {
   bottom: env(safe-area-inset-bottom, 0px);
   z-index: 7;
   width: min(728px, 100%);
-  height: calc(var(--banner) - env(safe-area-inset-bottom, 0px));
+  /* Sized for the SDK while it loads an ad, but invisible and click-through
+     until one has actually rendered. */
+  height: 60px;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
 }
-#ad-banner.placeholder {
-  border: 2px dashed rgba(90, 60, 200, 0.35);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.45);
-  color: rgba(70, 40, 170, 0.6);
+@media (min-width: 760px) and (min-height: 620px) {
+  #ad-banner {
+    height: 100px;
+  }
+}
+#ad-banner.filled {
+  opacity: 1;
+  pointer-events: auto;
+}
+#ad-banner .mock-banner {
+  width: 320px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #fff;
+  color: rgba(70, 40, 170, 0.7);
   font: 600 13px var(--font);
   letter-spacing: 0.04em;
   text-transform: uppercase;
