@@ -13,6 +13,8 @@ export interface BallSkin {
   colors: [string, string, string];
   /** Limited-time item: won by finishing levels during its event. */
   event?: EventPrize;
+  /** Rare: only ever won from the Safe (the key vault). */
+  vault?: boolean;
 }
 
 export type PaintPattern = 'marble' | 'slime' | 'lava' | 'water' | 'potion';
@@ -48,6 +50,13 @@ export const BALLS: BallSkin[] = [
   { id: 'eight', name: '8-Ball', unlock: 440, mode: 'eight', colors: ['#ffffff', '#15151c', '#000000'] },
   { id: 'gold', name: 'Gold', unlock: 600, mode: 'metal', colors: ['#fff3b0', '#f7c22e', '#8a5200'] },
   // A deep violet swirl.
+  // Safe-only pieces: rare prizes from the key vault, never sold or levelled.
+  { id: 'star', name: 'Star', unlock: 99999, vault: true, mode: 'star6', colors: ['#fff3a0', '#ffb21a', '#e07800'] },
+  { id: 'neptune', name: 'Neptune', unlock: 99999, vault: true, mode: 'planet', colors: ['#e6fbff', '#3cc8f2', '#1475c8'] },
+  { id: 'venus', name: 'Venus', unlock: 99999, vault: true, mode: 'planet', colors: ['#fff8d0', '#ffd21f', '#e08600'] },
+  { id: 'pawn', name: 'Pawn', unlock: 99999, vault: true, mode: 'pawn', colors: ['#fff2a8', '#ffc21a', '#c27c00'] },
+  { id: 'puck', name: 'Puck', unlock: 99999, vault: true, mode: 'puck', colors: ['#6a6a78', '#24242c', '#0c0c10'] },
+  { id: 'nut', name: 'Hex Nut', unlock: 99999, vault: true, mode: 'nut', colors: ['#ffffff', '#b8a6f8', '#6f5bc8'] },
   // Halloween: a carved jack-o'-lantern whose face glows as it rolls.
   { id: 'pumpkin', name: 'Pumpkin', unlock: 99999, event: { id: 'halloween26', levels: 8 }, mode: 'pumpkin', colors: ['#ffe45c', '#ff7a12', '#b84300'] },
   { id: 'galaxy', name: 'Galaxy', unlock: 250, mode: 'swirl', colors: ['#7ef0ff', '#5b2bd8', '#ff5fd2'] },

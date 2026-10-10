@@ -1,6 +1,6 @@
 import { Container, Graphics, Sprite, Texture, type Renderer } from 'pixi.js';
 import type { BallSkin } from './cosmetics.ts';
-import { Orientation, sphereFilter, type SphereFilter } from './sphere.ts';
+import { Orientation, SHAPE_MODES, sphereFilter, type SphereFilter } from './sphere.ts';
 
 /** A soft dark oval (drawn round, squashed by the sprite's size). */
 function contactShadow(size: number): Texture {
@@ -73,6 +73,8 @@ export class Ball extends Container {
   private offY = 0;
   private heading = 0;
   readonly radius: number;
+  /** A shaped piece (star, puck...) rather than a ball: it spins flat. */
+  private readonly shaped: boolean;
   /**
    * The two halves after the ball is sliced by a saw: real little bodies
    * that pop apart, hop, fall back onto the floor, bounce off walls and
@@ -86,16 +88,17 @@ export class Ball extends Container {
 
   constructor(cell: number, private readonly res: number, skin: BallSkin) {
     super();
-    // Nearly fills its tile, like the original.
-    this.radius = cell * 0.5;
+    // Most of its tile, leaving an even ring of the paint it sits in.
+    this.radius = cell * 0.45;
     // A plain quad: the filter draws the whole sphere into it.
     this.body = new Sprite(Texture.WHITE);
     this.body.anchor.set(0.5);
     // Seen from slightly in front, a ball resting on the floor appears a
     // little up-tile (as in the original), so the near lip clips its foot.
-    this.body.y = -cell * 0.15;
+    this.body.y = -cell * 0.08;
     this.restY = this.body.y;
     this.sphere = sphereFilter(skin.mode, skin.colors);
+    this.shaped = SHAPE_MODES.has(skin.mode);
     // Start turned a little so the pattern reads as a ball, not a decal.
     this.orient.rotate(1, 0, 0, -0.45);
     this.orient.rotate(0, 1, 0, 0.35);
@@ -162,8 +165,13 @@ export class Ball extends Container {
     this.lastY = this.y;
     const travelled = Math.hypot(mx, my);
     if (travelled > 0.01 && travelled < this.radius * 6) {
-      // Screen y points down; the sphere's y points up.
-      this.orient.rotate(my / travelled, mx / travelled, 0, travelled / this.radius);
+      if (this.shaped) {
+        // A shaped piece slides and spins flat, turning the way it goes.
+        this.orient.rotate(0, 0, 1, ((mx - my) / travelled) * (travelled / this.radius) * 0.7);
+      } else {
+        // Screen y points down; the sphere's y points up.
+        this.orient.rotate(my / travelled, mx / travelled, 0, travelled / this.radius);
+      }
       this.orient.write(this.sphere.uniforms.uRot);
     } else if (!moving && !this.halves.length) {
       // At rest it idles with a slow lazy spin so it always feels alive.
@@ -222,7 +230,9 @@ export class Ball extends Container {
     // Thins as it lengthens (measured: 2.65 long is about half as thick).
     const along = drawn + this.squash * 0.9 + breathe;
     const across = Math.max(0.46, drawn ** -0.7) - this.squash * 0.6 + breathe;
-    const base = (this.radius * 2) / Math.max(this.body.texture.width, this.body.texture.height);
+    // Shaped pieces are drawn inside the ball's circle; a bigger quad shows
+    // them as large as a ball.
+    const base = ((this.shaped ? 2.44 : 2) * this.radius) / Math.max(this.body.texture.width, this.body.texture.height);
     // Moves are axis-aligned, so stretch on x or y without rotating the art
     // (keeps the light on the upper left and textures upright).
     const horizontal = Math.abs(Math.cos(this.heading)) > 0.5;

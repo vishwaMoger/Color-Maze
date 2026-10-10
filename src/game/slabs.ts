@@ -46,13 +46,13 @@ export function slabCanvas(style: SlabStyle, res: number): HTMLCanvasElement {
     ctx.fillStyle = c;
     ctx.fillRect(0, 0, TILE, TILE);
   };
-  const wood = (base: string, dark: string, light: string) => {
+  const wood = (base: string, dark: string, light: string, lines = 26, wave = 7) => {
     fill(base);
     // Long, gently wavering grain lines; each runs the full width with whole
     // waves so it meets itself at the seam.
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < lines; i++) {
       const y0 = r() * TILE;
-      const amp = 2 + r() * 7;
+      const amp = 2 + r() * wave;
       const waves = 1 + Math.floor(r() * 3);
       const ph = r() * Math.PI * 2;
       ctx.strokeStyle = r() < 0.65 ? dark : light;
@@ -90,7 +90,8 @@ export function slabCanvas(style: SlabStyle, res: number): HTMLCanvasElement {
       wood('#f1d1a6', '#c99a63', '#fbe6c6');
       break;
     case 'walnut':
-      wood('#c0743c', '#8a4a1f', '#d98e52');
+      // Rich red walnut with dense, flame-like grain.
+      wood('#a8481c', '#6a240a', '#c4612a', 70, 11);
       break;
     case 'terrazzo': {
       fill('#f6f3ee');

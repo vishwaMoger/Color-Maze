@@ -22,7 +22,17 @@ export const SPHERE_MODE = {
   gem: 11,
   toy: 12,
   pumpkin: 13,
+  // Shaped pieces (ray-marched solids rather than spheres), from the Safe.
+  star6: 14,
+  puck: 15,
+  nut: 16,
+  pawn: 17,
+  // Gas giant: swirling cloud bands.
+  planet: 18,
 } as const;
+
+/** Modes drawn as solid shapes: they spin flat as they slide. */
+export const SHAPE_MODES = new Set<SphereMode>(['star6', 'puck', 'nut', 'pawn']);
 export type SphereMode = keyof typeof SPHERE_MODE;
 
 const SPHERE_FRAG = `in vec2 vTextureCoord;
@@ -101,6 +111,65 @@ float cells(vec3 p) {
       }
   return sqrt(md);
 }
+// ---- Shaped pieces: signed distances in object space (unit radius).
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+float sdStar(vec2 p, float r, float n, float m) {
+  float an = 3.141593 / n;
+  float en = 3.141593 / m;
+  vec2 acs = vec2(cos(an), sin(an));
+  vec2 ecs = vec2(cos(en), sin(en));
+  float bn = mod(atan(p.x, p.y), 2.0 * an) - an;
+  p = length(p) * vec2(cos(bn), abs(sin(bn)));
+  p -= r * acs;
+  p += ecs * clamp(-dot(p, ecs), 0.0, r * acs.y / ecs.y);
+  return length(p) * sign(p.x);
+}
+float sdTrap(vec2 p, float r1, float r2, float he) {
+  vec2 k1 = vec2(r2, he);
+  vec2 k2 = vec2(r2 - r1, 2.0 * he);
+  p.x = abs(p.x);
+  vec2 ca = vec2(p.x - min(p.x, (p.y < 0.0) ? r1 : r2), abs(p.y) - he);
+  vec2 cb = p - k1 + k2 * clamp(dot(k1 - p, k2) / dot(k2, k2), 0.0, 1.0);
+  float s = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
+  return s * sqrt(min(dot(ca, ca), dot(cb, cb)));
+}
+float sdRBox2(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+float shapeSDF(vec3 p, int mode) {
+  if (mode == 14) {
+    // Six-pointed star, faceted: thickest at the middle, a ridge to each tip.
+    float d2 = sdStar(p.xy, 0.94, 6.0, 3.2);
+    return (d2 + abs(p.z) * 1.35) / 1.68;
+  }
+  if (mode == 15) {
+    // Hockey puck: a squat cylinder with softly rounded edges.
+    vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(0.74, 0.24);
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.09;
+  }
+  if (mode == 16) {
+    // Hex nut: a hexagonal prism with a round hole, edges eased.
+    vec3 q = abs(p);
+    const vec3 k = vec3(-0.8660254, 0.5, 0.57735);
+    q.xy -= 2.0 * min(dot(k.xy, q.xy), 0.0) * k.xy;
+    vec2 d = vec2(length(q.xy - vec2(clamp(q.x, -k.z * 0.66, k.z * 0.66), 0.66)) * sign(q.y - 0.66), q.z - 0.24);
+    float hex = min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.06;
+    return max(hex, -(length(p.xy) - 0.33));
+  }
+  // Pawn: a turned piece, profile spun round its upright axis.
+  vec2 q = vec2(length(p.xz), p.y + 0.04);
+  float d = sdRBox2(q - vec2(0.0, -0.8), vec2(0.6, 0.11), 0.07);
+  d = smin(d, sdTrap(q - vec2(0.0, -0.62), 0.5, 0.36, 0.08), 0.05);
+  d = smin(d, sdTrap(q - vec2(0.0, -0.17), 0.33, 0.13, 0.38), 0.08);
+  d = smin(d, sdRBox2(q - vec2(0.0, 0.28), vec2(0.3, 0.045), 0.04), 0.05);
+  d = smin(d, length(q - vec2(0.0, 0.6)) - 0.3, 0.06);
+  return d;
+}
+
 /** Anti-aliased step: 1 inside (v < edge), about a pixel soft. */
 float aaLess(float v, float edge) {
   float w = uAA;
@@ -116,6 +185,30 @@ void main(void) {
   vec3 n = vec3(p.x, -p.y, sqrt(max(0.0, 1.0 - d * d)));
   vec3 o = uRot * n;
   int mode = int(uMode + 0.5);
+  if (mode >= 14 && mode <= 17) {
+    // March a ray straight into the screen; the shape turns with uRot.
+    vec3 ro = vec3(p.x, -p.y, 1.2);
+    float t = 0.0;
+    float minD = 9.0;
+    vec3 pos = ro;
+    bool hit = false;
+    for (int i = 0; i < 64; i++) {
+      pos = ro - vec3(0.0, 0.0, t);
+      float sd = shapeSDF(uRot * pos, mode);
+      if (sd < minD) minD = sd;
+      if (sd < 0.0015) { hit = true; break; }
+      t += max(sd, 0.004);
+      if (t > 2.4) break;
+    }
+    alpha = hit ? 1.0 : 1.0 - smoothstep(0.0, uAA * 1.6, minD);
+    if (alpha <= 0.0) { finalColor = vec4(0.0); return; }
+    vec2 e = vec2(0.003, 0.0);
+    n = normalize(vec3(
+      shapeSDF(uRot * (pos + e.xyy), mode) - shapeSDF(uRot * (pos - e.xyy), mode),
+      shapeSDF(uRot * (pos + e.yxy), mode) - shapeSDF(uRot * (pos - e.yxy), mode),
+      shapeSDF(uRot * (pos + e.yyx), mode) - shapeSDF(uRot * (pos - e.yyx), mode)));
+    o = uRot * pos;
+  }
   if (mode == 12) {
     // Toy ball, as in the original: brightest just above the middle,
     // warm yellow toward the sides, deepening to orange at the bottom.
@@ -281,6 +374,35 @@ void main(void) {
     }
     gloss = 0.45;
     shine = 45.0;
+  } else if (mode == 14) {
+    // Star: glossy candy-gold, each facet catching the light its own way.
+    alb = mix(uC3, uC2, 0.6 + 0.4 * n.y);
+    shine = 140.0;
+  } else if (mode == 15) {
+    // Puck: black rubber, a knurled band round its rim.
+    alb = uC2;
+    float rim = 1.0 - smoothstep(0.2, 0.26, abs(o.y));
+    float knurl = step(0.5, fract(atan(o.z, o.x) * 9.549));
+    alb = mix(alb, mix(uC2, uC1, 0.35), rim * knurl);
+    gloss = 0.5;
+    shine = 50.0;
+  } else if (mode == 16) {
+    // Nut: anodised metal.
+    metal = 1.0;
+    alb = uC2;
+    shine = 120.0;
+  } else if (mode == 17) {
+    // Pawn: polished gold lacquer.
+    alb = mix(uC3, uC2, 0.75 + 0.25 * n.y);
+    shine = 120.0;
+  } else if (mode == 18) {
+    // Gas giant: cloud bands drawn out round the poles' axis, swirling.
+    vec3 sp = vec3(o.x * 1.6, o.y * 6.5, o.z * 1.6);
+    float sw = fbm3(sp + fbm3(o * 3.0 + 1.7) * 2.2);
+    alb = mix(uC3, uC2, smoothstep(0.32, 0.62, sw));
+    alb = mix(alb, uC1, smoothstep(0.6, 0.78, sw) * 0.7);
+    gloss = 0.6;
+    shine = 70.0;
   } else if (mode == 10) {
     // Polished metal with an engraved ring.
     metal = 1.0;
