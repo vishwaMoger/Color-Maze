@@ -109,7 +109,6 @@ export interface HudActions {
   /** Erase all progress and begin again as a new player. */
   startOver: () => void;
   restart: () => void;
-  undo: () => void;
   hint: () => void;
   bomb: () => void;
   next: () => void;
@@ -187,7 +186,6 @@ export class Hud {
         fn();
       });
     on('btn-restart', a.restart, true);
-    on('btn-undo', a.undo, true);
     on('btn-hint', a.hint, true);
     on('btn-bomb', a.bomb, true);
     // Every chunky button springs back with a little pop when released.
@@ -704,9 +702,9 @@ export class Hud {
     root.setProperty('--paint-dark', css(dark));
   }
 
-  /** Make the Undo button pulse to point the way out of a dead end. */
-  undoNudge(on: boolean) {
-    $('btn-undo').classList.toggle('nudge', on);
+  /** Make the Restart button pulse to point the way out of a dead end. */
+  stuckNudge(on: boolean) {
+    $('btn-restart').classList.toggle('nudge', on);
   }
 
   /** Hide ad-only offers where no ads can be shown. */

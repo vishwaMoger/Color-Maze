@@ -167,7 +167,7 @@ export class Game {
   private lastDir: Point | null = null;
   private turnDamp = 1;
   private warping = false;
-  /** Collectibles already picked up on this level (kept through undo). */
+  /** Collectibles already picked up on this level (kept through a revive's step back). */
   private collected = new Set<number>();
   /** The page's material for textured themes, behind everything. */
   private readonly pageBg = new TilingSprite({ texture: Texture.WHITE, width: 1, height: 1 });
@@ -218,7 +218,6 @@ export class Game {
 
     hud.bind({
       restart: () => this.restart(),
-      undo: () => this.undo(),
       hint: () => this.showHint(),
       bomb: () => this.paintBomb(),
       next: () => this.nextLevel(),
@@ -955,8 +954,7 @@ export class Game {
         e.preventDefault();
         // A held key repeats: that is still one move.
         if (!e.repeat) this.input(keyDirs[e.key]);
-      } else if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') this.undo();
-      else if (e.key === 'r' || e.key === 'R') this.restart();
+      } else if (e.key === 'r' || e.key === 'R') this.restart();
       else if (e.key === 'h' || e.key === 'H') this.showHint();
       else if ((e.key === 'Enter' || e.key === ' ') && this.resultShown) {
         e.preventDefault();
@@ -988,7 +986,7 @@ export class Game {
     // The first level guides the whole way; elsewhere a hint turns it on.
     this.hintGuide = n === 1;
     this.guideKey = '';
-    this.hud.undoNudge(false);
+    this.hud.stuckNudge(false);
     prefetchLevels(n + 1);
     this.collected = new Set();
     // A level's key counts once: replaying it (or going back to it) finds
@@ -1837,7 +1835,7 @@ export class Game {
     const snap = this.history.pop();
     if (!snap) return;
     this.hint = null;
-    this.hud.undoNudge(false);
+    this.hud.stuckNudge(false);
     this.pos = snap.pos;
     if (this.splitUsed && !snap.split) {
       const m = this.multTile();
@@ -1871,7 +1869,7 @@ export class Game {
     this.resetState();
     const m = this.multTile();
     if (m) this.board.unpick(m);
-    this.hud.undoNudge(false);
+    this.hud.stuckNudge(false);
     this.hud.setMoves(0);
     this.placeBall(this.pos);
     this.ball.impact(0.4);
@@ -1937,7 +1935,7 @@ export class Game {
       this.hud.toast('Fresh start: follow the arrows');
       return;
     }
-    this.hud.undoNudge(false);
+    this.hud.stuckNudge(false);
     this.hud.toast(`Back ${k} move${k === 1 ? '' : 's'}: follow the arrows`);
   }
 
@@ -1984,14 +1982,14 @@ export class Game {
 
   private updateGuide() {
     if (this.busy || this.completeAt !== null || this.dead || this.bombAnim) return;
-    // Anything that changes the board (a move, undo, restart, a bomb) clears
+    // Anything that changes the board (a move, restart, a bomb) clears
     // the hint, so a hint on screen is always current.
     if (this.hint) return;
     // Solve once per position for the guide's next move. Levels can never
     // get stuck, so there is always a way on: when the board is too big to
     // solve outright, the guide heads for the nearest unpainted floor (which
     // still always reaches the finish). Only a level that could trap the
-    // ball would ever point at Undo.
+    // ball would ever point at Restart.
     const key = `${this.pos.x},${this.pos.y}|${this.moves}|${this.painted.size}`;
     if (key === this.guideKey) return;
     this.guideKey = key;
@@ -2000,12 +1998,12 @@ export class Game {
     const move = sol?.[0] ?? (this.neverStuck ? nextPaintingMove(this.level.grid, this.pos, new Set(this.painted.keys())) : null);
     if (!move) {
       if (sol === null && !this.neverStuck) {
-        if (this.hintGuide) this.hud.toast('Dead end! Tap Undo or Hint');
-        this.hud.undoNudge(true);
-        if (!this.save.tips.includes('tut-undo')) {
-          this.save.tips.push('tut-undo');
-          this.hud.showTip('Dead end! Tap Undo to go back');
-          this.hud.pulse('btn-undo', 5000);
+        if (this.hintGuide) this.hud.toast('Dead end! Tap Restart or Hint');
+        this.hud.stuckNudge(true);
+        if (!this.save.tips.includes('tut-stuck')) {
+          this.save.tips.push('tut-stuck');
+          this.hud.showTip('Dead end! Tap Restart to try again');
+          this.hud.pulse('btn-restart', 5000);
           this.persist();
         }
       }
