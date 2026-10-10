@@ -1,9 +1,9 @@
 // Validates levels: fully paintable, solvable, and never stuck (from any
 // stop the ball can reach, the level can still be finished).
 // Usage: npm run check-levels [-- <count>]
-import { analyze, solve } from '../src/levels/core.ts';
+import { analyze, CRACK, features, replay, solve, SPIKE_A, SPIKE_B } from '../src/levels/core.ts';
 import { getLevel } from '../src/levels/list.ts';
-import { buildLevel, ENDLESS_EFFORT, encodeLevel } from '../src/levels/builder.ts';
+import { buildLevel, ENDLESS_EFFORT, encodeLevel, switchMatters, trapMatters } from '../src/levels/builder.ts';
 import { LEVEL_DATA, LEVEL_DATA_FIRST } from '../src/levels/data.ts';
 
 const count = Number(process.argv[2] ?? 60);
@@ -16,7 +16,15 @@ for (let n = 1; n <= count; n++) {
   const problems: string[] = [];
   if (a.covered !== a.floor) problems.push(`unreachable tiles ${a.floor - a.covered}`);
   if (!sol) problems.push('no solution found');
-  if (!a.neverStuck) problems.push('can get stuck');
+  else if (!replay(lv.grid, lv.start, sol)) problems.push('solution loses the ball');
+  // Cracked tiles are the one thing allowed to trap the ball for good (the
+  // game spots the dead end and offers a restart).
+  const f = features(lv.grid);
+  if (!a.neverStuck && !f.cracks) problems.push('can get stuck');
+  // A trap must be part of the puzzle, not decoration.
+  if (f.spikes && !trapMatters(lv.grid, lv.start, [SPIKE_A, SPIKE_B], 400000)) problems.push('spikes change nothing');
+  if (f.cracks && !trapMatters(lv.grid, lv.start, [CRACK], 400000)) problems.push('cracks change nothing');
+  if (f.gates && !switchMatters(lv.grid, lv.start)) problems.push('switch changes nothing');
   const w = lv.grid[0].length;
   const h = lv.grid.length;
   console.log(

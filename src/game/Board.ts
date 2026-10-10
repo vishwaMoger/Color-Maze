@@ -5,17 +5,23 @@ import {
   ARROW_R,
   ARROW_U,
   COIN,
+  CRACK,
   CURVE_BL,
   CURVE_BR,
   CURVE_TL,
   CURVE_TR,
+  gateClosed,
   isFloor,
+  isGate,
+  isSpike,
   KEY,
   MULT,
   PORTAL_A,
   PORTAL_B,
   SAW,
+  spikeUp,
   STOPPER,
+  SWITCH,
   type Level,
   type Point,
 } from '../levels/core.ts';
@@ -24,6 +30,7 @@ import { dilate, fillRoundedCells, makeCanvas, softBlur, texture, tint } from '.
 import { paintGloss, type PaintGloss } from './shaders.ts';
 import type { Theme, TileStyle } from './themes.ts';
 import { slabCanvas, slabTexture } from './slabs.ts';
+import { chunkTexture, crackOverlay, GATE_COLOR, gateBeam, gatePost, holeTexture, softDot, spikeCone, spikeHoles, spikePlate, switchBase, switchCap } from './traps.ts';
 
 const FILTER_VERT = `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -139,6 +146,12 @@ interface Grip {
 export const SPREAD_MS = 280;
 
 /** HSV (h in degrees, s and v 0..1) of a 0xRRGGBB colour. */
+/** A colour scaled toward black by `k` (1 keeps it). */
+function darken(c: number, k: number): number {
+  const f = (sh: number) => Math.round(((c >> sh) & 255) * Math.max(0, Math.min(1, k))) << sh;
+  return f(16) | f(8) | f(0);
+}
+
 function toHsv(c: number): [number, number, number] {
   const r = ((c >> 16) & 255) / 255;
   const g = ((c >> 8) & 255) / 255;
@@ -639,6 +652,19 @@ export class Board extends Container {
   private readonly grips = new Map<number, Grip>();
 
   private readonly portals: { s: Sprite; beam: Sprite; halo: Sprite }[] = [];
+
+  // Moving tiles (see traps.ts for their art).
+  private readonly trapLayer = new Container();
+  /** Spikes that went through the ball: drawn in front of it. */
+  private readonly trapFront = new Container();
+  /** Spike plates: their cones, and how far up they are (0-1) and heading. */
+  private readonly spikes: { cell: number; v: number; cones: { s: Sprite; y0: number }[]; glow: Sprite; up: number; target: number; at: number }[] = [];
+  /** Cracked tiles: whole, falling away (since `at`), or a hole. */
+  private readonly cracks = new Map<number, { x: number; y: number; overlay: Sprite; hole: Sprite; slab: Sprite; chunks: { s: Sprite; vx: number; vy: number }[]; state: 'whole' | 'falling' | 'hole'; at: number }>();
+  private readonly switchCaps: { cap: Sprite; y0: number; at: number; x: number; y: number }[] = [];
+  /** Gates: beams and posts, how lit the beams are (0-1) and heading. */
+  private readonly gates: { v: number; beams: { s: Sprite; a: number }[]; caps: Sprite[]; on: number; target: number; at: number }[] = [];
+
   private readonly pickups = new Map<number, { s: Sprite; glow: Sprite; base: number; y0: number; at: number }>();
   private lastTime = 0;
 
@@ -1303,12 +1329,14 @@ export class Board extends Container {
         this.sawLayer.addChild(glow, sp);
         this.pickups.set(y * cols + x, { s: sp, glow, base: sp.scale.x, y0: sp.y, at: -1 });
       }
+    this.buildTraps(res);
+    this.sawLayer.addChildAt(this.trapLayer, 0);
     // Live effects over all of these: sparks, sparkles, arrow chevrons.
     this.sawLayer.addChild(this.mechG);
     // Splatter sits over the walls (in the original, lumps flung up the
     // lane overlap the wall face above it), under the speed cone and ball.
     this.buildHintMarks();
-    this.addChild(this.sawLayer, this.glowG, this.dotsG, this.hintG, this.hintArrows, this.hintPulse, this.hintMark, this.coneG, this.fxLayer, this.floorClip, this.ballLayer, this.topDotsG, this.studFront);
+    this.addChild(this.sawLayer, this.glowG, this.dotsG, this.hintG, this.hintArrows, this.hintPulse, this.hintMark, this.coneG, this.fxLayer, this.floorClip, this.ballLayer, this.trapFront, this.topDotsG, this.studFront);
 
     // The near lip: seen from slightly above and in front, the page's edge
     // below each opening hides the bottom of the tiles beside it, and of the
@@ -1378,6 +1406,330 @@ export class Board extends Container {
         }
       }
       this.addChild(this.sprite(lip));
+    }
+  }
+
+  /** Spike plates, cracked tiles, switches and gates (see traps.ts). */
+  private buildTraps(res: number) {
+    const { cols, rows } = this;
+    const cs = this.cell;
+    const c = cs * res;
+    const grid = this.level.grid;
+    const tex = (cv: HTMLCanvasElement) => {
+      const t = Texture.from(cv);
+      this.textures.push(t);
+      return t;
+    };
+    const has = (f: (v: number) => boolean) => grid.some((row) => row.some(f));
+    const at = (sp: Sprite, x: number, y: number) => {
+      sp.scale.set(1 / res);
+      sp.position.set(x * cs, y * cs);
+      return sp;
+    };
+    if (has(isSpike)) {
+      const plates = [tex(spikePlate(c, 1)), tex(spikePlate(c, 1 - LIP))];
+      const cone = tex(spikeCone(c));
+      const dot = tex(softDot(c * 0.5));
+      for (let y = 0; y < rows; y++)
+        for (let x = 0; x < cols; x++) {
+          const v = grid[y][x];
+          if (!isSpike(v)) continue;
+          const glow = new Sprite(dot);
+          glow.anchor.set(0.5);
+          glow.scale.set((cs * 1.5) / dot.width);
+          glow.position.set((x + 0.5) * cs, (y + 0.5) * cs);
+          glow.tint = 0xff3a5c;
+          glow.blendMode = 'add';
+          glow.alpha = 0;
+          // On the near edge the lip hides the tile's bottom: the plate
+          // fits in the part that shows.
+          const nearEdge = !isFloor(grid, x, y + 1);
+          this.trapLayer.addChild(glow, at(new Sprite(plates[nearEdge ? 1 : 0]), x, y));
+          const cones: { s: Sprite; y0: number }[] = [];
+          for (const [hx, hy] of spikeHoles(nearEdge ? 1 - LIP : 1)) {
+            const sp = new Sprite(cone);
+            sp.anchor.set(0.5, 0.88);
+            sp.scale.set(1 / res);
+            sp.position.set((x + hx) * cs, (y + hy) * cs + cs * 0.015);
+            this.trapLayer.addChild(sp);
+            cones.push({ s: sp, y0: sp.y });
+          }
+          const up = spikeUp(v, 0) ? 1 : 0;
+          this.spikes.push({ cell: y * cols + x, v, cones, glow, up, target: up, at: -1e9 });
+        }
+      this.poseSpikes(0);
+    }
+    if (has((v) => v === CRACK)) {
+      const holeTex = tex(holeTexture(c));
+      const chunk = tex(chunkTexture(c));
+      const slabCv = makeCanvas(c, c);
+      const sctx = slabCv.getContext('2d')!;
+      sctx.fillStyle = '#ffffff';
+      sctx.beginPath();
+      sctx.roundRect(c * 0.06, c * 0.06, c * 0.88, c * 0.88, c * 0.1);
+      sctx.fill();
+      const slabTex = tex(slabCv);
+      for (let y = 0; y < rows; y++)
+        for (let x = 0; x < cols; x++) {
+          if (grid[y][x] !== CRACK) continue;
+          const hole = at(new Sprite(holeTex), x, y);
+          hole.visible = false;
+          const slab = new Sprite(slabTex);
+          slab.anchor.set(0.5);
+          slab.scale.set(1 / res);
+          slab.position.set((x + 0.5) * cs, (y + 0.5) * cs);
+          slab.visible = false;
+          const chunks = Array.from({ length: 5 }, (_, i) => {
+            const sp = new Sprite(chunk);
+            sp.anchor.set(0.5);
+            sp.scale.set(1 / res);
+            sp.visible = false;
+            const a = (i / 5) * Math.PI * 2 + 0.4;
+            return { s: sp, vx: Math.cos(a), vy: Math.sin(a) };
+          });
+          const overlay = at(new Sprite(tex(crackOverlay(c, y * cols + x + this.level.grid.length * 131, isFloor(grid, x, y + 1) ? 1 : 1 - LIP))), x, y);
+          this.trapLayer.addChild(hole, slab, ...chunks.map((k) => k.s), overlay);
+          this.cracks.set(y * cols + x, { x, y, overlay, hole, slab, chunks, state: 'whole', at: -1e9 });
+        }
+    }
+    if (has((v) => v === SWITCH)) {
+      const base = tex(switchBase(c));
+      const capTex = tex(switchCap(c));
+      for (let y = 0; y < rows; y++)
+        for (let x = 0; x < cols; x++) {
+          if (grid[y][x] !== SWITCH) continue;
+          const cap = new Sprite(capTex);
+          cap.anchor.set(0.5);
+          cap.scale.set(1 / res);
+          cap.position.set((x + 0.5) * cs, (y + 0.48) * cs);
+          this.trapLayer.addChild(at(new Sprite(base), x, y), cap);
+          this.switchCaps.push({ cap, y0: cap.y, at: -1e9, x, y });
+        }
+    }
+    if (has(isGate)) {
+      const post = tex(gatePost(c));
+      const beam = tex(gateBeam(c));
+      const dot = tex(softDot(c * 0.3));
+      for (let y = 0; y < rows; y++)
+        for (let x = 0; x < cols; x++) {
+          const v = grid[y][x];
+          if (!isGate(v)) continue;
+          // The barrier lies across the corridor: up and down the tile in
+          // a corridor running left-right, side to side in one running up
+          // and down. Posts stand at its two ends; the beams run between
+          // their emitters. Near the board's edge the lip hides the tile's
+          // lower quarter, so the lower post stands clear of it.
+          const across = isFloor(grid, x - 1, y) && isFloor(grid, x + 1, y);
+          const lift = cs * 0.26;
+          const ends: [number, number][] = across
+            ? [
+                [x + 0.5, y + 0.3],
+                [x + 0.5, y + (isFloor(grid, x, y + 1) ? 0.98 : 0.76)],
+              ]
+            : [
+                [x + 0.13, y + 0.66],
+                [x + 0.87, y + 0.66],
+              ];
+          const beams: { s: Sprite; a: number }[] = [];
+          const addBeam = (dy: number, alpha: number) => {
+            const b = new Sprite(beam);
+            const [ax, ay] = ends[0];
+            const [bx, by] = ends[1];
+            const len = Math.hypot((bx - ax) * cs, (by - ay) * cs);
+            b.anchor.set(0, 0.5);
+            b.position.set(ax * cs, ay * cs - lift + dy);
+            b.rotation = Math.atan2(by - ay, bx - ax);
+            b.scale.set(len / beam.width, 1 / res);
+            b.tint = GATE_COLOR;
+            b.blendMode = 'add';
+            b.alpha = alpha;
+            beams.push({ s: b, a: alpha });
+          };
+          // A wide soft band of light on the floor under the barrier, then
+          // two beams.
+          addBeam(across ? 0 : cs * 0.08, 0.22);
+          beams[0].s.scale.y = 2 / res;
+          addBeam(0, 1);
+          addBeam(cs * 0.1, 0.8);
+          const caps: Sprite[] = [];
+          const posts = ends.map(([px, py]) => {
+            const sp = new Sprite(post);
+            sp.anchor.set(0.5, 0.9);
+            sp.scale.set(1 / res);
+            sp.position.set(px * cs, py * cs);
+            const glow = new Sprite(dot);
+            glow.anchor.set(0.5);
+            glow.scale.set((cs * 0.5) / dot.width);
+            glow.position.set(px * cs, py * cs - lift);
+            glow.tint = GATE_COLOR;
+            glow.blendMode = 'add';
+            caps.push(glow);
+            return sp;
+          });
+          // Back post, beams, front post: the beams run between the two.
+          this.trapLayer.addChild(posts[0], ...beams.map((b) => b.s), posts[1], ...caps);
+          const on = gateClosed(v, false) ? 1 : 0;
+          this.gates.push({ v, beams, caps, on, target: on, at: -1e9 });
+        }
+      this.poseGates(0);
+    }
+  }
+
+  /**
+   * Spikes as they should stand for the next swipe: `swipes` made so far;
+   * `held` cells have a ball resting on them, which keeps their spikes down.
+   */
+  setSpikes(swipes: number, held: Set<number>, animate = true): { up: number; down: number } {
+    this.unimpale();
+    const moved = { up: 0, down: 0 };
+    for (const sp of this.spikes) {
+      const target = spikeUp(sp.v, swipes) && !held.has(sp.cell) ? 1 : 0;
+      if (target === sp.target) continue;
+      sp.target = target;
+      sp.at = animate ? this.lastTime : -1e9;
+      if (target) moved.up++;
+      else moved.down++;
+    }
+    if (!animate) this.poseSpikes(this.lastTime);
+    return moved;
+  }
+
+  /** The ball rolled onto raised spikes at p: they stand through it, in front. */
+  impale(p: Point) {
+    const sp = this.spikes.find((x) => x.cell === p.y * this.cols + p.x);
+    if (!sp) return;
+    sp.target = 1;
+    sp.up = 1;
+    for (const c of sp.cones) this.trapFront.addChild(c.s);
+  }
+
+  /** Spikes back behind the ball (after a revive). */
+  private unimpale() {
+    for (const sp of this.spikes) for (const c of sp.cones) if (c.s.parent === this.trapFront) this.trapLayer.addChild(c.s);
+  }
+
+  /** Are any spike plates moving right now (for the sound)? */
+  get hasSpikes() {
+    return this.spikes.length > 0;
+  }
+
+  private poseSpikes(time: number) {
+    for (const sp of this.spikes) {
+      // Up with a snap and a little overshoot; down a touch slower.
+      const t = Math.min(1, (time - sp.at) / (sp.target ? 130 : 150));
+      if (t >= 1) sp.up = sp.target;
+      else if (sp.target) {
+        const c1 = 1.9;
+        sp.up = 1 + (c1 + 1) * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+      } else sp.up = 1 - t * t;
+      // Sunk, only their tips show in the holes.
+      const h = 0.14 + 0.86 * sp.up;
+      for (const c of sp.cones) c.s.scale.set(1 / this.res, h / this.res);
+      sp.glow.alpha = 0.32 * Math.max(0, Math.min(1, sp.up));
+    }
+  }
+
+  /** The gates as they stand after an odd (`flip`) or even number of presses. */
+  setGates(flip: boolean, animate = true) {
+    for (const g of this.gates) {
+      const target = gateClosed(g.v, flip) ? 1 : 0;
+      if (target === g.target) continue;
+      g.target = target;
+      g.at = this.lastTime;
+      if (!animate) g.on = target;
+    }
+    if (!animate) this.poseGates(this.lastTime);
+  }
+
+  private poseGates(time: number) {
+    for (const g of this.gates) {
+      if (g.on !== g.target) {
+        const t = Math.min(1, (time - g.at) / 220);
+        g.on = t >= 1 ? g.target : g.target ? t : 1 - t;
+      }
+      // Lit beams hum; switching on they flicker into life.
+      const flick = g.target && time - g.at < 220 ? 0.55 + 0.45 * Math.sin((time - g.at) * 0.12) : 1;
+      const hum = 0.88 + 0.12 * Math.sin(time * 0.012 + g.v);
+      for (const b of g.beams) b.s.alpha = b.a * g.on * hum * flick;
+      for (const cap of g.caps) cap.alpha = 0.25 + 0.6 * g.on;
+    }
+  }
+
+  /** A ball rolled onto the switch at p: its button goes down and springs back. */
+  pressSwitch(p: Point) {
+    for (const s of this.switchCaps) if (s.x === p.x && s.y === p.y) s.at = this.lastTime;
+  }
+
+  /** Cracked tiles that are holes now, set at once (a new level, undo, restart). */
+  setHoles(holes: Set<number>) {
+    for (const [k, cr] of this.cracks) {
+      const hole = holes.has(k);
+      cr.state = hole ? 'hole' : 'whole';
+      cr.hole.visible = hole;
+      cr.hole.alpha = 1;
+      cr.overlay.visible = !hole;
+      cr.overlay.alpha = 1;
+      cr.slab.visible = false;
+      for (const ch of cr.chunks) ch.s.visible = false;
+    }
+  }
+
+  /** The ball has left the cracked tile at p: it gives way and falls into the dark. */
+  crumble(p: Point, color: number) {
+    const cr = this.cracks.get(p.y * this.cols + p.x);
+    if (!cr || cr.state !== 'whole') return;
+    cr.state = 'falling';
+    cr.at = this.lastTime;
+    cr.slab.tint = color;
+    cr.slab.visible = true;
+    cr.hole.visible = true;
+    cr.hole.alpha = 0;
+    for (const ch of cr.chunks) {
+      ch.s.visible = true;
+      ch.s.tint = color;
+    }
+  }
+
+  private poseTraps(time: number) {
+    this.poseSpikes(time);
+    this.poseGates(time);
+    for (const s of this.switchCaps) {
+      const t = (time - s.at) / 320;
+      const k = t < 0 || t > 1 ? 0 : t < 0.2 ? t / 0.2 : Math.cos(((t - 0.2) / 0.8) * Math.PI * 0.5);
+      s.cap.y = s.y0 + this.cell * 0.05 * k;
+      s.cap.scale.set(1 / this.res, (1 - 0.18 * k) / this.res);
+    }
+    const cs = this.cell;
+    for (const cr of this.cracks.values()) {
+      if (cr.state !== 'falling') continue;
+      const t = Math.min(1, (time - cr.at) / 520);
+      const cx = (cr.x + 0.5) * cs;
+      const cy = (cr.y + 0.5) * cs;
+      cr.overlay.alpha = 1 - Math.min(1, t * 3);
+      cr.hole.alpha = Math.min(1, t * 2.2);
+      // The slab drops away: shrinking, darkening, sinking.
+      const fall = t * t;
+      const k = 1 - fall * 0.75;
+      cr.slab.scale.set(k / this.res);
+      cr.slab.position.set(cx, cy + fall * cs * 0.18);
+      const dark = 1 - fall * 0.8;
+      cr.slab.alpha = 1 - Math.max(0, t - 0.75) * 4;
+      cr.slab.tint = darken(cr.slab.tint as number, dark);
+      // Chunks pop off the edges, then tumble in after it.
+      cr.chunks.forEach((ch, i) => {
+        const d = Math.sin(Math.min(1, t * 1.6) * Math.PI) * cs * (0.22 + (i % 2) * 0.08);
+        ch.s.position.set(cx + ch.vx * d, cy + ch.vy * d * 0.8 + fall * cs * 0.25);
+        ch.s.rotation = t * (i % 2 ? 4 : -5);
+        ch.s.scale.set(((1 - fall * 0.7) * (0.7 + (i % 3) * 0.2)) / this.res);
+        ch.s.alpha = 1 - Math.max(0, t - 0.7) * 3.3;
+      });
+      if (t >= 1) {
+        cr.state = 'hole';
+        cr.overlay.visible = false;
+        cr.slab.visible = false;
+        for (const ch of cr.chunks) ch.s.visible = false;
+        cr.hole.alpha = 1;
+      }
     }
   }
 
@@ -1558,6 +1910,7 @@ export class Board extends Container {
     this.sawAngle += 0.16 * (1 + boost * 2.5) * this.timeScale;
     for (const b of this.saws) b.rotation = this.sawAngle;
     this.drawMechanics(time, boost);
+    this.poseTraps(time);
     for (let i = 0; i < this.portals.length; i++) {
       const p = this.portals[i];
       const pulse = Math.sin(time * 0.004 + i * 1.7);
