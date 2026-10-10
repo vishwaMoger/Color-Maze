@@ -115,13 +115,20 @@ function roundedCell(g: Graphics, x: number, y: number, cell: number, r: number,
   g.closePath();
 }
 
-/** Stud positions on a stopper tile, in cell units. */
-const STUD_POS = [
-  [0.22, 0.22],
-  [0.78, 0.22],
-  [0.22, 0.78],
-  [0.78, 0.78],
-];
+/**
+ * Stud positions on a stopper tile, in cell units. On a tile at the board's
+ * near edge the lip hides its lower quarter (see LIP), so there the studs
+ * sit in the part that shows.
+ */
+function studPos(nearEdge: boolean): [number, number][] {
+  const [top, bottom] = nearEdge ? [0.21, 0.55] : [0.25, 0.75];
+  return [
+    [0.25, top],
+    [0.75, top],
+    [0.25, bottom],
+    [0.75, bottom],
+  ];
+}
 
 interface Grip {
   at: number;
@@ -946,6 +953,33 @@ export class Board extends Container {
     fctx.globalAlpha = 0.6;
     this.drawGrout(fctx, theme.gridLine, c, off, gap);
     fctx.globalAlpha = 1;
+    // Stopper tiles: a grip plate set into the floor, so the tile reads as
+    // one that stops the ball even before its studs are noticed. Shades of
+    // the floor's own colour, so it suits every maze; paint covers it.
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++) {
+        if (this.level.grid[y][x] !== STOPPER) continue;
+        const vis = this.isFloor(x, y + 1) ? 1 : 1 - LIP;
+        const m = c * 0.09;
+        const px = off + x * c + m;
+        const py = off + y * c + m;
+        const pw = c - m * 2;
+        const ph = c * vis - m * 2;
+        const pr = c * 0.16;
+        fctx.save();
+        fctx.beginPath();
+        fctx.roundRect(px, py, pw, ph, pr);
+        fctx.fillStyle = 'rgba(20,8,55,0.14)';
+        fctx.fill();
+        fctx.clip();
+        // Recessed: the plate's own rim shades its top edge.
+        fctx.lineWidth = c * 0.07;
+        fctx.strokeStyle = 'rgba(20,8,55,0.26)';
+        fctx.beginPath();
+        fctx.roundRect(px, py + c * 0.03, pw, ph + c * 0.06, pr);
+        fctx.stroke();
+        fctx.restore();
+      }
     // The shade the wall face casts on the floor just below it: a band of
     // translucent darkening, so the grid still shows through.
     const shadeBand = this.edgeBand(floorMask, c * SHADE);
@@ -1018,22 +1052,27 @@ export class Board extends Container {
     // over the paint and clamp onto the ball when it stops here.
     const studs = makeCanvas(W, H);
     const tctx = studs.getContext('2d')!;
-    const sr = c * 0.125;
+    const sr = c * 0.13;
     const studTex = this.studTexture(sr / res, res);
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         if (this.level.grid[y][x] !== STOPPER) continue;
         const grip: Grip = { at: -1e9, studs: [] };
-        for (const [ux, uy] of STUD_POS) {
+        for (const [ux, uy] of studPos(!this.isFloor(x, y + 1))) {
           const sx = off + (x + ux) * c;
           const sy = off + (y + uy) * c;
-          // Socket: a soft recess the stud sits in.
-          const rg = tctx.createRadialGradient(sx, sy + sr * 0.15, sr * 0.6, sx, sy + sr * 0.15, sr * 1.45);
-          rg.addColorStop(0, 'rgba(30,14,70,0.34)');
-          rg.addColorStop(1, 'rgba(30,14,70,0)');
+          // Socket: a dark ring the stud is set into, and a soft shadow
+          // falling below it (light from above).
+          const rg = tctx.createRadialGradient(sx, sy + sr * 0.3, sr * 0.75, sx, sy + sr * 0.3, sr * 1.5);
+          rg.addColorStop(0, 'rgba(24,10,60,0.42)');
+          rg.addColorStop(1, 'rgba(24,10,60,0)');
           tctx.fillStyle = rg;
           tctx.beginPath();
-          tctx.arc(sx, sy + sr * 0.15, sr * 1.45, 0, Math.PI * 2);
+          tctx.arc(sx, sy + sr * 0.3, sr * 1.5, 0, Math.PI * 2);
+          tctx.fill();
+          tctx.fillStyle = 'rgba(24,10,60,0.5)';
+          tctx.beginPath();
+          tctx.ellipse(sx, sy + sr * 0.18, sr * 1.08, sr * 1.0, 0, 0, Math.PI * 2);
           tctx.fill();
           const s = new Sprite(studTex);
           s.anchor.set(0.5);
@@ -1349,34 +1388,60 @@ export class Board extends Container {
     return !!g;
   }
 
+  /**
+   * A stopper stud: a polished silver bolt with real height. Seen slightly
+   * from the front, so its side shows below the domed top.
+   */
   private studTexture(r: number, res: number): Texture {
     const R = r * res;
-    const S = Math.ceil(R * 3);
+    const S = Math.ceil(R * 3.2);
     const cv = makeCanvas(S, S);
     const ctx = cv.getContext('2d')!;
     const cx = S / 2;
-    const cy = S / 2 - R * 0.12;
-    // Contact shadow.
-    ctx.fillStyle = 'rgba(25,10,60,0.4)';
+    const cy = S / 2 - R * 0.2;
+    const h = R * 0.34;
+    // Contact shadow on the floor.
+    const sh = ctx.createRadialGradient(cx, cy + h + R * 0.25, R * 0.4, cx, cy + h + R * 0.25, R * 1.25);
+    sh.addColorStop(0, 'rgba(20,8,50,0.5)');
+    sh.addColorStop(1, 'rgba(20,8,50,0)');
+    ctx.fillStyle = sh;
     ctx.beginPath();
-    ctx.ellipse(cx, cy + R * 0.42, R * 1.02, R * 0.92, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy + h + R * 0.25, R * 1.25, R * 0.9, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Side of the stud, then its domed top.
-    ctx.fillStyle = '#a597d6';
+    // The side: a short metal cylinder, lit from the upper left.
+    const side = ctx.createLinearGradient(cx - R, 0, cx + R, 0);
+    side.addColorStop(0, '#6d5cae');
+    side.addColorStop(0.32, '#a596dc');
+    side.addColorStop(0.6, '#8574c6');
+    side.addColorStop(1, '#4f3f8f');
+    ctx.fillStyle = side;
     ctx.beginPath();
-    ctx.arc(cx, cy + R * 0.16, R, 0, Math.PI * 2);
+    ctx.moveTo(cx - R, cy);
+    ctx.lineTo(cx - R, cy + h);
+    ctx.ellipse(cx, cy + h, R, R * 0.92, 0, Math.PI, 0, true);
+    ctx.lineTo(cx + R, cy);
+    ctx.closePath();
     ctx.fill();
-    const top = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.08, cx, cy, R);
+    // The domed top.
+    const top = ctx.createRadialGradient(cx - R * 0.38, cy - R * 0.42, R * 0.05, cx, cy, R * 1.02);
     top.addColorStop(0, '#ffffff');
-    top.addColorStop(0.55, '#f4f0ff');
-    top.addColorStop(1, '#cfc5ef');
+    top.addColorStop(0.45, '#f3efff');
+    top.addColorStop(0.82, '#d6cdf4');
+    top.addColorStop(1, '#b9acea');
     ctx.fillStyle = top;
     ctx.beginPath();
-    ctx.arc(cx, cy, R * 0.94, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, R, R * 0.92, 0, 0, Math.PI * 2);
     ctx.fill();
+    // Bevel: a bright rim on the lit side.
+    ctx.lineWidth = Math.max(1, R * 0.07);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, R * 0.94, R * 0.86, 0, Math.PI * 0.95, Math.PI * 1.75);
+    ctx.stroke();
+    // Specular highlight.
     ctx.fillStyle = 'rgba(255,255,255,0.95)';
     ctx.beginPath();
-    ctx.ellipse(cx - R * 0.32, cy - R * 0.36, R * 0.3, R * 0.2, -0.6, 0, Math.PI * 2);
+    ctx.ellipse(cx - R * 0.33, cy - R * 0.36, R * 0.3, R * 0.18, -0.6, 0, Math.PI * 2);
     ctx.fill();
     const tex = Texture.from(cv);
     this.textures.push(tex);
