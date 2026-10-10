@@ -41,7 +41,7 @@ export interface Save {
    * Video offers: two locked items (as 'ball:id', 'paint:id', 'board:id')
    * that open for three videos each, until `until` (ms); then two others.
    */
-  offers?: { until: number; ids: string[] };
+  offers?: { until: number; ids: string[]; v?: number };
   /** Levels finished during each limited-time event (see events.ts). */
   eventLevels?: Record<string, number>;
   /** Highest level whose key was picked up: a level's key counts once. */
