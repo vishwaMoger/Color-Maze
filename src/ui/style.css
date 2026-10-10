@@ -6802,3 +6802,78 @@ body.has-banner {
 #btn-free-coins.pressed {
   animation: none;
 }
+
+/* Multiply: twinkling stars on its face too, like the +80 Coins offer. */
+#btn-multiply .cta-fx {
+  z-index: 1;
+}
+#btn-multiply:disabled .cta-fx {
+  display: none;
+}
+
+/* Super Reward stars and coins: brighter, with a glow that swells and a
+   glint that runs over them, and twinkles popping round them. */
+.sr-stars .twinkle,
+.sr-pile .twinkle {
+  z-index: 2;
+}
+.sr-stars .ico {
+  animation: srglowblue 2.2s ease-in-out infinite;
+}
+.sr-stars .ico:nth-child(2) {
+  animation-delay: -0.7s;
+}
+.sr-stars .ico:nth-child(3) {
+  animation-delay: -1.4s;
+}
+.sr-pile .ico {
+  animation: srglowgold 2.2s ease-in-out infinite;
+}
+@keyframes srglowblue {
+  0%, 100% {
+    filter: hue-rotate(178deg) saturate(1.5) brightness(1.18) drop-shadow(0 0 6px rgba(120, 200, 255, 0.7)) drop-shadow(0 4px 3px rgba(20, 40, 140, 0.3));
+  }
+  50% {
+    filter: hue-rotate(178deg) saturate(1.6) brightness(1.42) drop-shadow(0 0 14px rgba(150, 220, 255, 1)) drop-shadow(0 4px 3px rgba(20, 40, 140, 0.3));
+  }
+}
+@keyframes srglowgold {
+  0%, 100% {
+    filter: saturate(1.2) brightness(1.12) drop-shadow(0 0 6px rgba(255, 210, 80, 0.7)) drop-shadow(0 4px 3px rgba(130, 70, 0, 0.3));
+  }
+  50% {
+    filter: saturate(1.3) brightness(1.35) drop-shadow(0 0 14px rgba(255, 220, 110, 1)) drop-shadow(0 4px 3px rgba(130, 70, 0, 0.3));
+  }
+}
+/* A glint sweeping across each icon, clipped to the icon's own shape. */
+.sr-stars .ico::after,
+.sr-pile .ico::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.9) 50%, transparent 62%) 0 0 / 300% 100% no-repeat;
+  animation: shine 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.sr-stars .ico::after {
+  -webkit-mask: url('../assets/icons/star.webp') center / contain no-repeat;
+  mask: url('../assets/icons/star.webp') center / contain no-repeat;
+}
+.sr-pile .ico::after {
+  -webkit-mask: url('../assets/icons/coinstack.webp') center / contain no-repeat;
+  mask: url('../assets/icons/coinstack.webp') center / contain no-repeat;
+}
+.sr-stars .ico:nth-child(2)::after {
+  animation-delay: -0.4s;
+}
+.sr-stars .ico:nth-child(3)::after {
+  animation-delay: -0.8s;
+}
+.sr-pile .ico::after {
+  animation-delay: -1.2s;
+}
+
+/* Level-complete stars: brighter and glowing once they land. */
+.star.lit .fill {
+  filter: brightness(1.15) saturate(1.15) drop-shadow(0 0 8px rgba(255, 210, 70, 0.85)) drop-shadow(0 3px 2px rgba(150, 90, 0, 0.35));
+}

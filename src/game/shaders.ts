@@ -51,6 +51,11 @@ uniform float uMode;
 uniform vec2 uBoard;
 uniform float uCell;
 uniform vec3 uAlt;
+// Latest wall hit: where (in the same screen units as px), how long ago
+// (s, < 0 for none), how hard, and one tile's size in those units.
+uniform vec3 uHit;
+uniform float uHitP;
+uniform float uHitK;
 float a(vec2 o) { return texture(uTexture, vTextureCoord + o * uInputSize.zw).a; }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 vec2 hash2(vec2 p) { return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453); }
@@ -151,6 +156,30 @@ void main(void) {
     brew += mix(uAlt, vec3(1.0), 0.5) * (1.0 - smoothstep(0.015, 0.06, length(sf - (sh - 0.5) * 0.6))) * tw;
     base = brew;
   }
+  if (uHit.z >= 0.0 && uHit.z < 1.2) {
+    // A wall hit sends a soft swell of light out through the paint (only
+    // the paint: this pass draws nothing else), with fine glitter
+    // twinkling to life as it passes and fading behind it.
+    float age = uHit.z;
+    vec2 qt = px / uHitK;
+    float dist = length(px - uHit.xy) / uHitK;
+    float front = age * 7.0;
+    float fade = exp(-age * 2.6) * uHitP;
+    float swell = exp(-pow((dist - front) / 1.1, 2.0)) * fade;
+    base = mix(base, base + (vec3(1.0) - base) * 0.6, swell * 0.6);
+    vec2 gq = qt * 6.0;
+    vec2 gf = fract(gq) - 0.5;
+    vec2 gh = hash2(floor(gq) + 11.7);
+    float lit = exp(-pow((dist - front + 0.6) / 1.6, 2.0)) * fade;
+    float tw = 0.5 + 0.5 * sin(age * 38.0 + gh.x * 60.0);
+    // Each glint a tiny four-point twinkle: a bright core with thin rays.
+    vec2 dv = gf - (gh - 0.5) * 0.7;
+    float core = 1.0 - smoothstep(0.015, 0.08, length(dv));
+    float rays = (1.0 - smoothstep(0.0, 0.025, abs(dv.x))) * (1.0 - smoothstep(0.05, 0.22, abs(dv.y)))
+               + (1.0 - smoothstep(0.0, 0.025, abs(dv.y))) * (1.0 - smoothstep(0.05, 0.22, abs(dv.x)));
+    float glint = clamp(core + rays * 0.7, 0.0, 1.0);
+    base += vec3(1.0) * glint * tw * lit * step(0.5, gh.y) * 1.3;
+  }
   if (uMode < 0.5) {
     finalColor = vec4(base * c.a, c.a);
     return;
@@ -167,7 +196,7 @@ void main(void) {
 }`;
 
 export type PaintGloss = Filter & {
-  uniforms: { uRadius: number; uTime: number; uMode: number; uBoard: Float32Array; uCell: number; uAlt: Float32Array };
+  uniforms: { uRadius: number; uTime: number; uMode: number; uBoard: Float32Array; uCell: number; uAlt: Float32Array; uHit: Float32Array; uHitP: number; uHitK: number };
 };
 
 export function paintGloss(radiusPx: number): PaintGloss {
@@ -178,6 +207,9 @@ export function paintGloss(radiusPx: number): PaintGloss {
     uBoard: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
     uCell: { value: 64, type: 'f32' },
     uAlt: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+    uHit: { value: new Float32Array([0, 0, -1]), type: 'vec3<f32>' },
+    uHitP: { value: 0, type: 'f32' },
+    uHitK: { value: 1, type: 'f32' },
   });
 }
 
