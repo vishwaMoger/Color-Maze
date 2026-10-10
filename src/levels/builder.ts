@@ -8,8 +8,13 @@
 //   - picture levels (a silhouette such as a heart or rocket that the paint
 //     reveals), carved inside a pixel-art mask
 //   - stopper rooms (open rooms where studded tiles are the puzzle)
-//   - every level is impossible to get stuck in: from any stop the ball can
-//     always get back, so whatever the player does it can still be finished
+//   - trap levels: spikes to time, cracked tiles to cross once, a switch
+//     whose gates seal off part of the board; each is checked to need its
+//     trap (see trapMatters and switchMatters)
+//   - every level is impossible to get stuck in (from any stop the ball can
+//     always get back, so whatever the player does it can still be finished),
+//     except cracked-tile levels, where the order is the puzzle (the game
+//     spots a dead end and offers a restart)
 //   - bonus levels every 5th: wide and satisfying
 import {
   analyze,
@@ -18,13 +23,17 @@ import {
   ARROW_R,
   ARROW_U,
   COIN,
+  CRACK,
   CURVE_BL,
   CURVE_BR,
   CURVE_TL,
   CURVE_TR,
   DIR_LIST,
   DIRS,
+  GATE,
+  GATE_OPEN,
   isCurve,
+  isFatal,
   isFloor,
   KEY,
   MULT,
@@ -32,6 +41,9 @@ import {
   PORTAL_B,
   SAW,
   slide,
+  SPIKE_A,
+  SPIKE_B,
+  SWITCH,
   solve,
   solveMulti,
   STOPPER,
@@ -384,6 +396,8 @@ function search(
    * same best-scoring one.
    */
   variety = 0,
+  /** Run on candidates good enough to keep: false rejects (traps must matter). */
+  essential?: (grid: Grid, start: Point) => boolean,
 ): Candidate | null {
   const rng = mulberry32(seed + salt * 0x9e3779b1);
   let best: Candidate | null = null;
@@ -404,7 +418,7 @@ function search(
     const mid = (rule.parMin + rule.parMax) / 2;
     const inRange = par >= rule.parMin && par <= rule.parMax;
     const score = b + (inRange ? 60 : 0) - Math.abs(par - mid) * 3 + a.stops * 1.5;
-    if (!best || score > best.score) {
+    if ((!best || score > best.score) && (!essential || essential(c.grid, c.start))) {
       const cc = m ? { grid: c.grid, start: c.start } : crop(c.grid, c.start);
       best = { ...cc, par, score, name };
     }
@@ -546,6 +560,175 @@ function addPickups(rng: () => number, grid: Grid, start: Point, coins: number, 
   }
 }
 
+// ------------------------------------------------------------------ traps
+//
+// Spikes, cracked tiles and switch gates are only placed where they make
+// the puzzle: every level built with one is checked to need it (the trap
+// changes what the player must do), not just to have it.
+
+/** Plain floor cells on a straight run (floor on two opposite sides). */
+function straightCells(grid: Grid, start: Point): Point[] {
+  const out: Point[] = [];
+  grid.forEach((row, y) =>
+    row.forEach((v, x) => {
+      if (v !== 0 || (x === start.x && y === start.y)) return;
+      const lr = isFloor(grid, x - 1, y) && isFloor(grid, x + 1, y);
+      const ud = isFloor(grid, x, y - 1) && isFloor(grid, x, y + 1);
+      if (lr !== ud) out.push({ x, y });
+    }),
+  );
+  return out;
+}
+
+/** A solution replays without a ball lost (painting all of it or not). */
+function replaysSafely(grid: Grid, start: Point, sol: Dir[]): boolean {
+  // replay() also asks for every tile painted, which the trap-free route
+  // does on the trap-free board; with the trap it may die first, so the
+  // question is only whether it dies.
+  const w = grid[0].length;
+  let p = start;
+  let flip = false;
+  const painted = new Set([p.y * w + p.x]);
+  for (let i = 0; i < sol.length; i++) {
+    const here = p.y * w + p.x;
+    const r = slide(grid, p, sol[i], { swipes: i, flip, hole: (c) => grid[Math.floor(c / w)][c % w] === CRACK && painted.has(c) && c !== here });
+    if (isFatal(r)) return false;
+    for (const c of r.path) painted.add(c.y * w + c.x);
+    p = r.end;
+    flip = r.flip;
+  }
+  return true;
+}
+
+/** The same board with the given tiles made plain floor. */
+function without(grid: Grid, tiles: number[]): Grid {
+  return grid.map((row) => row.map((v) => (tiles.includes(v) ? 0 : v)));
+}
+
+/**
+ * Does the trap make the puzzle? The quickest way round the same board
+ * without it must either run into it (fatal with the trap) or be shorter
+ * than the quickest way with it: either way the trap decides the route.
+ */
+export function trapMatters(grid: Grid, start: Point, trapTiles: number[], cap: number): boolean {
+  const free = solve(without(grid, trapTiles), start, undefined, cap);
+  if (!free) return false;
+  if (!replaysSafely(grid, start, free)) return true;
+  const real = solve(grid, start, undefined, cap);
+  return !!real && real.length > free.length;
+}
+
+/**
+ * Spike plates on straight runs the ball keeps crossing: half rise as the
+ * other half sink, so the swipes have to be timed.
+ */
+function addSpikes(rng: () => number, grid: Grid, start: Point, count: number): number {
+  const cells = straightCells(grid, start);
+  let n = 0;
+  for (let i = 0; i < count && cells.length; i++) {
+    const c = cells.splice(Math.floor(rng() * cells.length), 1)[0];
+    // Never two plates side by side: each is its own beat.
+    if (DIR_LIST.some((d) => grid[c.y + DIRS[d].y]?.[c.x + DIRS[d].x] === SPIKE_A || grid[c.y + DIRS[d].y]?.[c.x + DIRS[d].x] === SPIKE_B)) continue;
+    grid[c.y][c.x] = rng() < 0.5 ? SPIKE_A : SPIKE_B;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Cracked tiles where the quickest route without them crosses a tile more
+ * than once: with a crack there, that route falls in, and the player has to
+ * find an order that crosses it once.
+ */
+function addCracks(rng: () => number, grid: Grid, start: Point, count: number): number {
+  const free = solve(grid, start, undefined, 40000);
+  if (!free) return 0;
+  const w = grid[0].length;
+  const crossings = new Map<number, number>();
+  let p = start;
+  for (const d of free) {
+    const r = slide(grid, p, d);
+    for (const c of r.path) crossings.set(c.y * w + c.x, (crossings.get(c.y * w + c.x) ?? 0) + 1);
+    p = r.end;
+  }
+  const cells = straightCells(grid, start).filter((c) => (crossings.get(c.y * w + c.x) ?? 0) >= 2);
+  let n = 0;
+  for (let i = 0; i < count && cells.length; i++) {
+    const c = cells.splice(Math.floor(rng() * cells.length), 1)[0];
+    grid[c.y][c.x] = CRACK;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Floor cells whose loss would cut the board in two (one-wide corridor
+ * cells), with the size of the part cut off from the start.
+ */
+function chokepoints(grid: Grid, start: Point): { p: Point; side: Set<number> }[] {
+  const w = grid[0].length;
+  const out: { p: Point; side: Set<number> }[] = [];
+  const reach = (block: Point) => {
+    const seen = new Set([start.y * w + start.x]);
+    const stack = [start];
+    while (stack.length) {
+      const c = stack.pop()!;
+      for (const d of DIR_LIST) {
+        const x = c.x + DIRS[d].x;
+        const y = c.y + DIRS[d].y;
+        if (!isFloor(grid, x, y) || (x === block.x && y === block.y) || seen.has(y * w + x)) continue;
+        seen.add(y * w + x);
+        stack.push({ x, y });
+      }
+    }
+    return seen;
+  };
+  const all = new Set<number>();
+  grid.forEach((row, y) => row.forEach((_, x) => isFloor(grid, x, y) && all.add(y * w + x)));
+  for (const c of straightCells(grid, start)) {
+    const r = reach(c);
+    const side = new Set([...all].filter((k) => !r.has(k) && k !== c.y * w + c.x));
+    if (side.size >= 4) out.push({ p: c, side });
+  }
+  return out;
+}
+
+/**
+ * A gate across a corridor sealing off part of the board, and a switch on
+ * the start's side to open it. Sometimes a second gate, open at first,
+ * seals another part: pressing the switch then opens one and shuts the
+ * other, so the order the parts are painted in matters.
+ */
+function addGates(rng: () => number, grid: Grid, start: Point, twoGates: boolean): boolean {
+  const w = grid[0].length;
+  const chokes = chokepoints(grid, start);
+  if (!chokes.length) return false;
+  const first = chokes.splice(Math.floor(rng() * chokes.length), 1)[0];
+  grid[first.p.y][first.p.x] = GATE;
+  const sealed = new Set([...first.side, first.p.y * w + first.p.x]);
+  if (twoGates) {
+    // Another corridor cut off from the start, outside the first part.
+    const other = chokes.filter((c) => !sealed.has(c.p.y * w + c.p.x) && ![...c.side].some((k) => sealed.has(k)));
+    if (!other.length) return false;
+    const second = other[Math.floor(rng() * other.length)];
+    grid[second.p.y][second.p.x] = GATE_OPEN;
+    sealed.add(second.p.y * w + second.p.x);
+    for (const k of second.side) sealed.add(k);
+  }
+  // The switch: on the start's side, on a cell the ball rolls over.
+  const spots = straightCells(grid, start).filter((c) => !sealed.has(c.y * w + c.x) && Math.abs(c.x - start.x) + Math.abs(c.y - start.y) > 1);
+  if (!spots.length) return false;
+  const sw = spots[Math.floor(rng() * spots.length)];
+  grid[sw.y][sw.x] = SWITCH;
+  return true;
+}
+
+/** A gate level needs its switch: without one, part of the board is never reached. */
+export function switchMatters(grid: Grid, start: Point): boolean {
+  const a = analyze(without(grid, [SWITCH]), start);
+  return a.covered < a.floor;
+}
+
 // ------------------------------------------------------------------ schedule
 
 export const FIRST_BUILT = 7; // levels 1-6 are handmade tutorials
@@ -557,10 +740,19 @@ export const FIRST_BUILT = 7; // levels 1-6 are handmade tutorials
  */
 export const ENDLESS_EFFORT = 0.5;
 
-type Kind = 'bonus' | 'picture' | 'curves' | 'saws' | 'portals' | 'arrows' | 'split' | 'room' | 'maze';
+type Kind = 'bonus' | 'picture' | 'curves' | 'saws' | 'portals' | 'arrows' | 'split' | 'spikes' | 'cracks' | 'gates' | 'room' | 'maze';
 
 /** Where each mechanic first appears: its own level, so it can be learnt. */
-export const DEBUT: Record<'curves' | 'saws' | 'portals' | 'arrows' | 'split', number> = { curves: 16, saws: 23, portals: 32, arrows: 41, split: 47 };
+export const DEBUT: Record<'curves' | 'saws' | 'portals' | 'arrows' | 'split' | 'spikes' | 'cracks' | 'gates', number> = {
+  curves: 16,
+  saws: 23,
+  portals: 32,
+  arrows: 41,
+  split: 47,
+  spikes: 53,
+  gates: 58,
+  cracks: 64,
+};
 
 /**
  * The kind of level n is. Every 5th is a bonus and every 7th a picture;
@@ -579,6 +771,9 @@ export function levelKind(n: number): Kind {
   if (n >= DEBUT.portals) pool.push('portals');
   if (n >= DEBUT.arrows) pool.push('arrows');
   if (n >= DEBUT.split) pool.push('split');
+  if (n >= DEBUT.spikes) pool.push('spikes');
+  if (n >= DEBUT.gates) pool.push('gates');
+  if (n >= DEBUT.cracks) pool.push('cracks');
   // Step through the pool by a stride coprime with its size: consecutive
   // levels never land on the same kind.
   const L = pool.length;
@@ -593,6 +788,7 @@ export function levelKind(n: number): Kind {
 const CHARS: Record<number, string> = {
   1: '#', 0: '.', [STOPPER]: '*', [SAW]: 'x', [PORTAL_A]: 'p', [PORTAL_B]: 'q',
   [ARROW_U]: '^', [ARROW_D]: 'v', [ARROW_L]: '<', [ARROW_R]: '>', [COIN]: '$', [KEY]: 'k', [MULT]: 'm',
+  [SPIKE_A]: 'i', [SPIKE_B]: 'I', [CRACK]: 'r', [SWITCH]: 'w', [GATE]: 'g', [GATE_OPEN]: 'G',
 };
 
 /** Level text: name|bonus|par|rows. */
@@ -690,6 +886,50 @@ function buildWith(n: number, effort: number): { c: Candidate; bonus: boolean } 
         if (combo) addCurves(rng, g.grid, g.start, false, 0.3);
         return g;
       }, { ...rule, parMin: rule.parMin - 4, parMax: rule.parMax + 1 }, null, 'Split');
+  } else if (kind === 'spikes') {
+    // Debut: a small board and two plates, one of each phase.
+    const debut = n === DEBUT.spikes;
+    const frame = debut ? FRAMES[0] : FRAMES[(n * 17) % FRAMES.length];
+    const [sw, sh] = debut ? [w - 2, h - 3] : [w, h];
+    for (let attempt = 0; attempt < 4 && !c; attempt++)
+      c = search(n * 5417 + 11 + attempt, tries(2500), (rng) => {
+        const mirror = rng() < 0.5;
+        const g = carve(rng, frame.f(sw, sh), mirror, 0.55 + rng() * 0.15);
+        if (!g) return null;
+        const want = debut ? 2 : 2 + Math.floor(rng() * (2 + t * 2));
+        if (addSpikes(rng, g.grid, g.start, want) < 2) return null;
+        if (combo) addCurves(rng, g.grid, g.start, false, 0.3);
+        return g;
+      }, { ...rule, parMin: debut ? 6 : rule.parMin - 2, parMax: debut ? 12 : rule.parMax + 2, maxTiles: debut ? 44 : rule.maxTiles, minTiles: debut ? 22 : rule.minTiles }, null, 'Spikes', 0, (grid, start) => trapMatters(grid, start, [SPIKE_A, SPIKE_B], 80000));
+  } else if (kind === 'cracks') {
+    // Cracked tiles can trap the ball for good, so these levels are the
+    // one kind that may get stuck: the game spots a dead end and offers a
+    // restart. Kept smaller so the hint can always see the whole board.
+    const debut = n === DEBUT.cracks;
+    const frame = debut ? FRAMES[0] : FRAMES[(n * 19) % FRAMES.length];
+    const [sw, sh] = debut ? [w - 2, h - 3] : [w - 1, h - 1];
+    for (let attempt = 0; attempt < 4 && !c; attempt++)
+      c = search(n * 6151 + 17 + attempt, tries(700), (rng) => {
+        const g = carve(rng, frame.f(sw, sh), rng() < 0.5, 0.55 + rng() * 0.15);
+        if (!g) return null;
+        if (combo) addCurves(rng, g.grid, g.start, false, 0.25);
+        const want = debut ? 1 : 1 + Math.floor(rng() * (1.5 + t * 2));
+        if (!addCracks(rng, g.grid, g.start, want)) return null;
+        return g;
+      }, { ...rule, neverStuck: false, parMin: debut ? 6 : rule.parMin - 3, parMax: debut ? 12 : rule.parMax + 1, maxTiles: debut ? 42 : Math.min(rule.maxTiles, 52), minTiles: debut ? 20 : rule.minTiles }, null, 'Cracks', 0, (grid, start) => trapMatters(grid, start, [CRACK], 80000));
+  } else if (kind === 'gates') {
+    const debut = n === DEBUT.gates;
+    const frame = debut ? FRAMES[0] : FRAMES[(n * 23) % FRAMES.length];
+    const [sw, sh] = debut ? [w - 1, h - 2] : [w, h];
+    const two = !debut && n >= DEBUT.gates + 12;
+    for (let attempt = 0; attempt < 4 && !c; attempt++)
+      c = search(n * 7393 + 23 + attempt, tries(2500), (rng) => {
+        const g = carve(rng, frame.f(sw, sh), false, 0.55 + rng() * 0.15);
+        if (!g) return null;
+        if (!addGates(rng, g.grid, g.start, two && rng() < 0.6)) return null;
+        if (combo) addCurves(rng, g.grid, g.start, false, 0.3);
+        return g;
+      }, { ...rule, parMin: debut ? 6 : rule.parMin - 2, parMax: debut ? 13 : rule.parMax + 2, maxTiles: debut ? 44 : rule.maxTiles, minTiles: debut ? 22 : rule.minTiles }, null, 'Gates', 0, switchMatters);
   } else if (kind === 'picture') {
     const round = Math.floor(n / 7);
     const p = PICTURES[round % PICTURES.length];

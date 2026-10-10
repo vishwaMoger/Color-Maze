@@ -1,6 +1,6 @@
 import { Application, BlurFilter, Container, Graphics, Rectangle, RenderTexture, type Renderer, Sprite, Texture, TilingSprite } from 'pixi.js';
 import { Sound } from '../audio/sound.ts';
-import { analyze, ARROW_R, ARROW_U, DIRS, floorCount, isFloor, nextPaintingMove, PORTAL_A, SAW, slide, solve, solveMulti, splitDirs, STOPPER, type Dir, type Level, type Point, type SlideResult, isCurve, COIN, KEY, MULT } from '../levels/core.ts';
+import { analyze, ARROW_R, ARROW_U, CRACK, DIRS, floorCount, gateClosed, isFloor, isGate, isSpike, nextPaintingMove, PORTAL_A, SAW, slide, solve, solveMulti, splitDirs, STOPPER, SWITCH, type Dir, type Dyn, type Level, type Point, type SlideResult, isCurve, COIN, KEY, MULT } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
 import { prefetchLevels } from '../levels/prefetch.ts';
 import type { EventView, Hud, ShopItem, ShopTab, VaultKind } from '../ui/hud.ts';
@@ -29,6 +29,8 @@ interface Slide {
   turns: number[];
   /** The slide runs into a saw blade. */
   saw?: Point;
+  /** The slide ends on raised spikes or in a hole. */
+  trap?: SlideResult['trap'];
   /** Indices into `path` reached through a portal. */
   jumps: number[];
   t: number;
@@ -63,6 +65,8 @@ interface Snapshot {
   dots: number;
   splats: number;
   moves: number;
+  /** The gates' state (an odd number of switch presses). */
+  flip: boolean;
 }
 
 interface Tween {
@@ -164,6 +168,8 @@ export class Game {
   private coneColor = 0xffffff;
   private moves = 0;
   private history: Snapshot[] = [];
+  /** Gates flipped from their start: an odd number of switch presses. */
+  private flip = false;
   private slideState: Slide | null = null;
   private queued: Dir | null = null;
   private lastDir: Point | null = null;
@@ -1068,6 +1074,67 @@ export class Game {
     return p.y * this.level.grid[0].length + p.x;
   }
 
+  /** Is this cell a hole now: a cracked tile already crossed, with no ball on it? */
+  private isHole(cell: number): boolean {
+    const w = this.level.grid[0].length;
+    if (this.level.grid[Math.floor(cell / w)]?.[cell % w] !== CRACK || !this.painted.has(cell)) return false;
+    return cell !== this.key(this.pos) && !this.extras.some((e) => this.key(e.pos) === cell);
+  }
+
+  /** The moving tiles' state, for slides and the solver. */
+  private dyn(): Dyn {
+    return { swipes: this.moves, flip: this.flip, hole: (c) => this.isHole(c) };
+  }
+
+  /** Cells with a ball resting on them (their spikes cannot rise). */
+  private heldCells(): Set<number> {
+    return new Set([this.key(this.pos), ...this.extras.map((e) => this.key(e.pos))]);
+  }
+
+  /**
+   * Bring the board's spikes, gates and holes in line with the game: after
+   * a new board is built, an undo or a restart.
+   */
+  private syncTraps(animate: boolean) {
+    if (!this.board) return;
+    this.board.setSpikes(this.moves, this.heldCells(), animate);
+    this.board.setGates(this.flip, animate);
+    const holes = new Set<number>();
+    for (const k of this.painted.keys()) if (this.isHole(k)) holes.add(k);
+    this.board.setHoles(holes);
+  }
+
+  /** The ball rolled onto the switch at p: every gate flips. */
+  private pressSwitch(p: Point) {
+    this.flip = !this.flip;
+    this.board.pressSwitch(p);
+    this.board.setGates(this.flip, true);
+    const c = this.board.cellCenter(p.x, p.y);
+    this.boardFx.ring(c.x, c.y, this.cell * 0.7, 0xffc24a);
+    this.boardFx.sparkle(c.x, c.y, 8, this.cell * 1.1, 0xffd27a);
+    this.sound.switchPress();
+    // Beams on if any gate is closed now, else off.
+    this.sound.gate(this.level.grid.some((row) => row.some((v) => isGate(v) && gateClosed(v, this.flip))));
+    this.vibrate([18, 30, 18]);
+  }
+
+  /** The ball has left the cracked tile at p: it gives way. */
+  private crumbleAt(p: Point) {
+    this.board.crumble(p, this.look.paint);
+    const c = this.board.cellCenter(p.x, p.y);
+    this.boardFx.sparkle(c.x, c.y, 6, this.cell * 0.9, 0xb9a8e8);
+    this.sound.crumble();
+    this.vibrate(28);
+  }
+
+  /** After a swipe (and as the ball sets off): spikes move to their next stance. */
+  private moveSpikes(swipes: number, held: Set<number>) {
+    const moved = this.board.setSpikes(swipes, held, true);
+    if (moved.up) this.sound.spikes(true);
+    else if (moved.down) this.sound.spikes(false);
+    if (moved.up) this.vibrate(14);
+  }
+
   private loadLevel(n: number, animate: boolean) {
     this.levelNo = n;
     this.restartedThisLevel = false;
@@ -1152,6 +1219,9 @@ export class Game {
       { id: 'arrows', on: has((c) => c >= ARROW_U && c <= ARROW_R), text: 'Arrows send the ball the way they point!' },
       { id: 'stoppers', on: has((c) => c === STOPPER), text: 'Studded tiles stop the ball dead!' },
       { id: 'split', on: has((c) => c === MULT), text: 'Roll over x3 to split into three balls!' },
+      { id: 'spikes', on: has(isSpike), text: 'Spikes rise and fall with every swipe. Time it!' },
+      { id: 'gates', on: has(isGate), text: 'Roll over the switch to open the gates!' },
+      { id: 'cracks', on: has((c) => c === CRACK), text: 'Cracked tiles break once you roll off them!' },
     ].find((t) => t.on && !this.save.tips.includes(t.id));
     if (fresh) {
       this.save.tips.push(fresh.id);
@@ -1180,6 +1250,7 @@ export class Game {
 
   private resetState() {
     this.pos = { ...this.level.start };
+    this.flip = false;
     this.introAt = this.time;
     this.landed = false;
     this.painted = new Map([[this.key(this.pos), this.time + 330]]);
@@ -1266,6 +1337,7 @@ export class Game {
       e.ball.position.set(c.x, c.y);
     }
     this.ambient.reset(this.app.screen.width, this.app.screen.height, this.theme);
+    this.syncTraps(false);
   }
 
   private relayout() {
@@ -1299,11 +1371,12 @@ export class Game {
   // ---------------------------------------------------------------- moves
 
   private startSlide(dir: Dir) {
-    const r = slide(this.level.grid, this.pos, dir);
+    const dyn = this.dyn();
+    const r = slide(this.level.grid, this.pos, dir, dyn);
     const d = DIRS[dir];
     // Every ball rolls (after an x3 split there are several).
-    const others = this.extras.map((e) => slide(this.level.grid, e.pos, dir));
-    const rolls = (x: SlideResult) => x.path.length > 0 || !!x.saw;
+    const others = this.extras.map((e) => slide(this.level.grid, e.pos, dir, dyn));
+    const rolls = (x: SlideResult) => x.path.length > 0 || !!x.saw || !!x.trap;
     if (!rolls(r) && !others.some(rolls)) {
       // Blocked: a small wobble toward the wall.
       this.ball.impact(0.25);
@@ -1319,7 +1392,16 @@ export class Game {
       dots: this.dots.length,
       splats: this.splats.length,
       moves: this.moves,
+      flip: this.flip,
     });
+    // Balls setting off free the spike plates they rested on: those due up
+    // for this swipe rise behind them.
+    if (this.board.hasSpikes) {
+      const held = new Set<number>();
+      if (!rolls(r)) held.add(this.key(this.pos));
+      this.extras.forEach((e, i) => !rolls(others[i]) && held.add(this.key(e.pos)));
+      this.moveSpikes(this.moves, held);
+    }
     this.moves++;
     this.hud.setMoves(this.moves);
     this.hud.showTip(null);
@@ -1354,7 +1436,7 @@ export class Game {
 
   private makeSlide(dir: Dir, from: Point, r: SlideResult): Slide {
     const len = r.path.length;
-    return { dir, endDir: r.dir, from: { ...from }, path: r.path, turns: r.turns, saw: r.saw, jumps: r.jumps, t: 0, dur: 40 + 19 * Math.max(1, len) ** 0.9, done: 0 };
+    return { dir, endDir: r.dir, from: { ...from }, path: r.path, turns: r.turns, saw: r.saw, trap: r.trap, jumps: r.jumps, t: 0, dur: 40 + 19 * Math.max(1, len) ** 0.9, done: 0 };
   }
 
   /** After an unexpected error: stop every ball where it is and go on. */
@@ -1422,11 +1504,11 @@ export class Game {
     this.sound.star(2);
     this.vibrate([16, 30, 16]);
     for (const sd of dirs) {
-      const r = slide(this.level.grid, p, sd);
+      const r = slide(this.level.grid, p, sd, this.dyn());
       const ball = this.makeBall();
       ball.position.set(c.x, c.y);
       const e = { pos: { ...p }, ball, slide: null as Slide | null, lastDir: DIRS[sd], born: this.time };
-      if (r.path.length || r.saw) e.slide = this.makeSlide(sd, p, r);
+      if (r.path.length || r.saw || r.trap) e.slide = this.makeSlide(sd, p, r);
       this.extras.push(e);
     }
   }
@@ -1463,8 +1545,8 @@ export class Game {
     const s = e.slide!;
     e.slide = null;
     e.pos = s.path[s.path.length - 1] ?? s.from;
-    if (s.saw) {
-      this.die(s.saw, DIRS[s.endDir], e.ball);
+    if (s.saw || s.trap) {
+      this.die(s.saw ?? s.trap!.at, DIRS[s.endDir], e.ball, s.trap?.kind ?? 'saw');
       return;
     }
     const c = this.board.cellCenter(e.pos.x, e.pos.y);
@@ -1482,6 +1564,8 @@ export class Game {
    */
   private settle() {
     if (this.busy || this.dead || this.completeAt !== null) return;
+    // Every ball at rest: the spikes take their stance for the next swipe.
+    if (this.board.hasSpikes) this.moveSpikes(this.moves, this.heldCells());
     const taken = new Set([this.key(this.pos)]);
     this.extras = this.extras.filter((e) => {
       const k = this.key(e.pos);
@@ -1564,6 +1648,10 @@ export class Game {
       if (!sp.turning && !this.isCurveAt(cellP)) this.wet.set(k, { t: this.time, axis: d.x !== 0 ? 0 : 1 });
       this.collect(cellP);
       if (!this.splitUsed && this.level.grid[cellP.y][cellP.x] === MULT) this.splitAt(cellP, splitDirs(s.from, s.path, s.done));
+      if (this.level.grid[cellP.y][cellP.x] === SWITCH) this.pressSwitch(cellP);
+      // The tile just left behind: a cracked one gives way under it.
+      const left = s.done === 0 ? s.from : s.path[s.done - 1];
+      if (this.level.grid[left.y][left.x] === CRACK) this.crumbleAt(left);
       s.done++;
     }
   }
@@ -1625,11 +1713,11 @@ export class Game {
     const d = DIRS[s.endDir];
     this.pos = s.path[s.path.length - 1] ?? s.from;
     this.slideState = null;
-    if (s.saw) {
+    if (s.saw || s.trap) {
       this.updateRemaining();
       // The speed cone draws back into the ball as on any stop.
       if (this.cone) this.cone.endedAt = this.time;
-      this.die(s.saw, d);
+      this.die(s.saw ?? s.trap!.at, d, this.ball, s.trap?.kind ?? 'saw');
       return;
     }
     if (this.cone) this.cone.endedAt = this.time;
@@ -1767,50 +1855,89 @@ export class Game {
   private vignette: HTMLElement | null = null;
 
   /**
-   * The ball rolled into a saw: it is pushed into the blade and sliced in
-   * two, sparks fly, the board shakes, then the revive offer appears.
+   * The ball is lost. Into a saw: it is pushed into the blade and sliced in
+   * two, sparks fly, the board shakes. Onto raised spikes: it rolls onto
+   * the plate and is skewered. Into a hole: it drops away into the dark.
+   * Then the revive offer appears.
    */
-  private die(saw: Point, dir: Point, ball = this.ball) {
+  private die(at: Point, dir: Point, ball = this.ball, kind: 'saw' | 'spike' | 'hole' = 'saw') {
     this.dead = true;
     this.queued = null;
     this.hint = null;
     const from = { x: ball.x, y: ball.y };
-    const c = this.board.cellCenter(saw.x, saw.y);
-    this.tweens.push({
-      t: 0,
-      dur: 110,
-      step: (p) => ball.position.set(from.x + (c.x - from.x) * 0.5 * p, from.y + (c.y - from.y) * 0.5 * p),
-      done: () => {
-        const hx = (ball.x + c.x) / 2;
-        const hy = (ball.y + c.y) / 2;
-        const px = Math.ceil(this.cell * Math.min(window.devicePixelRatio || 1, 2));
-        const still = Texture.from(ballCanvas(this.app.renderer as Renderer, this.ballSkin(), px));
-        ball.split(dir, (x, y) => isFloor(this.level.grid, Math.floor(x / this.cell), Math.floor(y / this.cell)), still);
-        this.board.sawHit(this.time);
-        if (!REDUCED_MOTION) {
-          this.slowMo = { at: this.time, x: hx, y: hy, dx: dir.x, dy: dir.y };
-          this.slash(hx, hy, dir);
-        }
-        this.boardFx.sparkle(hx, hy, 24, this.cell * 2, 0xffd27a);
-        this.boardFx.flash(hx, hy, this.cell * 1.6, 0xff5a5a, 0.8);
-        this.boardFx.splash(hx, hy, -dir.x, -dir.y, 10, this.look.paint, this.cell * 3.4, this.cell * 0.08, (x, y, r) => this.addDot(x, y, r));
-        if (!REDUCED_MOTION) {
-          this.nudge.vx -= dir.x * 260 + 120;
-          this.nudge.vy -= dir.y * 260;
-        }
-        this.hud.hurt();
-        this.sound.slice();
-        this.sound.thock(0.8);
-        this.vibrate([70, 40, 110, 60, 50]);
-      },
-    });
+    const c = this.board.cellCenter(at.x, at.y);
+    if (kind === 'hole') {
+      // Roll on to the edge, tip over and fall: shrinking, fading, sinking.
+      this.tweens.push({
+        t: 0,
+        dur: 120,
+        step: (p) => ball.position.set(from.x + (c.x - from.x) * p, from.y + (c.y - from.y) * p),
+        done: () => {
+          this.sound.fall();
+          this.vibrate([30, 40, 60, 90, 110]);
+          this.hud.hurt();
+          this.tweens.push({
+            t: 0,
+            dur: 700,
+            step: (p) => {
+              const e = p * p;
+              const k = 1 - e * 0.85;
+              ball.scale.set(k, k / this.foreshorten);
+              ball.alpha = 1 - Math.max(0, (p - 0.35) / 0.65);
+              ball.position.set(c.x, c.y + e * this.cell * 0.22);
+            },
+          });
+          this.boardFx.sparkle(c.x, c.y, 8, this.cell * 0.9, 0xb9a8e8);
+        },
+      });
+    } else {
+      // Saw: halfway into the blade. Spikes: right onto the plate.
+      const reach = kind === 'spike' ? 1 : 0.5;
+      this.tweens.push({
+        t: 0,
+        dur: kind === 'spike' ? 130 : 110,
+        step: (p) => ball.position.set(from.x + (c.x - from.x) * reach * p, from.y + (c.y - from.y) * reach * p),
+        done: () => {
+          if (kind === 'spike') this.board.impale(at);
+          const hx = kind === 'spike' ? c.x : (ball.x + c.x) / 2;
+          const hy = kind === 'spike' ? c.y : (ball.y + c.y) / 2;
+          const px = Math.ceil(this.cell * Math.min(window.devicePixelRatio || 1, 2));
+          const still = Texture.from(ballCanvas(this.app.renderer as Renderer, this.ballSkin(), px));
+          ball.split(dir, (x, y) => isFloor(this.level.grid, Math.floor(x / this.cell), Math.floor(y / this.cell)), still);
+          if (kind === 'saw') this.board.sawHit(this.time);
+          if (!REDUCED_MOTION) {
+            this.slowMo = { at: this.time, x: hx, y: hy, dx: dir.x, dy: dir.y };
+            if (kind === 'saw') this.slash(hx, hy, dir);
+          }
+          this.boardFx.sparkle(hx, hy, 24, this.cell * 2, kind === 'spike' ? 0xffffff : 0xffd27a);
+          this.boardFx.flash(hx, hy, this.cell * 1.6, 0xff5a5a, 0.8);
+          this.boardFx.splash(hx, hy, -dir.x, -dir.y, 10, this.look.paint, this.cell * 3.4, this.cell * 0.08, (x, y, r) => this.addDot(x, y, r));
+          if (!REDUCED_MOTION) {
+            this.nudge.vx -= dir.x * 260 + 120;
+            this.nudge.vy -= dir.y * 260;
+          }
+          this.hud.hurt();
+          if (kind === 'spike') this.sound.stab();
+          else this.sound.slice();
+          this.sound.thock(0.8);
+          this.vibrate([70, 40, 110, 60, 50]);
+        },
+      });
+    }
+    /** The ball as it was before it fell (scale and alpha). */
+    const restore = () => {
+      if (ball.destroyed) return;
+      ball.unsplit();
+      ball.alpha = 1;
+      ball.scale.set(1, 1 / this.foreshorten);
+    };
     window.setTimeout(() => {
       if (!this.dead) return;
       const revive = () => {
         // Undo the fatal move and drop the ball back in.
         this.dead = false;
         this.endSlowMo();
-        if (!ball.destroyed) ball.unsplit();
+        restore();
         this.undo();
         this.introAt = this.time;
         this.landed = false;
@@ -1818,7 +1945,7 @@ export class Game {
       const giveUp = () => {
         this.dead = false;
         this.endSlowMo();
-        if (!ball.destroyed) ball.unsplit();
+        restore();
         this.restart();
       };
       // Turning the revive down costs a level: play the one before again
@@ -1830,7 +1957,7 @@ export class Game {
         }
         this.dead = false;
         this.endSlowMo();
-        if (!ball.destroyed) ball.unsplit();
+        restore();
         if (this.save.streak > 0) {
           this.save.streak = 0;
           this.hud.streakLost();
@@ -1936,12 +2063,14 @@ export class Game {
     this.splitUsed = snap.split;
     this.setExtras(snap.extras);
     this.painted = snap.painted;
+    this.flip = snap.flip;
     this.dots = [];
     this.splats.length = snap.splats;
     this.moves = snap.moves;
     this.hud.setMoves(this.moves);
     this.updateRemaining();
     this.placeBall(this.pos);
+    this.syncTraps(true);
     this.ball.impact(0.3);
     this.sound.click();
     this.boardFx.sparkle(this.ball.x, this.ball.y, 6, this.cell * 1.2, 0xffffff);
@@ -1959,6 +2088,7 @@ export class Game {
       this.persist();
     }
     this.resetState();
+    this.syncTraps(true);
     const m = this.multTile();
     if (m) this.board.unpick(m);
     this.hud.stuckNudge(false);
@@ -2001,7 +2131,10 @@ export class Game {
    * never get stuck (every built level); otherwise ask the solver.
    */
   private canFinish(): boolean {
-    return this.neverStuck || solve(this.level.grid, this.pos, this.painted.keys(), 300000) !== null;
+    if (this.neverStuck) return true;
+    const info: { capped?: boolean } = {};
+    // A board too big to search is given the benefit of the doubt.
+    return solve(this.level.grid, this.pos, this.painted.keys(), 300000, this.dyn(), info) !== null || !!info.capped;
   }
 
   private readonly stuckFree = new WeakMap<Level, boolean>();
@@ -2066,7 +2199,7 @@ export class Game {
     const key = `${this.pos.x},${this.pos.y}|${this.moves}|${this.painted.size}`;
     if (key !== this.handKey) {
       this.handKey = key;
-      const sol = solveMulti(this.level.grid, this.pos, this.painted.keys(), 20000, this.extras.map((e) => e.pos), this.splitUsed);
+      const sol = solveMulti(this.level.grid, this.pos, this.painted.keys(), 20000, this.extras.map((e) => e.pos), this.splitUsed, this.dyn());
       this.handMove = sol?.[0] ? DIRS[sol[0]] : null;
     }
     return this.handMove;
@@ -2086,10 +2219,11 @@ export class Game {
     if (key === this.guideKey) return;
     this.guideKey = key;
     if (!this.hintGuide && this.neverStuck) return;
-    const sol = solveMulti(this.level.grid, this.pos, this.painted.keys(), this.neverStuck ? 120000 : 300000, this.extras.map((e) => e.pos), this.splitUsed);
-    const move = sol?.[0] ?? (this.neverStuck ? nextPaintingMove(this.level.grid, this.pos, new Set(this.painted.keys())) : null);
+    const info: { capped?: boolean } = {};
+    const sol = solveMulti(this.level.grid, this.pos, this.painted.keys(), this.neverStuck ? 120000 : 300000, this.extras.map((e) => e.pos), this.splitUsed, this.dyn(), info);
+    const move = sol?.[0] ?? (this.neverStuck || info.capped ? nextPaintingMove(this.level.grid, this.pos, new Set(this.painted.keys()), this.dyn()) : null);
     if (!move) {
-      if (sol === null && !this.neverStuck) {
+      if (sol === null && !info.capped && !this.neverStuck) {
         if (this.hintGuide) this.hud.toast('Dead end! Tap Restart or Hint');
         this.hud.stuckNudge(true);
         if (!this.save.tips.includes('tut-stuck')) {
@@ -2102,7 +2236,7 @@ export class Game {
       return;
     }
     if (!this.hintGuide) return;
-    const r = slide(this.level.grid, this.pos, move);
+    const r = slide(this.level.grid, this.pos, move, this.dyn());
     this.hint = { from: { ...this.pos }, path: r.path, dir: DIRS[move], since: this.time };
   }
 
@@ -2449,9 +2583,12 @@ export class Game {
   private bombTargets(): Point[] {
     const grid = this.level.grid;
     const painted = new Set(this.painted.keys());
-    const unpainted = (c: Point) => isFloor(grid, c.x, c.y) && !painted.has(this.key(c));
+    // A cracked tile hit by paint gives way: never one of the shots, unless
+    // it is among the very last tiles (which finishes the level anyway).
+    const unpainted = (c: Point) => isFloor(grid, c.x, c.y) && !painted.has(this.key(c)) && grid[c.y][c.x] !== CRACK;
     if (this.remaining.length <= 3) return [...this.remaining];
-    const sol = solve(grid, this.pos, painted, 200000);
+    const dyn = this.dyn();
+    const sol = solve(grid, this.pos, painted, 200000, dyn);
     const neighbours = (c: Point) => Object.values(DIRS).map((d) => ({ x: c.x + d.x, y: c.y + d.y }));
     const floorDegree = (c: Point) => neighbours(c).filter((n) => isFloor(grid, n.x, n.y)).length;
     // Grow a cluster of up to 3 unpainted tiles, preferring narrow tiles so it
@@ -2470,14 +2607,17 @@ export class Game {
       }
       return out;
     };
-    const seeds: Point[] = this.remaining.filter((c) => floorDegree(c) <= 1);
+    const seeds: Point[] = this.remaining.filter((c) => floorDegree(c) <= 1 && unpainted(c));
     if (sol) {
       const seen = new Set(painted);
       let p = this.pos;
+      let flip = this.flip;
       const moves: Point[][] = [];
-      for (const dir of sol) {
-        const r = slide(grid, p, dir);
-        const fresh = r.path.filter((c) => !seen.has(this.key(c)));
+      for (let i = 0; i < sol.length; i++) {
+        const dir = sol[i];
+        const r = slide(grid, p, dir, { swipes: this.moves + i, flip });
+        flip = r.flip;
+        const fresh = r.path.filter((c) => !seen.has(this.key(c)) && unpainted(c));
         fresh.forEach((c) => seen.add(this.key(c)));
         moves.push(fresh);
         p = r.end;
@@ -2490,11 +2630,11 @@ export class Game {
     }
     // Tiles your next swipe could paint anyway are a wasted shot.
     const oneSwipe = new Set<number>();
-    for (const dir of Object.keys(DIRS) as Dir[]) for (const c of slide(grid, this.pos, dir).path) oneSwipe.add(this.key(c));
+    for (const dir of Object.keys(DIRS) as Dir[]) for (const c of slide(grid, this.pos, dir, dyn).path) oneSwipe.add(this.key(c));
     const dist = (c: Point) => Math.abs(c.x - this.pos.x) + Math.abs(c.y - this.pos.y);
     // Corners and narrow spots across the board, farthest from the ball first.
     this.remaining
-      .filter((c) => floorDegree(c) <= 2 && !oneSwipe.has(this.key(c)))
+      .filter((c) => floorDegree(c) <= 2 && !oneSwipe.has(this.key(c)) && unpainted(c))
       .sort((a, b) => dist(b) - dist(a))
       .slice(0, 6)
       .forEach((c) => seeds.push(c));
@@ -2504,7 +2644,7 @@ export class Game {
       const tiles = cluster(seed);
       const after = new Set(painted);
       tiles.forEach((c) => after.add(this.key(c)));
-      const rest = sol ? solve(grid, this.pos, after, 100000) : null;
+      const rest = sol ? solve(grid, this.pos, after, 100000, dyn) : null;
       const saved = sol && rest ? sol.length - rest.length : 0;
       // Moves saved dominate; then pocket depth (narrow tiles) and distance.
       const narrow = tiles.filter((t) => floorDegree(t) <= 2).length;
@@ -2512,7 +2652,7 @@ export class Game {
       const score = saved * 100 + narrow * 4 + dist(seed) * 0.5 - (easy ? 250 : 0);
       if (!best || score > best.score) best = { tiles, score };
     }
-    return best?.tiles ?? this.remaining.slice(0, 3);
+    return best?.tiles ?? this.remaining.filter(unpainted).slice(0, 3);
   }
 
   private paintBomb() {

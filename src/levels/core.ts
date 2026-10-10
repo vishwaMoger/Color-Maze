@@ -404,6 +404,8 @@ export function solve(
   painted?: Iterable<number>,
   cap = 250000,
   dyn: Dyn = NO_DYN,
+  /** Set `capped` when the search gave up at `cap` (not proof of no way). */
+  out?: { capped?: boolean },
 ): Dir[] | null {
   const { index, bit, move, w } = moveTable(grid);
   const full = (1n << BigInt(index.size)) - 1n;
@@ -450,7 +452,10 @@ export function solve(
         maskOf.push(m);
         if (m === full) return path(j);
         next.push(j);
-        if (j > cap) return null;
+        if (j > cap) {
+          if (out) out.capped = true;
+          return null;
+        }
       }
     }
     frontier = next;
@@ -511,9 +516,10 @@ export function solveMulti(
   extras: Point[] = [],
   used = false,
   dyn: Dyn = NO_DYN,
+  info?: { capped?: boolean },
 ): Dir[] | null {
   const mult = findTile(grid, MULT);
-  if ((!mult || used) && !extras.length) return solve(grid, start, painted, cap, dyn);
+  if ((!mult || used) && !extras.length) return solve(grid, start, painted, cap, dyn, info);
   const w = grid[0].length;
   const index = new Map<number, number>();
   grid.forEach((row, y) =>
@@ -600,12 +606,36 @@ export function solveMulti(
           return path.reverse();
         }
         next.push(j);
-        if (j > cap) return null;
+        if (j > cap) {
+          if (info) info.capped = true;
+          return null;
+        }
       }
     }
     frontier = next;
   }
   return null;
+}
+
+/**
+ * Play a solution through with every rule live (spike timing, gates,
+ * holes; painted tiles stand for crossed ones, as in the game). True if no
+ * ball is lost and every floor tile ends up painted.
+ */
+export function replay(grid: Grid, start: Point, sol: Dir[]): boolean {
+  const w = grid[0].length;
+  let p = start;
+  let flip = false;
+  const painted = new Set([p.y * w + p.x]);
+  for (let i = 0; i < sol.length; i++) {
+    const here = p.y * w + p.x;
+    const r = slide(grid, p, sol[i], { swipes: i, flip, hole: (c) => grid[Math.floor(c / w)][c % w] === CRACK && painted.has(c) && c !== here });
+    if (isFatal(r)) return false;
+    for (const c of r.path) painted.add(c.y * w + c.x);
+    p = r.end;
+    flip = r.flip;
+  }
+  return painted.size === floorCount(grid);
 }
 
 /** Characters for curved corners in level text: a=TL, b=TR, c=BL, d=BR. */

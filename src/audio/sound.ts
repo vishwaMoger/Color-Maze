@@ -241,6 +241,123 @@ export class Sound {
     o.stop(t + 1.1);
   }
 
+  /** Noise through a band-pass, shaped by a quick attack and decay. */
+  private burst(when: number, freq: number, q: number, gain: number, dur: number, to?: number) {
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = q;
+    bp.frequency.setValueAtTime(freq, when);
+    if (to) bp.frequency.exponentialRampToValueAtTime(to, when + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(gain, when + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    src.connect(bp).connect(g).connect(this.sfx);
+    src.start(when, Math.random() * 0.5, dur + 0.05);
+  }
+
+  /** Spike plates moving: a crisp steel "shk" as they shoot up, softer as they sink. */
+  spikes(up: boolean) {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    if (up) {
+      this.burst(t, 6200, 4, 0.12, 0.09, 3400);
+      this.note(2350, t + 0.005, 0.12, 0.018, 'sine');
+    } else this.burst(t, 2600, 3, 0.06, 0.08, 1500);
+  }
+
+  /** Spikes through the ball: a sharp stab and a pop. */
+  stab() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.burst(t, 5400, 5, 0.2, 0.2, 2400);
+    this.note(1760, t, 0.3, 0.04, 'sine');
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.setValueAtTime(420, t);
+    o.frequency.exponentialRampToValueAtTime(90, t + 0.25);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o.connect(g).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 0.32);
+  }
+
+  /** A cracked tile giving way: a dry crack, then rubble rumbling down. */
+  crumble() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.burst(t, 2400, 2.5, 0.14, 0.07);
+    this.burst(t + 0.03, 700, 1.2, 0.16, 0.42, 160);
+    this.burst(t + 0.12, 1100, 2, 0.06, 0.2, 400);
+  }
+
+  /** The ball dropping into a hole: a falling whistle and a distant thud. */
+  fall() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, t);
+    o.frequency.exponentialRampToValueAtTime(140, t + 0.7);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.09, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+    o.connect(g).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 0.8);
+    const b = ctx.createOscillator();
+    const bg = ctx.createGain();
+    b.frequency.setValueAtTime(90, t + 0.72);
+    b.frequency.exponentialRampToValueAtTime(40, t + 0.95);
+    bg.gain.setValueAtTime(0.0001, t + 0.72);
+    bg.gain.exponentialRampToValueAtTime(0.22, t + 0.74);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+    b.connect(bg).connect(this.sfx);
+    b.start(t + 0.72);
+    b.stop(t + 1.05);
+  }
+
+  /** The switch pressed: a solid click and a bright two-note chime. */
+  switchPress() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.burst(t, 3000, 3, 0.1, 0.04);
+    this.note(this.scaleFreq(7), t + 0.02, 0.18, 0.06, 'triangle');
+    this.note(this.scaleFreq(10), t + 0.09, 0.26, 0.05, 'triangle');
+  }
+
+  /** Gates switching: a rising zap as beams come on, a falling one as they go. */
+  gate(on: boolean) {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(on ? 180 : 520, t);
+    o.frequency.exponentialRampToValueAtTime(on ? 520 : 160, t + 0.18);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1800;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.045, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    o.connect(lp).connect(g).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 0.25);
+  }
+
   /** Stopper studs clamping onto the ball: a short, firm double snap. */
   grip() {
     const ctx = this.ready();

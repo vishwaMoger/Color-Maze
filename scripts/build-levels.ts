@@ -2,14 +2,19 @@
 // src/levels/data.ts. Levels after these are built in the game itself by
 // the same builder (src/levels/builder.ts), so the game never runs out.
 //
-// Usage: node --experimental-strip-types scripts/build-levels.ts [count]
+// Usage: node --experimental-strip-types scripts/build-levels.ts [count] [from]
+// With `from`, levels before it are kept exactly as they are (e.g. after a
+// new mechanic debuts at `from`, earlier levels stay the ones players had).
 import { writeFileSync } from 'node:fs';
 import { buildLevel, encodeLevel, FIRST_BUILT } from '../src/levels/builder.ts';
+import { LEVEL_DATA, LEVEL_DATA_FIRST } from '../src/levels/data.ts';
 
 const count = Number(process.argv[2] ?? 200);
-const out: string[] = [];
+const from = Number(process.argv[3] ?? FIRST_BUILT);
+if (LEVEL_DATA_FIRST !== FIRST_BUILT) throw new Error('curated set starts elsewhere');
+const out: string[] = LEVEL_DATA.slice(0, Math.max(0, from - FIRST_BUILT));
 const t0 = Date.now();
-for (let n = FIRST_BUILT; n <= count; n++) {
+for (let n = FIRST_BUILT + out.length; n <= count; n++) {
   const { c, bonus } = buildLevel(n, 1);
   out.push(encodeLevel(c, bonus));
   const tiles = c.grid.flat().filter((v) => v !== 1).length;
