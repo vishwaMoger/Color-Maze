@@ -189,12 +189,24 @@ export function hideBanner() {
 
 /** When a rewarded ad last played: no midgame ad soon after one. */
 let lastRewarded = -Infinity;
-/** Rewarded ads failed twice in a row: treat ads as off for the session. */
+/** Rewarded ads that failed in a row. */
 let rewardFails = 0;
+/** Video offers rest until then (ms) after misses in a row. */
+let offersRestUntil = -Infinity;
+/** The platform said ads are off (Basic Launch): offers stay hidden. */
+let adsOff = false;
+/** The last ad error the SDK reported. */
+let lastAdError: unknown = null;
 
 /** True when rewarded ads can actually be shown (or faked in dev). */
 export function adsAvailable(): boolean {
-  return (!!sdk && rewardFails < 2) || SIMULATED;
+  return (!!sdk && !adsOff && performance.now() >= offersRestUntil) || SIMULATED;
+}
+
+/** Whether an ad error means ads are switched off, not merely unfilled. */
+function adsDisabled(e: unknown): boolean {
+  const text = typeof e === 'string' ? e : `${(e as { code?: string })?.code ?? ''} ${(e as { message?: string })?.message ?? ''}`;
+  return /disabled|not ?allowed|basic/i.test(text);
 }
 
 /**
@@ -295,7 +307,10 @@ function requestAd(type: 'rewarded' | 'midgame', onStart?: () => void, onEnd?: (
     s.ad.requestAd(type, {
       adStarted: () => onStart?.(),
       adFinished: () => finish(true),
-      adError: () => finish(false),
+      adError: (e: unknown) => {
+        lastAdError = e;
+        finish(false);
+      },
     });
   });
 }
@@ -342,10 +357,19 @@ function simulatedAd(onStart?: () => void, onEnd?: () => void): Promise<boolean>
 export function rewardedAd(onStart?: () => void, onEnd?: () => void): Promise<boolean> {
   if (!sdk) return SIMULATED ? simulatedAd(onStart, onEnd) : Promise.resolve(false);
   return requestAd('rewarded', onStart, onEnd).then((ok) => {
-    // Ads off (Basic Launch) or none to be had: after two misses in a row
-    // every rewarded offer hides itself, so no button ever does nothing.
-    rewardFails = ok ? 0 : rewardFails + 1;
-    if (ok) lastRewarded = performance.now();
+    // So that no button ever does nothing: with ads switched off (Basic
+    // Launch) every video offer hides for good; after two misses in a row
+    // (no ad to be had just now) they rest a minute and a half, then return.
+    if (ok) {
+      rewardFails = 0;
+      lastRewarded = performance.now();
+    } else if (adsDisabled(lastAdError)) {
+      adsOff = true;
+    } else if (++rewardFails >= 2) {
+      rewardFails = 0;
+      offersRestUntil = performance.now() + 90_000;
+    }
+    lastAdError = null;
     return ok;
   });
 }
