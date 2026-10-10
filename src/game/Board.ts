@@ -1119,7 +1119,18 @@ export class Board extends Container {
       wctx.fillRect(0, 0, W, H);
       wctx.globalAlpha = 1;
     }
-    wctx.drawImage(tint(rise(faceH * 0.45), 'rgba(0, 0, 0, 0.14)'), 0, 0);
+    // One pixel-thin step at a time, so the darkening is a smooth gradient
+    // down the face rather than a second band stacked on it.
+    const steps = Math.max(4, Math.round(faceH));
+    const foot = tint(floorMask, '#000');
+    const shade = makeCanvas(W, H);
+    const shctx = shade.getContext('2d')!;
+    shctx.globalAlpha = 0.16 / steps;
+    for (let i = 1; i <= steps; i++) shctx.drawImage(foot, 0, -(faceH * i) / steps);
+    shctx.globalAlpha = 1;
+    shctx.globalCompositeOperation = 'destination-out';
+    shctx.drawImage(floorMask, 0, 0);
+    wctx.drawImage(shade, 0, 0);
     wctx.restore();
     // Arrow tiles: a soft raised pad (here) with white chevrons that pulse
     // the way it sends the ball (drawn live in update).
