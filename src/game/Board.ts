@@ -698,6 +698,16 @@ export class Board extends Container {
   private slabTiles?: TilingSprite;
   private readonly glowG = new Graphics();
   private readonly hintG = new Graphics();
+  /**
+   * The hint's landing marker and its pulse, as pre-rendered images: shapes
+   * drawn with Graphics come out jagged here (the board renders through a
+   * filter, without anti-aliasing), while a texture stays smooth.
+   */
+  private readonly hintMark = new Sprite();
+  private readonly hintPulse = new Sprite();
+  /** The arrows flowing along the hint lane (pooled; same reason). */
+  private readonly hintArrows = new Container();
+  private arrowTex: Texture | null = null;
   private readonly coneG = new Graphics();
   private readonly waveG = new Graphics();
   private paintGlow?: Graphics;
@@ -1258,7 +1268,8 @@ export class Board extends Container {
     this.sawLayer.addChild(this.mechG);
     // Splatter sits over the walls (in the original, lumps flung up the
     // lane overlap the wall face above it), under the speed cone and ball.
-    this.addChild(this.sawLayer, this.glowG, this.dotsG, this.hintG, this.coneG, this.fxLayer, this.floorClip, this.ballLayer, this.topDotsG, this.studFront);
+    this.buildHintMarks();
+    this.addChild(this.sawLayer, this.glowG, this.dotsG, this.hintG, this.hintArrows, this.hintPulse, this.hintMark, this.coneG, this.fxLayer, this.floorClip, this.ballLayer, this.topDotsG, this.studFront);
 
     // The near lip: seen from slightly above and in front, the page's edge
     // below each opening hides the bottom of the tiles beside it, and of the
@@ -1754,9 +1765,82 @@ export class Board extends Container {
    * arrows flowing along it, and a pulsing landing ring with a ghost ball
    * where the move ends. Fades in so each new step reads as "next".
    */
+  /** Smooth images for the hint's landing marker (see hintMark). */
+  private buildHintMarks() {
+    const { cell } = this;
+    // Twice the board's own pixel density: crisp when the view zooms in.
+    const k = this.res * 2;
+    const ring = (r: number, w: number, draw: (x: CanvasRenderingContext2D, c: number) => void) => {
+      const size = Math.ceil((r + w) * 2 * k) + 4;
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = size;
+      const x = cv.getContext('2d')!;
+      x.scale(k, k);
+      draw(x, size / k / 2);
+      const tex = Texture.from(cv);
+      this.textures.push(tex);
+      return tex;
+    };
+    // Ghost ball: a soft disc in a bright ring, with a glint.
+    const R = cell * 0.33;
+    const W = cell * 0.065;
+    this.hintMark.texture = ring(R, W, (x, c) => {
+      x.fillStyle = 'rgba(255,255,255,0.22)';
+      x.beginPath();
+      x.arc(c, c, R, 0, Math.PI * 2);
+      x.fill();
+      x.strokeStyle = 'rgba(255,255,255,0.9)';
+      x.lineWidth = W;
+      x.stroke();
+      x.fillStyle = 'rgba(255,255,255,0.7)';
+      x.beginPath();
+      x.arc(c - cell * 0.1, c - cell * 0.1, cell * 0.07, 0, Math.PI * 2);
+      x.fill();
+    });
+    // The ring that pulses outward (scaled about its mid size).
+    const P = cell * 0.44;
+    this.hintPulse.texture = ring(P, cell * 0.05, (x, c) => {
+      x.strokeStyle = '#fff';
+      x.lineWidth = cell * 0.05;
+      x.beginPath();
+      x.arc(c, c, P, 0, Math.PI * 2);
+      x.stroke();
+    });
+    for (const sp of [this.hintMark, this.hintPulse]) {
+      sp.anchor.set(0.5);
+      sp.scale.set(1 / k);
+      sp.visible = false;
+    }
+    // Arrow: a round-capped chevron pointing right (+x), turned per segment.
+    const a = cell * 0.15;
+    const w = cell * 0.1;
+    const cw = Math.ceil((a * 2 + w) * k) + 4;
+    const ch = Math.ceil((a * 2.5 + w) * k) + 4;
+    const cv = document.createElement('canvas');
+    cv.width = cw;
+    cv.height = ch;
+    const x = cv.getContext('2d')!;
+    x.scale(k, k);
+    const cx = cw / k / 2;
+    const cy = ch / k / 2;
+    x.strokeStyle = '#fff';
+    x.lineWidth = w;
+    x.lineCap = 'round';
+    x.lineJoin = 'round';
+    x.beginPath();
+    x.moveTo(cx - a, cy + a * 1.25);
+    x.lineTo(cx + a, cy);
+    x.lineTo(cx - a, cy - a * 1.25);
+    x.stroke();
+    this.arrowTex = Texture.from(cv);
+    this.textures.push(this.arrowTex);
+  }
+
   drawHint(time: number, hint: { from: Point; path: Point[]; dir: Point; since: number } | null) {
     const g = this.hintG;
     g.clear();
+    this.hintMark.visible = this.hintPulse.visible = false;
+    for (const a of this.hintArrows.children) a.visible = false;
     if (!hint || !hint.path.length) return;
     const { cell } = this;
     const pts = [hint.from, ...hint.path];
@@ -1785,28 +1869,41 @@ export class Board extends Container {
         segs.push({ a: c(pts[i - 1]), b: c(pts[i]), d: { x: pts[i].x - pts[i - 1].x, y: pts[i].y - pts[i - 1].y } });
     const total = segs.length;
     const gap = 0.62;
-    const s = cell * 0.15;
+    const k = this.res * 2;
+    let used = 0;
     for (let d = ((time * 0.0022) % gap) + 0.35; d < total - 0.15; d += gap) {
       const seg = segs[Math.min(total - 1, Math.floor(d))];
       const f = d - Math.floor(d);
       const x = seg.a.x + (seg.b.x - seg.a.x) * f;
       const y = seg.a.y + (seg.b.y - seg.a.y) * f;
-      const { x: ax, y: ay } = seg.d;
       // Fade in near the ball and out near the target.
       const edge = Math.min(1, (d - 0.35) / 0.5, (total - 0.15 - d) / 0.6);
-      g.moveTo(x - ax * s - ay * s * 1.25, y - ay * s + ax * s * 1.25)
-        .lineTo(x + ax * s, y + ay * s)
-        .lineTo(x - ax * s + ay * s * 1.25, y - ay * s - ax * s * 1.25)
-        .stroke({ color: 0xffffff, width: cell * 0.1, alpha: 0.95 * edge * appear, cap: 'round', join: 'round' });
+      let arrow = this.hintArrows.children[used] as Sprite | undefined;
+      if (!arrow) {
+        arrow = new Sprite(this.arrowTex ?? Texture.EMPTY);
+        arrow.anchor.set(0.5);
+        arrow.scale.set(1 / k);
+        this.hintArrows.addChild(arrow);
+      }
+      used++;
+      arrow.visible = true;
+      arrow.position.set(x, y);
+      arrow.rotation = Math.atan2(seg.d.y, seg.d.x);
+      arrow.alpha = 0.95 * Math.max(0, edge) * appear;
     }
 
     // Landing marker: ghost ball inside a ring that pulses outward.
     const end = c(pts[pts.length - 1]);
     const beat = (time * 0.0014) % 1;
-    g.circle(end.x, end.y, cell * 0.33).fill({ color: 0xffffff, alpha: 0.22 * appear });
-    g.circle(end.x, end.y, cell * 0.33).stroke({ color: 0xffffff, width: cell * 0.065, alpha: 0.9 * appear });
-    g.circle(end.x, end.y, cell * (0.34 + beat * 0.2)).stroke({ color: 0xffffff, width: cell * 0.05, alpha: 0.6 * (1 - beat) * appear });
-    g.circle(end.x - cell * 0.1, end.y - cell * 0.1, cell * 0.07).fill({ color: 0xffffff, alpha: 0.7 * appear });
+    const mark = this.hintMark;
+    mark.visible = true;
+    mark.position.set(end.x, end.y);
+    mark.alpha = appear;
+    const pulse = this.hintPulse;
+    pulse.visible = true;
+    pulse.position.set(end.x, end.y);
+    pulse.scale.set(((0.34 + beat * 0.2) / 0.44) / k);
+    pulse.alpha = 0.6 * (1 - beat) * appear;
   }
 
   floorPoints(): Point[] {

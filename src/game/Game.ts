@@ -2387,7 +2387,11 @@ export class Game {
   }
 
   private vibrate(ms: number | number[]) {
-    if (this.save.vibe) haptic(ms);
+    if (!this.save.vibe) return;
+    // Phones vibrate at one strength; longer pulses feel stronger. Each
+    // pulse is stretched (the gaps keep the rhythm).
+    const p = Array.isArray(ms) ? ms : [ms];
+    haptic(p.map((v, i) => (i % 2 === 0 ? Math.min(120, Math.max(22, Math.round(v * 1.8))) : v)));
   }
 
   // ---------------------------------------------------------------- booster
