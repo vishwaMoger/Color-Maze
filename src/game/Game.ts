@@ -1522,10 +1522,9 @@ export class Game {
     this.vibrate(gripped ? [26, 40, 34] : Math.round(24 + speed * 16));
 
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
-    // A glittering shockwave rings out through the paint from the impact.
-    const power = Math.min(1, 0.35 + speed * 0.5 + (gripped ? 0.15 : 0));
-    if (!REDUCED_MOTION)
-      this.boardFx.glitterWave(c.x + d.x * this.cell * 0.25, c.y + d.y * this.cell * 0.25, this.cell * 1.15, this.look.paintLight, power);
+    const hitX = c.x + d.x * this.cell * 0.45;
+    const hitY = c.y + d.y * this.cell * 0.45;
+    if (!REDUCED_MOTION) this.wave = { x: hitX, y: hitY, t: 0, power: Math.min(1, 0.45 + speed * 0.45 + (gripped ? 0.15 : 0)) };
     this.wallLumps(this.pos, d, speed);
     this.settle();
     // First-level lesson, one step per move.

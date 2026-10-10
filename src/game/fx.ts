@@ -1,7 +1,7 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { makeCanvas } from './shape.ts';
 
-type Kind = 'drop' | 'ring' | 'spark' | 'glow' | 'blob' | 'shock';
+type Kind = 'drop' | 'ring' | 'spark' | 'glow' | 'blob';
 
 interface Particle {
   kind: Kind;
@@ -183,32 +183,6 @@ export class Fx {
     this.flash(x, y, r * 1.6, color, 0.5);
   }
 
-  /**
-   * A wall hit's shockwave: a bright ring racing out from the impact with
-   * glitter riding its front, each speck twinkling as it goes.
-   */
-  glitterWave(x: number, y: number, r: number, color: number, power = 1) {
-    const max = 520 + power * 160;
-    this.add({ kind: 'shock', x, y, r: r * (0.75 + power * 0.35), max, color });
-    // A second, smaller ring just behind the first.
-    this.add({ kind: 'shock', x, y, r: r * (0.5 + power * 0.25), max: max * 0.8, color: 0xffffff, delay: 70 });
-    const n = Math.round(16 + power * 12);
-    const reach = r * (0.75 + power * 0.35) * 1.5;
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + Math.random() * 0.35;
-      // Speed for the speck to keep pace with the ring as drag slows it.
-      const v = reach * 3 * (0.85 + Math.random() * 0.3);
-      const p = this.add({
-        kind: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
-        r: 4 + Math.random() * 6 * (0.6 + power * 0.4),
-        max: max * (0.8 + Math.random() * 0.35), color: Math.random() < 0.55 ? 0xffffff : color,
-        rot: Math.random() * 3, vr: (Math.random() - 0.5) * 6,
-      });
-      p.sprite = this.take(textures().star, true);
-    }
-    this.flash(x, y, r * 1.1, color, 0.45 * power + 0.15);
-  }
-
   /** A soft additive bloom that swells and fades. */
   flash(x: number, y: number, r: number, color: number, strength = 0.7, delay = 0) {
     const p = this.add({ kind: 'glow', x, y, r, max: 380, color, delay, z: strength });
@@ -289,15 +263,6 @@ export class Fx {
           else g.circle(p.x, p.y, rr).fill({ color: p.color, alpha: 1 });
           // Bigger drops catch a tiny wet highlight.
           if (rr > 2.2) g.circle(p.x - rr * 0.3, p.y - rr * 0.32, rr * 0.28).fill({ color: 0xffffff, alpha: 0.55 * shrink });
-          break;
-        }
-        case 'shock': {
-          // Fast at first, easing out; thin and bright, fading as it grows.
-          const e = 1 - (1 - t) ** 3;
-          const rr = p.r * (0.25 + e * 1.25);
-          const fade = (1 - t) ** 1.4;
-          g.circle(p.x, p.y, rr).stroke({ color: p.color, width: p.r * 0.22 * (1 - t * 0.6), alpha: 0.75 * fade });
-          g.circle(p.x, p.y, rr).stroke({ color: 0xffffff, width: Math.max(1.5, p.r * 0.07), alpha: fade });
           break;
         }
         case 'ring': {
