@@ -350,14 +350,23 @@ export class Trail {
   }
 
   /** Each frame: follow the ball's centre (board px) while it rolls. */
-  update(dtMs: number, x: number, y: number, moving: boolean) {
+  update(dtMs: number, x: number, y: number, moving: boolean, cut = false) {
     this.time += dtMs;
     const dt = Math.min(dtMs, 40) / 1000;
-    if (this.style !== 'none' && moving && !Number.isNaN(this.lastX)) {
+    // A jump (through a portal, onto a new board) is not travel: nothing is
+    // laid along it, and the ribbon starts afresh rather than bridging it.
+    // Faster than any slide (even on a slow frame) counts as a jump too.
+    const far = Math.max(this.cell * 2.5, this.cell * 0.25 * dtMs);
+    const jump = cut || (!Number.isNaN(this.lastX) && Math.hypot(x - this.lastX, y - this.lastY) > far);
+    if (jump) {
+      this.pts = [];
+      this.carry = 0;
+    }
+    if (this.style !== 'none' && moving && !jump && !Number.isNaN(this.lastX)) {
       const dx = x - this.lastX;
       const dy = y - this.lastY;
       const d = Math.hypot(dx, dy);
-      if (d > 0 && d < this.cell * 4) {
+      if (d > 0) {
         // Emit evenly along the path, however fast the ball goes.
         const step = this.cell * 0.2;
         this.carry += d;
