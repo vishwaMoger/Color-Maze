@@ -112,6 +112,8 @@ export interface EventView {
 }
 
 export interface HudActions {
+  /** A ball's rendered picture (drawn now if not ready), by index in BALLS. */
+  ballArt: (i: number) => string;
   /** Erase all progress and begin again as a new player. */
   startOver: () => void;
   restart: () => void;
@@ -239,8 +241,12 @@ export class Hud {
       const info = $('league-info');
       // Fit the 360 px design on any screen, small phones included.
       info.style.setProperty('--zoom', String(Math.max(0.7, Math.min(3, (innerWidth - 24) / 360, innerHeight / 760))));
-      // The game's own rendered balls for the illustration and avatars.
-      const art = (i: number) => (BALL_ART[i] ? `url(${BALL_ART[i]})` : '');
+      // The game's own rendered balls for the illustration and avatars
+      // (drawn now if the idle queue has not got to them yet).
+      const art = (i: number) => {
+        const url = BALL_ART[i] || a.ballArt(i);
+        return url ? `url(${url})` : '';
+      };
       for (const [v, i] of [['--ball-soccer', 8], ['--ball-basket', 7], ['--ball-soft', 4]] as const)
         if (art(i)) info.style.setProperty(v, art(i));
       this.open('league-info');

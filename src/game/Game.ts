@@ -269,6 +269,7 @@ export class Game {
         this.sound.click();
         this.eventBoost();
       },
+      ballArt: (i) => (BALLS[i] ? this.spherePreview(BALLS[i].id) : ''),
       startOver: () => {
         eraseSave();
         this.hud.toast('Progress erased');
@@ -662,10 +663,9 @@ export class Game {
         this.hud.close('event');
         if (!document.getElementById('shop')!.hidden) this.refreshShop();
         const first = won[0];
-        const it = this.shopItems()[first.kind].find((x) => x.id === first.id);
         window.setTimeout(() => {
           this.sound.complete();
-          this.hud.unlocked(first.name, it?.preview ?? '', () => this.equip(first.kind, first.id));
+          this.hud.unlocked(first.name, this.itemArt(first.kind, first.id), () => this.equip(first.kind, first.id));
           this.hud.setShopDot(true);
         }, 350);
         return;
@@ -689,6 +689,34 @@ export class Game {
    * empty for now, with the render queued for an idle moment (the tile
    * fills in when it is done), so opening the shop never waits on it.
    */
+  /**
+   * One item's picture for a popup that shows it on its own (an unlock, the
+   * progress toward the next one): drawn right now if the shop has not got
+   * to it yet, so the popup never opens with an empty frame.
+   */
+  private itemArt(kind: ShopTab, id: string): string {
+    const renderer = this.app.renderer as Renderer;
+    const url = (u: string) => `background-image: url(${u})`;
+    try {
+      if (kind === 'ball') return url(this.spherePreview(id));
+      if (kind === 'paint') {
+        const p = PAINTS.find((x) => x.id === id);
+        if (p) return url(paintPreview(renderer, p));
+      }
+      if (kind === 'board') {
+        const t = THEMES.find((x) => x.id === id);
+        if (t) return url(boardPreview(renderer, this.makeLook(t), this.ballSkin()));
+      }
+      if (kind === 'trail') {
+        const t = TRAILS.find((x) => x.id === id);
+        if (t) return url(trailPreview(t, this.ballSkin().colors[1]));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    return '';
+  }
+
   private previewCss(tab: ShopTab, id: string, key: string, ready: string | undefined, render: () => string): string {
     if (ready) return `background-image: url(${ready})`;
     this.queuePreview(key, () => {
@@ -2444,7 +2472,7 @@ export class Game {
       const it = items[ev.kind].find((x) => x.id === ev.id);
       if (ev.won) {
         this.sound.complete();
-        this.hud.unlocked(ev.name, it?.preview ?? '', () => this.equip(ev.kind, ev.id));
+        this.hud.unlocked(ev.name, this.itemArt(ev.kind, ev.id), () => this.equip(ev.kind, ev.id));
         this.hud.setShopDot(true);
         return;
       }
@@ -2452,7 +2480,7 @@ export class Game {
       // (a level unlock reached at the same time still gets its moment).
       if (!items.ball.concat(items.paint, items.board, items.trail).some((x) => x.unlock > prevBest && x.unlock <= best && !x.event)) {
         const icon = it?.event?.icon ?? '';
-        this.hud.newItemProgress(`${icon} ${it?.event?.name ?? 'Event'}: ${ev.name}`.trim(), it?.preview ?? '', ev.have - 1 - ev.prev, ev.have - ev.prev, ev.need - ev.prev);
+        this.hud.newItemProgress(`${icon} ${it?.event?.name ?? 'Event'}: ${ev.name}`.trim(), this.itemArt(ev.kind, ev.id), ev.have - 1 - ev.prev, ev.have - ev.prev, ev.need - ev.prev);
         return;
       }
     }
@@ -2461,7 +2489,7 @@ export class Game {
     const just = all.find((x) => x.unlock > prevBest && x.unlock <= best);
     if (just) {
       this.sound.complete();
-      this.hud.unlocked(just.name, just.preview, () => this.equip(just.kind, just.id));
+      this.hud.unlocked(just.name, this.itemArt(just.kind, just.id), () => this.equip(just.kind, just.id));
       this.checkUnlocks();
       return;
     }
@@ -2469,7 +2497,7 @@ export class Game {
     if (!next) return;
     const prevMilestone = Math.max(1, ...all.filter((x) => x.unlock <= best).map((x) => x.unlock));
     const need = next.unlock - prevMilestone;
-    this.hud.newItemProgress(`New ${next.kind}: ${next.name}`, next.preview, prevBest - prevMilestone, best - prevMilestone, need);
+    this.hud.newItemProgress(`New ${next.kind}: ${next.name}`, this.itemArt(next.kind, next.id), prevBest - prevMilestone, best - prevMilestone, need);
   }
 
   nextLevel() {
