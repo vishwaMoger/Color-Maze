@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Rectangle, type Renderer, Texture, TilingSprite } from 'pixi.js';
+import { Application, BlurFilter, Container, Graphics, Rectangle, RenderTexture, type Renderer, Sprite, Texture, TilingSprite } from 'pixi.js';
 import { Sound } from '../audio/sound.ts';
 import { analyze, ARROW_R, ARROW_U, DIRS, floorCount, isFloor, nextPaintingMove, PORTAL_A, SAW, slide, solve, solveMulti, splitDirs, STOPPER, type Dir, type Level, type Point, type SlideResult, isCurve, COIN, KEY, MULT } from '../levels/core.ts';
 import { getLevel } from '../levels/list.ts';
@@ -11,7 +11,7 @@ import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
 import { adsAvailable, gameplayStart, getPlayer, onPlayerChange, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
 import { boardKey, boardPreview, paintKey, paintPreview, peekPreview } from './previews.ts';
-import { boardLight, type BoardLight } from './shaders.ts';
+import { boardLight, paintGloss, type BoardLight } from './shaders.ts';
 import { Confetti } from './confetti.ts';
 import { slabTexture } from './slabs.ts';
 import { THEMES, type Theme } from './themes.ts';
@@ -325,6 +325,13 @@ export class Game {
     };
     void getPlayer().then(usePlayer);
     onPlayerChange(usePlayer);
+    // Ready ahead of the first swipe: the sound engine (slow to create) and
+    // the paint's shaders (compiled on first use otherwise), so the first
+    // move starts at once and runs smooth.
+    window.setTimeout(() => {
+      this.sound.prepare();
+      this.warmShaders();
+    }, 250);
     // Shop previews and the league's ball avatars are drawn in idle moments
     // after the start, so neither the first frame nor the shop waits.
     window.setTimeout(() => {
@@ -336,6 +343,32 @@ export class Game {
   }
 
   private portalMuted = false;
+
+  /** Compile the paint and blur shaders now, on a tiny offscreen render. */
+  private warmShaders() {
+    try {
+      const s = new Sprite(Texture.WHITE);
+      s.width = 8;
+      s.height = 8;
+      const gloss = paintGloss(1);
+      const blur = new BlurFilter({ strength: 2, quality: 3 });
+      s.filters = [gloss, blur];
+      const rt = RenderTexture.create({ width: 8, height: 8 });
+      (this.app.renderer as Renderer).render({ container: s, target: rt });
+      s.destroy();
+      gloss.destroy();
+      blur.destroy();
+      rt.destroy(true);
+    } catch {
+      /* only a head start: the shaders still compile when first needed */
+    }
+  }
+
+  /**
+   * When the player last touched or pressed a key (performance.now). Load
+   * counts as one, so background previews wait while a first move is likely.
+   */
+  private lastInputAt = performance.now();
 
   private persist() {
     this.save.level = this.levelNo;
@@ -628,9 +661,11 @@ export class Game {
     const idle = (cb: () => void) => (ric ? ric(cb, { timeout: 150 }) : setTimeout(cb, 16));
     // One render per idle slot keeps every frame smooth.
     const step = () => {
-      // Never while the ball rolls: a render could cost a frame mid-slide.
-      if (this.slideState) {
-        window.setTimeout(() => idle(step), 120);
+      // Never while the player is at play: each render reads pixels back
+      // from the GPU, which stalls a frame. Only with the shop or another
+      // panel open, or after a long quiet spell (and never mid-slide).
+      if (this.slideState || (!this.hud.modalOpen && performance.now() - this.lastInputAt < 8000)) {
+        window.setTimeout(() => idle(step), 400);
         return;
       }
       const next = this.previewJobs.entries().next();
@@ -876,6 +911,7 @@ export class Game {
     const threshold = (e: PointerEvent) =>
       e.pointerType === 'mouse' ? 10 : Math.max(10, Math.min(22, Math.min(innerWidth, innerHeight) * 0.028));
     el.addEventListener('pointerdown', (e) => {
+      this.lastInputAt = performance.now();
       this.sound.unlock();
       if (this.hud.modalOpen) return;
       if (this.resultShown) {
@@ -909,6 +945,7 @@ export class Game {
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
     window.addEventListener('keydown', (e) => {
+      this.lastInputAt = performance.now();
       this.sound.unlock();
       const keyDirs: Record<string, Dir> = {
         ArrowUp: 'U', ArrowDown: 'D', ArrowLeft: 'L', ArrowRight: 'R',
