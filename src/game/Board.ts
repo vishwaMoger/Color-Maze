@@ -30,7 +30,7 @@ import { dilate, fillRoundedCells, makeCanvas, softBlur, texture, tint } from '.
 import { paintGloss, type PaintGloss } from './shaders.ts';
 import type { Theme, TileStyle } from './themes.ts';
 import { slabCanvas, slabTexture } from './slabs.ts';
-import { chunkTexture, crackOverlay, GATE_COLOR, gateBeam, gatePost, holeTexture, softDot, spikeCone, spikeHoles, spikePlate, switchBase, switchCap } from './traps.ts';
+import { chunkTexture, crackOverlay, GATE_BARS, GATE_INSET, GATE_PAD, gateHalfBar, gatePad, holeTexture, SPIKE_SPOTS, spikeCone, spikePlate, spikeRim, switchBase, switchCap } from './traps.ts';
 
 const FILTER_VERT = `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -663,7 +663,7 @@ export class Board extends Container {
   private readonly cracks = new Map<number, { x: number; y: number; overlay: Sprite; hole: Sprite; slab: Sprite; chunks: { s: Sprite; vx: number; vy: number }[]; state: 'whole' | 'falling' | 'hole'; at: number }>();
   private readonly switchCaps: { cap: Sprite; y0: number; at: number; x: number; y: number }[] = [];
   /** Gates: beams and posts, how lit the beams are (0-1) and heading. */
-  private readonly gates: { v: number; beams: { s: Sprite; a: number }[]; caps: Sprite[]; on: number; target: number; at: number }[] = [];
+  private readonly gates: { v: number; halves: { s: Sprite; sign: number }[]; on: number; target: number; at: number }[] = [];
 
   private readonly pickups = new Map<number, { s: Sprite; glow: Sprite; base: number; y0: number; at: number }>();
   private lastTime = 0;
@@ -1427,30 +1427,26 @@ export class Board extends Container {
       return sp;
     };
     if (has(isSpike)) {
-      const plates = [tex(spikePlate(c, 1)), tex(spikePlate(c, 1 - LIP))];
+      const plate = tex(spikePlate(c));
+      const rimTex = tex(spikeRim(c));
       const cone = tex(spikeCone(c));
-      const dot = tex(softDot(c * 0.5));
       for (let y = 0; y < rows; y++)
         for (let x = 0; x < cols; x++) {
           const v = grid[y][x];
           if (!isSpike(v)) continue;
-          const glow = new Sprite(dot);
-          glow.anchor.set(0.5);
-          glow.scale.set((cs * 1.5) / dot.width);
-          glow.position.set((x + 0.5) * cs, (y + 0.5) * cs);
-          glow.tint = 0xff3a5c;
-          glow.blendMode = 'add';
-          glow.alpha = 0;
-          // On the near edge the lip hides the tile's bottom: the plate
-          // fits in the part that shows.
-          const nearEdge = !isFloor(grid, x, y + 1);
-          this.trapLayer.addChild(glow, at(new Sprite(plates[nearEdge ? 1 : 0]), x, y));
+          // Every plate is the same size. On the board's near edge the lip
+          // hides the tile's lower quarter, so there the plate sits a little
+          // higher, centred in the part that shows.
+          const dy = isFloor(grid, x, y + 1) ? 0 : -LIP / 2;
+          const base = at(new Sprite(plate), x, y + dy);
+          const glow = at(new Sprite(rimTex), x, y + dy);
+          this.trapLayer.addChild(base, glow);
           const cones: { s: Sprite; y0: number }[] = [];
-          for (const [hx, hy] of spikeHoles(nearEdge ? 1 - LIP : 1)) {
+          for (const [sx, sy] of SPIKE_SPOTS) {
             const sp = new Sprite(cone);
-            sp.anchor.set(0.5, 0.88);
+            sp.anchor.set(0.5, 0.86);
             sp.scale.set(1 / res);
-            sp.position.set((x + hx) * cs, (y + hy) * cs + cs * 0.015);
+            sp.position.set((x + 0.5 + sx) * cs, (y + 0.5 + dy + sy) * cs);
             this.trapLayer.addChild(sp);
             cones.push({ s: sp, y0: sp.y });
           }
@@ -1507,69 +1503,42 @@ export class Board extends Container {
         }
     }
     if (has(isGate)) {
-      const post = tex(gatePost(c));
-      const beam = tex(gateBeam(c));
-      const dot = tex(softDot(c * 0.3));
+      const pads = [tex(gatePad(c, false)), tex(gatePad(c, true))];
+      const half = tex(gateHalfBar(c));
+      // The half-bar texture has a glow margin around the rod.
+      const glowPx = c * 0.06;
       for (let y = 0; y < rows; y++)
         for (let x = 0; x < cols; x++) {
           const v = grid[y][x];
           if (!isGate(v)) continue;
-          // The barrier lies across the corridor: up and down the tile in
-          // a corridor running left-right, side to side in one running up
-          // and down. Posts stand at its two ends; the beams run between
-          // their emitters. Near the board's edge the lip hides the tile's
-          // lower quarter, so the lower post stands clear of it.
+          // The bars lie across the corridor: up and down in one running left
+          // and right. Near the board's edge the pad sits higher, as the
+          // spike plates do.
           const across = isFloor(grid, x - 1, y) && isFloor(grid, x + 1, y);
-          const lift = cs * 0.26;
-          const ends: [number, number][] = across
-            ? [
-                [x + 0.5, y + 0.3],
-                [x + 0.5, y + (isFloor(grid, x, y + 1) ? 0.98 : 0.76)],
-              ]
-            : [
-                [x + 0.13, y + 0.66],
-                [x + 0.87, y + 0.66],
-              ];
-          const beams: { s: Sprite; a: number }[] = [];
-          const addBeam = (dy: number, alpha: number) => {
-            const b = new Sprite(beam);
-            const [ax, ay] = ends[0];
-            const [bx, by] = ends[1];
-            const len = Math.hypot((bx - ax) * cs, (by - ay) * cs);
-            b.anchor.set(0, 0.5);
-            b.position.set(ax * cs, ay * cs - lift + dy);
-            b.rotation = Math.atan2(by - ay, bx - ax);
-            b.scale.set(len / beam.width, 1 / res);
-            b.tint = GATE_COLOR;
-            b.blendMode = 'add';
-            b.alpha = alpha;
-            beams.push({ s: b, a: alpha });
-          };
-          // A wide soft band of light on the floor under the barrier, then
-          // two beams.
-          addBeam(across ? 0 : cs * 0.08, 0.22);
-          beams[0].s.scale.y = 2 / res;
-          addBeam(0, 1);
-          addBeam(cs * 0.1, 0.8);
-          const caps: Sprite[] = [];
-          const posts = ends.map(([px, py]) => {
-            const sp = new Sprite(post);
-            sp.anchor.set(0.5, 0.9);
-            sp.scale.set(1 / res);
-            sp.position.set(px * cs, py * cs);
-            const glow = new Sprite(dot);
-            glow.anchor.set(0.5);
-            glow.scale.set((cs * 0.5) / dot.width);
-            glow.position.set(px * cs, py * cs - lift);
-            glow.tint = GATE_COLOR;
-            glow.blendMode = 'add';
-            caps.push(glow);
-            return sp;
-          });
-          // Back post, beams, front post: the beams run between the two.
-          this.trapLayer.addChild(posts[0], ...beams.map((b) => b.s), posts[1], ...caps);
+          const dy = isFloor(grid, x, y + 1) ? 0 : -LIP / 2;
+          this.trapLayer.addChild(at(new Sprite(pads[across ? 1 : 0]), x, y + dy));
+          const cx = (x + 0.5) * cs;
+          const cy = (y + 0.5 + dy) * cs;
+          const reach = (GATE_PAD / 2 - GATE_INSET) * cs;
+          const halves: { s: Sprite; sign: number }[] = [];
+          for (const b of GATE_BARS) {
+            for (const sign of [1, -1]) {
+              const sp = new Sprite(half);
+              // Anchored where the rod starts (inside the glow margin).
+              sp.anchor.set(glowPx / half.width, 0.5);
+              // The second half is mirrored, not turned, so its highlight
+              // stays on the same edge and the two read as one bar.
+              if (across) {
+                sp.position.set(cx + b * cs, cy - sign * reach);
+                sp.rotation = Math.PI / 2;
+              } else sp.position.set(cx - sign * reach, cy + b * cs);
+              sp.scale.set(sign / res, 1 / res);
+              this.trapLayer.addChild(sp);
+              halves.push({ s: sp, sign });
+            }
+          }
           const on = gateClosed(v, false) ? 1 : 0;
-          this.gates.push({ v, beams, caps, on, target: on, at: -1e9 });
+          this.gates.push({ v, halves, on, target: on, at: -1e9 });
         }
       this.poseGates(0);
     }
@@ -1622,10 +1591,15 @@ export class Board extends Container {
         const c1 = 1.9;
         sp.up = 1 + (c1 + 1) * (t - 1) ** 3 + c1 * (t - 1) ** 2;
       } else sp.up = 1 - t * t;
-      // Sunk, only their tips show in the holes.
-      const h = 0.14 + 0.86 * sp.up;
-      for (const c of sp.cones) c.s.scale.set(1 / this.res, h / this.res);
-      sp.glow.alpha = 0.32 * Math.max(0, Math.min(1, sp.up));
+      // Sunk, the holes are clean; rising, the spikes grow out of them.
+      const h = Math.max(0, sp.up);
+      for (const c of sp.cones) {
+        c.s.visible = h > 0.02;
+        c.s.scale.set(1 / this.res, h / this.res);
+      }
+      // The red rim burns while the spikes are up, and stays faintly lit
+      // while they are down: a trap either way.
+      sp.glow.alpha = 0.22 + 0.78 * Math.max(0, Math.min(1, sp.up));
     }
   }
 
@@ -1635,23 +1609,28 @@ export class Board extends Container {
       const target = gateClosed(g.v, flip) ? 1 : 0;
       if (target === g.target) continue;
       g.target = target;
-      g.at = this.lastTime;
-      if (!animate) g.on = target;
+      g.at = animate ? this.lastTime : -1e9;
     }
     if (!animate) this.poseGates(this.lastTime);
   }
 
   private poseGates(time: number) {
     for (const g of this.gates) {
-      if (g.on !== g.target) {
-        const t = Math.min(1, (time - g.at) / 220);
-        g.on = t >= 1 ? g.target : g.target ? t : 1 - t;
+      // Shutting, the bars shoot in and meet with a little bounce; opening,
+      // they slide back into their slots.
+      const t = Math.min(1, (time - g.at) / (g.target ? 240 : 200));
+      if (t >= 1) g.on = g.target;
+      else if (g.target) {
+        const c1 = 1.6;
+        g.on = 1 + (c1 + 1) * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+      } else g.on = 1 - t * (2 - t);
+      const k = 0.16 + 0.84 * Math.max(0, g.on);
+      // Shut bars glow, breathing slowly.
+      const glow = 0.82 + 0.18 * Math.sin(time * 0.006 + g.v);
+      for (const h of g.halves) {
+        h.s.scale.set((h.sign * Math.min(1, k)) / this.res, 1 / this.res);
+        h.s.alpha = 0.55 + 0.45 * Math.min(1, Math.max(0, g.on)) * glow;
       }
-      // Lit beams hum; switching on they flicker into life.
-      const flick = g.target && time - g.at < 220 ? 0.55 + 0.45 * Math.sin((time - g.at) * 0.12) : 1;
-      const hum = 0.88 + 0.12 * Math.sin(time * 0.012 + g.v);
-      for (const b of g.beams) b.s.alpha = b.a * g.on * hum * flick;
-      for (const cap of g.caps) cap.alpha = 0.25 + 0.6 * g.on;
     }
   }
 
