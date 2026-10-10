@@ -76,7 +76,7 @@ const KEYHOLE_SVG =
 const KEYHOLE_OUTLINE_SVG =
   '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 8.6a6.9 6.9 0 0 0-4.4 12.2l-1.7 10.3a1.9 1.9 0 0 0 1.9 2.2h8.4a1.9 1.9 0 0 0 1.9-2.2l-1.7-10.3A6.9 6.9 0 0 0 20 8.6Z"/></svg>';
 
-export type ShopTab = 'ball' | 'paint' | 'board';
+export type ShopTab = 'ball' | 'paint' | 'trail' | 'board';
 
 export interface ShopItem {
   id: string;
@@ -86,7 +86,7 @@ export interface ShopItem {
   preview: string;
   /** CSS for the tile's own background (ball tiles). */
   bg?: string;
-  kind: 'ball' | 'paint' | 'board';
+  kind: ShopTab;
   /** On video offer: how many watched of how many, and when it ends (ms). */
   ads?: { have: number; need: number; until: number };
   /** Won only from the Safe (key vault). */
@@ -172,6 +172,7 @@ export class Hud {
   private shopData: Record<ShopTab, { items: ShopItem[]; equipped: string }> = {
     ball: { items: [], equipped: '' },
     paint: { items: [], equipped: '' },
+    trail: { items: [], equipped: '' },
     board: { items: [], equipped: '' },
   };
   private unlockedTo = 1;
@@ -787,7 +788,7 @@ export class Hud {
    */
   private bindShopSwipe() {
     const grid = $('shop-grid');
-    const tabs: ShopTab[] = ['ball', 'paint', 'board'];
+    const tabs: ShopTab[] = ['ball', 'paint', 'trail', 'board'];
     const pages = () => grid.children.length;
     const pageAt = () => Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth));
     const goTab = (step: number) => {
@@ -932,7 +933,7 @@ export class Hud {
     for (const t of document.querySelectorAll<HTMLElement>('#shop .tab'))
       t.setAttribute('aria-selected', String(t.dataset.tab === this.shopTab));
     // Slide the white pill under the chosen tab.
-    document.querySelector<HTMLElement>('#shop .ftabs')!.style.setProperty('--i', String(['ball', 'paint', 'board'].indexOf(this.shopTab)));
+    document.querySelector<HTMLElement>('#shop .ftabs')!.style.setProperty('--i', String(['ball', 'paint', 'trail', 'board'].indexOf(this.shopTab)));
     const grid = $('shop-grid');
     grid.innerHTML = '';
     for (const el of document.querySelectorAll('.shop-coins')) el.textContent = String(this.shownCoins);
