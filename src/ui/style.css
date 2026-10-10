@@ -352,11 +352,11 @@ body {
     0 calc(1px * var(--k)) 0 var(--b3),
     0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
 }
-/* Undo pulses when the ball is stuck in a dead end. */
-.pbtn.undo.nudge {
+/* Restart pulses when the ball is stuck in a dead end. */
+.pbtn.nudge {
   animation: undonudge 1.1s ease-in-out infinite;
 }
-.pbtn.undo.nudge::after {
+.pbtn.nudge::after {
   content: '';
   position: absolute;
   inset: calc(-4px * var(--k));
