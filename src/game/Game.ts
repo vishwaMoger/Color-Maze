@@ -2599,12 +2599,13 @@ export class Game {
     // View: eases toward its target (the shop slides the board up).
     const v = this.view;
     const k = Math.min(1, rawDt / 90);
+    v.dx += (v.tdx - v.dx) * k;
     v.dy += (v.tdy - v.dy) * k;
     v.s += (v.ts - v.s) * k;
     const sc = e.s * v.s * (1 + this.scaleKick * 0.05);
     this.board.scale.set(sc, sc * this.foreshorten);
     this.board.rotation = e.rot;
-    this.board.position.set(cx + n.x + e.x, cy + n.y + v.dy);
+    this.board.position.set(cx + n.x + e.x + v.dx, cy + n.y + v.dy);
     // Bullet-time punch-in: zoom about the cut point, drifting it a little
     // toward the middle of the screen.
     if (slowZoom > 0 && this.slowMo) {
@@ -2764,28 +2765,30 @@ export class Game {
 
   private layoutCache: { cx: number; cy: number } | null = null;
 
-  private view = { dy: 0, s: 1, tdy: 0, ts: 1 };
+  private view = { dx: 0, dy: 0, s: 1, tdx: 0, tdy: 0, ts: 1 };
 
   /** League standings for a given star count (used by tests and the HUD). */
   leagueRows(stars: number) {
     return league(this.save.week, stars).rows;
   }
 
-  /** Fit the board in the space above `top` (screen px), or restore it. */
-  focusAbove(top: number | null) {
+  /** Fit the board in the area the shop leaves free (screen px), or restore it. */
+  focusAbove(free: { top: number; bottom: number; left: number; right: number } | null) {
     const v = this.view;
-    if (top === null) {
+    if (free === null) {
+      v.tdx = 0;
       v.tdy = 0;
       v.ts = 1;
       return;
     }
-    const { cy } = this.layoutCache ?? (this.layoutCache = this.layout());
+    const { cx, cy } = this.layoutCache ?? (this.layoutCache = this.layout());
     const h = this.board.boardHeight;
     const w = this.board.boardWidth;
-    const areaTop = 64;
-    const areaH = Math.max(80, top - areaTop - 12);
-    v.ts = Math.min(1, areaH / h, (this.app.screen.width - 32) / w);
-    v.tdy = areaTop + areaH / 2 - cy;
+    const areaH = Math.max(80, free.bottom - free.top);
+    const areaW = Math.max(80, free.right - free.left);
+    v.ts = Math.min(1, areaH / h, areaW / w);
+    v.tdx = free.left + areaW / 2 - cx;
+    v.tdy = free.top + areaH / 2 - cy;
   }
 
   invalidateLayout() {

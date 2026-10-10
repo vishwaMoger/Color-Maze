@@ -123,8 +123,8 @@ export interface HudActions {
   openEvent: () => void;
   /** Watch a video for extra event progress. */
   eventBoost: () => void;
-  /** A bottom sheet opened (its top edge in px) or closed (null). */
-  sheet: (top: number | null) => void;
+  /** The shop opened (the screen area left free for the board, px) or closed (null). */
+  sheet: (free: { top: number; bottom: number; left: number; right: number } | null) => void;
   anyInput: () => void;
   click: () => void;
 }
@@ -232,7 +232,7 @@ export class Hud {
     on('btn-league-info', () => {
       const info = $('league-info');
       // Fit the 360 px design on any screen, small phones included.
-      info.style.setProperty('--zoom', String(Math.max(0.7, Math.min(1.5, (innerWidth - 24) / 360, innerHeight / 760))));
+      info.style.setProperty('--zoom', String(Math.max(0.7, Math.min(3, (innerWidth - 24) / 360, innerHeight / 760))));
       // The game's own rendered balls for the illustration and avatars.
       const art = (i: number) => (BALL_ART[i] ? `url(${BALL_ART[i]})` : '');
       for (const [v, i] of [['--ball-soccer', 8], ['--ball-basket', 7], ['--ball-soft', 4]] as const)
@@ -307,11 +307,12 @@ export class Hud {
   open(id: string) {
     const m = $(id);
     m.hidden = false;
+    this.fitPopups();
     document.body.classList.toggle('sheet-open', id === 'shop' || document.body.classList.contains('sheet-open'));
     document.body.classList.toggle('page-open', id === 'settings' || id === 'league' || document.body.classList.contains('page-open'));
     requestAnimationFrame(() => {
       m.classList.add('show');
-      if (id === 'shop') this.actions.sheet(m.querySelector<HTMLElement>('.sheet-panel')!.offsetTop);
+      if (id === 'shop') this.reportSheet();
     });
   }
 
@@ -334,9 +335,106 @@ export class Hud {
     if (progress >= 1) window.setTimeout(() => $('splash').classList.add('hide'), 350);
   }
 
-  /** Landscape (PC, tablets on their side): controls move to side columns. */
+  /**
+   * Landscape (PC, tablets on their side): controls move to side columns.
+   * Also sizes the whole UI to the screen, so buttons and panels take the
+   * same share of it on a small phone, a tablet or a 4K monitor:
+   *   --ui   the HUD (as laid out on a 390 px phone, or a 620 px tall PC window)
+   *   --pgz  the Settings and Weekly Ranking pages
+   *   --shz  the shop sheet
+   * Popups get their own zoom from fitPopups, so they also never overflow.
+   */
   updateMode() {
-    document.body.classList.toggle('landscape', window.innerWidth > window.innerHeight * 1.1);
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const land = W > H * 1.1;
+    document.body.classList.toggle('landscape', land);
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    this.ui = land ? clamp(Math.min(H / 620, W / 860), 1, 3) : clamp(Math.min(W / 390, H / 740), 0.9, 2.2);
+    this.uz = clamp(Math.min(W / 410, H / 700), 1, 3);
+    const root = document.documentElement.style;
+    root.setProperty('--ui', this.ui.toFixed(3));
+    root.setProperty('--pgz', clamp(Math.min(W / 440, H / 640), 1, 3).toFixed(3));
+    // The ranking needs height for its list: a short landscape phone shows
+    // the whole page a little smaller instead of a list one row tall.
+    root.setProperty('--lgz', (land ? clamp(H / 560, 0.62, 1) : 1).toFixed(3));
+    // The shop: a bottom sheet keeps its share of the screen height, larger
+    // inside; the side panel of a wide screen fits its height (shrinking on
+    // a short landscape phone so the cards still show).
+    this.shz = land ? clamp(Math.min(this.uz, H / 650), 0.62, 3) : clamp(Math.min(this.uz, (H * 0.48) / 420), 1, 3);
+    root.setProperty('--shz', this.shz.toFixed(3));
+    this.fitLabel();
+    this.fitPopups();
+    if (!$('shop').hidden) this.reportSheet();
+  }
+
+  /**
+   * Tell the game where the board can go beside the open shop: above the
+   * sheet on a phone, left of the side panel on a wide screen. The panel is
+   * zoomed, so its layout box is in its own (unzoomed) pixels.
+   */
+  private reportSheet() {
+    const panel = document.querySelector<HTMLElement>('#shop .sheet-panel')!;
+    const z = this.shz;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const top = (document.querySelector<HTMLElement>('#shop .sheet-top')!.offsetHeight + 6) * this.ui;
+    if (this.landscape) this.actions.sheet({ top, bottom: H - 16 - this.bannerH(), left: 16, right: panel.offsetLeft * z - 16 });
+    else this.actions.sheet({ top: 64, bottom: panel.offsetTop * z - 12, left: 16, right: W - 16 });
+  }
+
+  private bannerH() {
+    return document.body.classList.contains('has-banner') ? $('ad-banner').getBoundingClientRect().height : 0;
+  }
+
+  /** HUD, popup and shop scales for this screen (see updateMode). */
+  private ui = 1;
+  private uz = 1;
+  private shz = 1;
+
+  /**
+   * Zoom each open popup to the screen: up to the popup scale, but never
+   * past the screen's edges (a short landscape phone shrinks a tall one).
+   */
+  fitPopups() {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const fit = (w: number, h: number, padW: number, padH: number) => Math.max(0.5, Math.min(this.uz, (W - padW) / w, (H - padH) / h));
+    for (const p of document.querySelectorAll<HTMLElement>('.modal:not([hidden]) > .panel, #result:not([hidden]) > .card')) {
+      p.style.zoom = '1';
+      // Room for the ribbon above and the button shadows below.
+      p.style.zoom = fit(p.offsetWidth, p.offsetHeight, 24, 84).toFixed(3);
+    }
+    const vault = $('vault');
+    if (!vault.hidden) {
+      vault.style.setProperty('--fz', '1');
+      const kids = [...vault.children].filter((c) => !c.classList.contains('rays')) as HTMLElement[];
+      // Layout boxes, not on-screen ones: the parts pop in with a scale.
+      const rs = kids.filter((c) => c.offsetHeight > 0);
+      const top = Math.min(...rs.map((c) => c.offsetTop));
+      const bottom = Math.max(...rs.map((c) => c.offsetTop + c.offsetHeight));
+      const width = Math.max(...rs.map((c) => c.offsetWidth));
+      // The grid gaps between the parts are not zoomed: leave room for them.
+      const gaps = 18 * Math.max(0, rs.length - 1);
+      vault.style.setProperty('--fz', fit(width, bottom - top - gaps, 32, 48 + gaps).toFixed(3));
+    }
+  }
+
+  /**
+   * On a narrow phone the level name could run under the league card or the
+   * shop button: shrink it to the room between them.
+   */
+  fitLabel() {
+    const l = this.levelLabel;
+    if (!l) return;
+    l.style.fontSize = '';
+    if (this.landscape) return;
+    const left = document.querySelector('.hgroup.col-left')!.getBoundingClientRect().right;
+    const right = document.querySelector('.hgroup.col-right')!.getBoundingClientRect().left;
+    const mid = window.innerWidth / 2;
+    const room = 2 * Math.min(mid - left, right - mid) - 10;
+    const w = l.offsetWidth;
+    if (w > room && room > 0) l.style.fontSize = `${Math.max(11, (parseFloat(getComputedStyle(l).fontSize) * room) / w).toFixed(1)}px`;
   }
 
   get landscape() {
@@ -377,6 +475,7 @@ export class Hud {
   setLevel(n: number, bonus: boolean, par?: number) {
     this.levelLabel.textContent = bonus ? `Bonus ${n}` : `Level ${n}`;
     this.levelLabel.classList.toggle('bonus', bonus);
+    this.fitLabel();
     // A paint tube: the track fills with the player's paint as the group
     // of five progresses, stripes flowing inside it; the four stops are
     // dots and the fifth, the bonus level, a gold star medallion.
@@ -692,6 +791,7 @@ export class Hud {
     $('league-rank').textContent = String(rank);
     $('league-time').textContent = timeLeft;
     $('league-left').textContent = timeLeft;
+    this.fitLabel();
   }
 
   /** The player's paint, for HUD pieces drawn in it (the progress tube). */
@@ -1122,6 +1222,7 @@ export class Hud {
     done.hidden = true;
     hint.textContent = 'Open 3 Locks';
     scr.hidden = false;
+    this.fitPopups();
     v.sound.appear();
     requestAnimationFrame(() => scr.classList.add('show'));
 
@@ -1505,7 +1606,7 @@ export class Hud {
     btn.hidden = !offer.free && !offer.watchAd;
     // Scale the whole panel to the screen: as laid out on a phone, larger
     // on tablets and PCs (never smaller, never huge).
-    const fit = () => scr.style.setProperty('--zoom', String(Math.max(1, Math.min(1.8, Math.min(innerWidth / 430, (innerHeight - 90) / 700)))));
+    const fit = () => scr.style.setProperty('--zoom', String(Math.max(1, Math.min(3, Math.min(innerWidth / 430, (innerHeight - 90) / 700)))));
     fit();
     window.removeEventListener('resize', this.srFit);
     this.srFit = fit;
@@ -1640,7 +1741,7 @@ export class Hud {
     $('climb-tiers').innerHTML = tierLadder(0);
     // Scale the whole screen to the display, like the Super Reward: as laid
     // out on a phone, larger (not emptier) on tall and wide screens.
-    const z = Math.max(1, Math.min(1.7, Math.min(innerWidth / 430, (innerHeight - 40) / 760)));
+    const z = Math.max(1, Math.min(3, Math.min(innerWidth / 430, (innerHeight - 40) / 760)));
     scr.style.setProperty('--zoom', String(z));
     const from = before.findIndex((r) => r.you);
     const to = after.findIndex((r) => r.you);
