@@ -375,6 +375,8 @@ export class Game {
     this.save.best = Math.max(this.save.best, this.levelNo);
     this.save.theme = this.theme.id;
     storeSave(this.save);
+    // Coins or free uses may have changed: keep the tool prices current.
+    this.refreshPrices();
   }
 
   /** The active board theme with the player's paint and ball choices applied. */
@@ -401,8 +403,8 @@ export class Game {
 
   private refreshPrices() {
     this.hud.setPrices({
-      hint: { price: PRICES.hint, free: this.save.hints, ad: this.toolAd('hints') },
-      bomb: { price: PRICES.bomb, free: this.save.bombs, ad: this.toolAd('bombs') },
+      hint: { price: PRICES.hint, free: this.save.hints, ad: this.toolAd('hints'), short: this.save.coins < PRICES.hint },
+      bomb: { price: PRICES.bomb, free: this.save.bombs, ad: this.toolAd('bombs'), short: this.save.coins < PRICES.bomb },
     });
   }
 
@@ -1654,6 +1656,7 @@ export class Game {
     if (v === COIN) {
       this.save.coins += 2;
       this.hud.flyCoins(g, 2, this.save.coins);
+      this.refreshPrices();
       this.sound.coin();
     } else {
       this.save.keyLevel = Math.max(this.save.keyLevel ?? 0, this.levelNo);
