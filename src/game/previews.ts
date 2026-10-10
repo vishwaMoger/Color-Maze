@@ -101,7 +101,22 @@ void main(void) {
     col = mix(col, uAlt, crack);
   } else if (mode == 4) {
     float w = abs(sin(p.x * 7.0 + sin(p.y * 6.0) * 1.2)) * abs(sin(p.y * 7.0 + sin(p.x * 5.0) * 1.2));
-    col = mix(col, uAlt, smoothstep(0.75, 0.98, 1.0 - w) * 0.7);
+    col = mix(col, uAlt, smoothstep(0.75, 0.98, 1.0 - w) * 0.7);  } else if (mode == 5) {
+    // Potion: a dark swirling brew with glowing green bubbles, as in game.
+    float sw = fbm(p * 1.6 + vec2(fbm(p * 1.2), fbm(p * 1.2 + 5.2)) * 2.2);
+    col = mix(uDark * 0.75, mix(uBase, vec3(0.95, 0.5, 1.0), 0.3), smoothstep(0.3, 0.75, sw)) * (0.8 + 0.4 * smoothstep(0.0, 0.3, h));
+    // Bubbles of mixed sizes, scattered (about half the cells have one).
+    vec2 bp = p * 2.6 + 3.0;
+    vec2 bid = floor(bp);
+    vec2 bf = fract(bp) - 0.5;
+    vec2 o = vec2(hash(bid), hash(bid + 17.0));
+    float rad = hash(bid + 41.0) < 0.5 ? 0.0 : 0.07 + 0.2 * o.y * o.y;
+    float d = length(bf - (o - 0.5) * 0.45);
+    float body = 1.0 - smoothstep(rad - 0.04, rad, d);
+    float rim = body * smoothstep(rad - 0.1, rad - 0.02, d);
+    col = mix(col, col * 0.35 + uAlt * 0.55, body * 0.8);
+    col += uAlt * rim * 0.7;
+    glow = body * 0.5;
   }
 
   vec3 L = normalize(vec3(-0.5, 0.6, 0.75));

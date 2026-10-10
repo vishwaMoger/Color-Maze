@@ -55,6 +55,12 @@ export interface VaultSession {
   win: (k: VaultKind) => string;
   onDot: (k: VaultKind, dots: number) => void;
   onDone: () => void;
+  /**
+   * Out of keys with nothing won: a video ad for three more keys on the
+   * same safe (once a visit). Resolves true when the ad was watched.
+   * Missing when no ad can be shown.
+   */
+  extra?: () => Promise<boolean>;
   sound: {
     click: () => void;
     appear: () => void;
@@ -414,9 +420,11 @@ export class Hud {
       const top = Math.min(...rs.map((c) => c.offsetTop));
       const bottom = Math.max(...rs.map((c) => c.offsetTop + c.offsetHeight));
       const width = Math.max(...rs.map((c) => c.offsetWidth));
-      // The grid gaps between the parts are not zoomed: leave room for them.
+      // The grid gaps between the parts are not zoomed: leave room for them,
+      // and for the buttons that appear under the safe at the end.
       const gaps = 18 * Math.max(0, rs.length - 1);
-      vault.style.setProperty('--fz', fit(width, bottom - top - gaps, 32, 48 + gaps).toFixed(3));
+      const actions = $('btn-vault-done').hidden ? 104 : 0;
+      vault.style.setProperty('--fz', fit(width, bottom - top - gaps + actions, 32, 48 + gaps).toFixed(3));
     }
   }
 
@@ -1181,6 +1189,9 @@ export class Hud {
     const keysEl = $('vault-keys');
     const done = $<HTMLButtonElement>('btn-vault-done');
     const hint = $('vault-hint');
+    const skip = $<HTMLButtonElement>('btn-vault-skip');
+    const doneLabel = $('vault-done-label');
+    const doneVideo = $('vault-video');
     const dots = { ...v.dots };
     let keys = v.keys;
     let pending = 0;
@@ -1222,6 +1233,9 @@ export class Hud {
       grid.appendChild(b);
     }
     done.hidden = true;
+    done.disabled = false;
+    skip.hidden = true;
+    doneVideo.hidden = true;
     hint.textContent = 'Open 3 Locks';
     scr.hidden = false;
     this.fitPopups();
@@ -1274,6 +1288,9 @@ export class Hud {
       }
     };
     let anyWon = false;
+    // Whether the button under the safe offers the video for more keys.
+    let offer = false;
+    let extraUsed = false;
 
     const open = async (lock: HTMLButtonElement) => {
       if (keys <= 0 || lock.classList.contains('opening')) return;
@@ -1352,21 +1369,61 @@ export class Hud {
       pending--;
       if (keys === 0 && pending === 0) {
         await wait(400);
-        hint.textContent = anyWon ? 'Prize collected!' : 'So close! Your progress is saved.';
-        done.textContent = anyWon ? 'Collect' : 'Continue';
+        // Nothing won yet: a video gives three more keys for the locks
+        // still shut (prizes as random as ever); or the player leaves.
+        offer = !anyWon && !extraUsed && !!v.extra;
+        if (offer) hint.textContent = 'So close! Open 3 more locks?';
+        else hint.textContent = anyWon ? 'Prize collected!' : 'So close! Your progress is saved.';
+        doneLabel.textContent = anyWon ? 'Collect' : 'Continue';
+        doneVideo.hidden = !offer;
         done.hidden = false;
+        skip.hidden = !offer;
       }
     };
 
-    const finish = (e: Event) => {
-      e.stopPropagation();
-      done.removeEventListener('click', finish);
-      v.sound.click();
+    const close = () => {
+      done.removeEventListener('click', onDoneClick);
+      skip.removeEventListener('click', onSkip);
       scr.classList.remove('show');
       window.setTimeout(() => (scr.hidden = true), 250);
       v.onDone();
     };
-    done.addEventListener('click', finish);
+    const onSkip = (e: Event) => {
+      e.stopPropagation();
+      v.sound.click();
+      close();
+    };
+    const onDoneClick = async (e: Event) => {
+      e.stopPropagation();
+      if (done.hidden || done.disabled) return;
+      v.sound.click();
+      if (!offer || !v.extra) {
+        close();
+        return;
+      }
+      done.disabled = true;
+      skip.disabled = true;
+      const ok = await v.extra();
+      done.disabled = false;
+      skip.disabled = false;
+      if (!ok) return;
+      // Three fresh keys drop into the ring, one after another.
+      offer = false;
+      extraUsed = true;
+      done.hidden = true;
+      skip.hidden = true;
+      doneVideo.hidden = true;
+      hint.textContent = 'Open 3 more locks';
+      for (let i = 0; i < 3; i++) {
+        keys++;
+        renderKeys();
+        keysEl.children[keys - 1]?.classList.add('refill');
+        v.sound.key();
+        await wait(160);
+      }
+    };
+    done.addEventListener('click', onDoneClick);
+    skip.addEventListener('click', onSkip);
   }
 
   // ------------------------------------------------------------ messages
