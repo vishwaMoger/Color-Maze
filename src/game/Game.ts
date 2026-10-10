@@ -38,9 +38,9 @@ interface Slide {
 type XY = { x: number; y: number };
 
 /** Screens that may carry the banner ad (see showBanner). */
-/** A video offer lasts three hours and takes three videos. */
+/** A video offer lasts three hours and takes three videos (five for a trail). */
 const OFFER_MS = 3 * 60 * 60 * 1000;
-const OFFER_ADS = 3;
+const offerAds = (kind: ShopTab) => (kind === 'trail' ? 5 : 3);
 /** Event video boost: levels it counts for, and how many a day. */
 const EVENT_BOOST = 2;
 const EVENT_BOOSTS_A_DAY = 4;
@@ -241,7 +241,7 @@ export class Game {
           }
           const have = this.adsWatched(tab, id) + 1;
           this.save.adProgress[key] = have;
-          if (have >= OFFER_ADS) {
+          if (have >= offerAds(tab)) {
             this.save.owned.push(id);
             this.persist();
             this.equip(tab, id);
@@ -249,7 +249,7 @@ export class Game {
             this.sound.star(2);
           } else {
             this.persist();
-            this.hud.toast(`${have}/${OFFER_ADS} — ${OFFER_ADS - have} more to unlock ${item.name}`);
+            this.hud.toast(`${have}/${offerAds(tab)} — ${offerAds(tab) - have} more to unlock ${item.name}`);
           }
           this.refreshShop();
         });
@@ -454,34 +454,32 @@ export class Game {
   }
 
   /**
-   * Video offers: two locked items at a time (of different kinds where it
-   * can be) open for three videos each, for three hours; then two others
-   * take their place. An item won stays won; one not finished keeps its
-   * videos watched for whenever it is offered again.
+   * Video offers: every shop tab always has one locked item on offer for
+   * videos (three each; five for a trail), for three hours; then each tab
+   * gets another. An item won stays won; one not finished keeps its videos
+   * watched for whenever it is offered again.
    */
   private offerIds(): string[] {
     const now = Date.now();
     const o = this.save.offers;
-    if (o && now < o.until && o.until - now <= OFFER_MS) return o.ids;
+    if (o && o.v === 2 && now < o.until && o.until - now <= OFFER_MS) return o.ids;
     const owned = new Set(this.save.owned);
-    const pool = [
-      ...BALLS.map((x) => ({ kind: 'ball', x })),
-      ...PAINTS.map((x) => ({ kind: 'paint', x })),
-      ...THEMES.map((x) => ({ kind: 'board', x })),
-      ...TRAILS.map((x) => ({ kind: 'trail', x })),
-    ].filter(({ x }) => !('event' in x && x.event) && !('vault' in x && x.vault) && x.unlock > this.save.best && !owned.has(x.id));
-    // Not the two just offered, while there are others to choose from.
+    const kinds: [ShopTab, { id: string; unlock: number; event?: unknown; vault?: boolean }[]][] = [
+      ['ball', BALLS],
+      ['paint', PAINTS],
+      ['trail', TRAILS],
+      ['board', THEMES],
+    ];
     const last = new Set(o?.ids ?? []);
-    const fresh = pool.filter((p) => !last.has(`${p.kind}:${p.x.id}`));
-    const from = fresh.length >= 2 ? fresh : pool;
     const ids: string[] = [];
-    for (let i = 0; i < 2 && from.length; i++) {
-      const other = from.filter((p) => !ids.some((id) => id.startsWith(p.kind + ':')));
-      const choice = (other.length ? other : from)[Math.floor(Math.random() * (other.length || from.length))];
-      ids.push(`${choice.kind}:${choice.x.id}`);
-      from.splice(from.indexOf(choice), 1);
+    for (const [kind, list] of kinds) {
+      const pool = list.filter((x) => !x.event && !x.vault && x.unlock > this.save.best && !owned.has(x.id));
+      // Not the one this tab just had, while there are others to choose from.
+      const fresh = pool.filter((x) => !last.has(`${kind}:${x.id}`));
+      const from = fresh.length ? fresh : pool;
+      if (from.length) ids.push(`${kind}:${from[Math.floor(Math.random() * from.length)].id}`);
     }
-    this.save.offers = { until: now + OFFER_MS, ids };
+    this.save.offers = { until: now + OFFER_MS, ids, v: 2 };
     this.persist();
     return ids;
   }
@@ -634,7 +632,7 @@ export class Game {
   private adsFor(kind: ShopTab, it: { id: string }): ShopItem['ads'] {
     if (this.save.owned.includes(it.id) || !adsAvailable()) return undefined;
     if (!this.offerIds().includes(`${kind}:${it.id}`)) return undefined;
-    return { have: this.adsWatched(kind, it.id), need: OFFER_ADS, until: this.save.offers!.until };
+    return { have: this.adsWatched(kind, it.id), need: offerAds(kind), until: this.save.offers!.until };
   }
 
   /**
