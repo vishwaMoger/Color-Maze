@@ -380,6 +380,11 @@ export class Hud {
    * sheet on a phone, left of the side panel on a wide screen. The panel is
    * zoomed, so its layout box is in its own (unzoomed) pixels.
    */
+  /** Report the shop's free area again (after the board was laid out anew). */
+  refitSheet() {
+    if (!$('shop').hidden) this.reportSheet();
+  }
+
   private reportSheet() {
     const panel = document.querySelector<HTMLElement>('#shop .sheet-panel')!;
     const z = this.shz;

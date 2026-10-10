@@ -8,7 +8,7 @@ import { BALLS, PAINTS, PATTERN_MODE } from './cosmetics.ts';
 import { dayIndex, eraseSave, league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball, ballCanvas, ballPreview } from './Ball.ts';
 import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
-import { haptic } from '../platform/haptics.ts';
+import { haptic, setTapHaptics, tapHaptics } from '../platform/haptics.ts';
 import { adsAvailable, gameplayStart, getPlayer, onPlayerChange, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
 import { boardKey, boardPreview, paintKey, paintPreview, peekPreview } from './previews.ts';
@@ -265,7 +265,9 @@ export class Game {
       },
       startOver: () => {
         eraseSave();
-        location.reload();
+        this.hud.toast('Progress erased');
+        // A moment for the portal's store to take the change, then a fresh start.
+        window.setTimeout(() => location.reload(), 600);
       },
       freeCoins: () => {
         this.sound.click();
@@ -288,6 +290,8 @@ export class Game {
     });
     hud.updateMode();
     hud.setToggles({ sfx: this.save.sound, music: this.save.music, vibe: this.save.vibe });
+    tapHaptics();
+    setTapHaptics(this.save.vibe);
     hud.setCoins(this.save.coins);
     hud.setKeys(this.save.keys);
     hud.setStreak(this.save.streak);
@@ -308,10 +312,32 @@ export class Game {
         this.recover();
       }
     });
-    window.addEventListener('resize', () => {
+    // Any change of the game's size (window resize, the portal's fullscreen
+    // on or off, a phone turned, the address bar showing): the renderer is
+    // resized right away (Pixi would only do it on the next frame, so the
+    // layout read the old size), then HUD and board are laid out again, once
+    // more on the next frame and after a moment for browsers that settle late.
+    let sizeKey = '';
+    const onSize = () => {
+      this.app.resize();
+      const key = `${window.innerWidth}x${window.innerHeight}:${this.app.screen.width}x${this.app.screen.height}`;
+      if (key === sizeKey) return;
+      sizeKey = key;
       this.hud.updateMode();
       this.invalidateLayout();
-    });
+      // The open shop's free area, now for the new board.
+      this.hud.refitSheet();
+    };
+    const onSizeSoon = () => {
+      onSize();
+      requestAnimationFrame(() => onSize());
+      window.setTimeout(() => onSize(), 250);
+    };
+    window.addEventListener('resize', onSizeSoon);
+    window.addEventListener('orientationchange', onSizeSoon);
+    document.addEventListener('fullscreenchange', onSizeSoon);
+    window.visualViewport?.addEventListener('resize', onSizeSoon);
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(onSizeSoon).observe(this.app.canvas.parentElement ?? document.body);
     document.addEventListener('visibilitychange', () => this.sound.setMuted(document.hidden || this.portalMuted));
     onPortalMute((muted) => {
       this.portalMuted = muted;
@@ -2381,7 +2407,13 @@ export class Game {
     } else if (what === 'music') {
       this.save.music = !this.save.music;
       this.sound.setMusic(this.save.music);
-    } else this.save.vibe = !this.save.vibe;
+    } else {
+      this.save.vibe = !this.save.vibe;
+      setTapHaptics(this.save.vibe);
+      // Felt at once, inside the tap (a phone only vibrates for a page the
+      // player has touched).
+      this.vibrate(30);
+    }
     this.hud.setToggles({ sfx: this.save.sound, music: this.save.music, vibe: this.save.vibe });
     this.persist();
   }

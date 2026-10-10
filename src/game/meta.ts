@@ -55,9 +55,21 @@ export interface Save {
    * schedule (no value) keep everything the old one had already given.
    */
   pace?: number;
+  /** When this copy was written (ms): copies older than an erase are ignored. */
+  savedAt?: number;
 }
 
 const SAVE_KEY = 'colormaze.v1';
+/** When progress was last erased, kept in this browser (see eraseSave). */
+const ERASED_KEY = 'colormaze.erasedAt';
+
+function erasedAt(): number {
+  try {
+    return Number(localStorage.getItem(ERASED_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
 
 export const PRICES = { hint: 400, bomb: 200 };
 
@@ -89,17 +101,22 @@ export function loadSave(): Save {
   try {
     // Prefer the SDK's (cloud) copy; fall back to this browser's, so
     // progress made before the SDK was in use carries over.
-    let raw = saveStore()?.getItem(SAVE_KEY) ?? null;
-    if (raw === null) {
+    // A copy written before the last erase is stale: the SDK's store syncs
+    // in the background, so an erase may not have reached it yet.
+    const since = erasedAt();
+    const read = (get: () => string | null): Partial<Save> | null => {
       try {
-        raw = localStorage.getItem(SAVE_KEY);
+        const raw = get();
+        const p = raw ? (JSON.parse(raw) as Partial<Save>) : null;
+        return p && (p.savedAt ?? 0) >= since ? p : null;
       } catch {
-        raw = null;
+        return null;
       }
-    }
+    };
+    const data = read(() => saveStore()?.getItem(SAVE_KEY) ?? null) ?? read(() => localStorage.getItem(SAVE_KEY));
     // A brand-new save starts on the current unlock schedule; an older one
     // has no `pace` and is brought over by the game (keepOldUnlocks).
-    const s: Save = raw ? { ...fallback, ...JSON.parse(raw) } : { ...fallback, pace: 2 };
+    const s: Save = data ? { ...fallback, ...data } : { ...fallback, pace: 2 };
     s.best = Math.max(s.best, s.level);
     // The Teal maze was once id 'mint', the same as the Mint ball.
     if (s.theme === 'mint') s.theme = 'teal';
@@ -128,6 +145,13 @@ let erased = false;
 /** Wipe all progress (Settings > Start over); the game then reloads fresh. */
 export function eraseSave() {
   erased = true;
+  // Remembered here first: whatever copy the SDK's store still holds (its
+  // sync may lag behind the reload) is then ignored as older than this.
+  try {
+    localStorage.setItem(ERASED_KEY, String(Date.now()));
+  } catch {
+    /* no local storage */
+  }
   try {
     saveStore()?.removeItem(SAVE_KEY);
   } catch {
@@ -142,6 +166,7 @@ export function eraseSave() {
 
 export function storeSave(s: Save) {
   if (erased) return;
+  s.savedAt = Math.max(Date.now(), erasedAt() + 1);
   const text = JSON.stringify(s);
   try {
     saveStore()?.setItem(SAVE_KEY, text);
