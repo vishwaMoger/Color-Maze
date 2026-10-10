@@ -8,6 +8,7 @@ import { BALLS, PAINTS, PATTERN_MODE } from './cosmetics.ts';
 import { dayIndex, eraseSave, league, loadSave, PRICES, storeSave, timeLeft, type Save } from './meta.ts';
 import { Ball, ballCanvas, ballPreview } from './Ball.ts';
 import { Board, SPREAD_MS, type PaintStroke } from './Board.ts';
+import { haptic } from '../platform/haptics.ts';
 import { adsAvailable, gameplayStart, getPlayer, onPlayerChange, gameplayStop, happytime, hideBanner, midgameAd, onPortalMute, refreshBanner, rewardedAd, showBanner } from '../platform/ads.ts';
 import { Fx } from './fx.ts';
 import { boardKey, boardPreview, paintKey, paintPreview, peekPreview } from './previews.ts';
@@ -2386,12 +2387,7 @@ export class Game {
   }
 
   private vibrate(ms: number | number[]) {
-    if (!this.save.vibe || !('vibrate' in navigator)) return;
-    try {
-      navigator.vibrate(ms);
-    } catch {
-      /* not allowed */
-    }
+    if (this.save.vibe) haptic(ms);
   }
 
   // ---------------------------------------------------------------- booster
