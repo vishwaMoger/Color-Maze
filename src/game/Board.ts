@@ -635,6 +635,17 @@ export class Board extends Container {
   private readonly pickups = new Map<number, { s: Sprite; glow: Sprite; base: number; y0: number; at: number }>();
   private lastTime = 0;
 
+  private hitAt = -1;
+  private hitPos = { x: 0, y: 0 };
+
+  /** A wall hit at (x, y) board px: light and glitter ripple through the paint. */
+  paintHit(x: number, y: number, power: number) {
+    if (!this.gloss) return;
+    this.hitAt = this.lastTime;
+    this.hitPos = { x, y };
+    this.gloss.uniforms.uHitP = power;
+  }
+
   /** Where the board sits on screen, so paint patterns stay attached. */
   setPaintSpace(x: number, y: number, cellPx: number) {
     if (!this.gloss) return;
@@ -1432,7 +1443,22 @@ export class Board extends Container {
   update(time: number, stroke: PaintStroke, remaining: Point[]) {
     this.lastTime = time;
     if (this.caustics) this.caustics.uniforms.uTime = time * 0.00035;
-    if (this.gloss) this.gloss.uniforms.uTime = time * 0.001;
+    if (this.gloss) {
+      this.gloss.uniforms.uTime = time * 0.001;
+      const u = this.gloss.uniforms;
+      u.uHit[2] = this.hitAt < 0 ? -1 : (time - this.hitAt) * 0.001;
+      if (this.hitAt >= 0) {
+        // The shader's px are CSS pixels measured from the board's corner
+        // (as the paint layer is rendered), so the hit and a tile's size go
+        // in those units too.
+        const g0 = this.toGlobal({ x: 0, y: 0 });
+        const g = this.toGlobal(this.hitPos);
+        const g1 = this.toGlobal({ x: this.hitPos.x + this.cell, y: this.hitPos.y });
+        u.uHit[0] = g.x - g0.x;
+        u.uHit[1] = g.y - g0.y;
+        u.uHitK = Math.hypot(g1.x - g.x, g1.y - g.y);
+      }
+    }
     // Saws spin; after a hit they whirr faster for a moment.
     const boost = Math.max(0, 1 - (time - this.sawHitAt) / 900);
     this.sawAngle += 0.16 * (1 + boost * 2.5) * this.timeScale;

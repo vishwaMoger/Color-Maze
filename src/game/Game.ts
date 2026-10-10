@@ -1524,7 +1524,8 @@ export class Game {
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
     const hitX = c.x + d.x * this.cell * 0.45;
     const hitY = c.y + d.y * this.cell * 0.45;
-    if (!REDUCED_MOTION) this.wave = { x: hitX, y: hitY, t: 0, power: Math.min(1, 0.45 + speed * 0.45 + (gripped ? 0.15 : 0)) };
+    // The wall hit's shimmer runs through the paint only (no board ripple).
+    if (!REDUCED_MOTION) this.board.paintHit(hitX, hitY, Math.min(1, 0.45 + speed * 0.45 + (gripped ? 0.15 : 0)));
     this.wallLumps(this.pos, d, speed);
     this.settle();
     // First-level lesson, one step per move.
