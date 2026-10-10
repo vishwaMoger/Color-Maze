@@ -12,50 +12,12 @@
     <!--APP-START-->
     <div id="stage"></div>
 
+    <!-- Loading: the name, its "o" a glossy paint ball, and a slim bar
+         that fills with paint as the ball rolls along it. -->
     <div id="splash">
-      <div class="sp-blobs" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="sp-stars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="sp-rays" aria-hidden="true"></div>
-      <div class="sp-balls" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="logo" aria-label="Color Maze">
-        <div class="logo-row"><span style="--c:#ff3d8e;--i:0">C</span><span style="--c:#ff8a1f;--i:1">O</span><span style="--c:#ffd21f;--i:2">L</span><span style="--c:#3fd06a;--i:3">O</span><span style="--c:#2fb8ff;--i:4">R</span></div>
-        <div class="logo-row maze"><span style="--i:5">M</span><span style="--i:6">A</span><span style="--i:7">Z</span><span style="--i:8">E</span></div>
-      </div>
-      <!-- A little maze: the ball rolls through it, painting it pink. -->
-      <div class="sp-stage" aria-hidden="true">
-      <svg class="sp-maze" viewBox="-14 -14 228 240" aria-hidden="true">
-        <defs>
-          <radialGradient id="sp-ball" cx="0.36" cy="0.3" r="0.75">
-            <stop offset="0" stop-color="#ffffff" />
-            <stop offset="0.28" stop-color="#ffb3d6" />
-            <stop offset="0.75" stop-color="#ff2d8b" />
-            <stop offset="1" stop-color="#b40c5c" />
-          </radialGradient>
-          <linearGradient id="sp-top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6f2ff" /><stop offset="1" stop-color="#ddd3ff" /></linearGradient>
-          <pattern id="sp-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M0 0H40M0 0V40" stroke="rgba(25,10,80,0.55)" stroke-width="2" fill="none" /></pattern>
-          <mask id="sp-floor-mask"><path d="M20 180V20H180V180H100V100" stroke="#fff" stroke-width="40" stroke-linejoin="round" stroke-linecap="square" fill="none" /></mask>
-        </defs>
-        <rect class="sp-side" x="-14" y="-2" width="228" height="228" rx="30" />
-        <rect class="sp-board" x="-14" y="-14" width="228" height="228" rx="30" />
-        <path class="sp-floor-shade" d="M20 182V22H180V182H100V102" />
-        <path class="sp-floor" d="M20 180V20H180V180H100V100" />
-        <rect x="0" y="0" width="200" height="200" fill="url(#sp-grid)" mask="url(#sp-floor-mask)" opacity="0.6" />
-        <g class="sp-run">
-          <path class="sp-paint" d="M20 180V20H180V180H100V100"><animate attributeName="stroke-dashoffset" dur="3.6s" repeatCount="indefinite" values="640;640;0;0" keyTimes="0;0.06;0.8;1" /></path>
-          <path class="sp-shine" d="M20 180V20H180V180H100V100"><animate attributeName="stroke-dashoffset" dur="3.6s" repeatCount="indefinite" values="640;640;0;0" keyTimes="0;0.06;0.8;1" /></path>
-          <g class="sp-ball">
-            <ellipse cx="0" cy="13" rx="12" ry="4.5" fill="rgba(30,10,70,0.35)" />
-            <circle r="16" fill="url(#sp-ball)" />
-            <ellipse cx="-4.5" cy="-6" rx="4.5" ry="3" fill="rgba(255,255,255,0.85)" />
-            <animateMotion dur="3.6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.06;0.8;1" calcMode="linear" path="M20 180V20H180V180H100V100" />
-          </g>
-          <animate attributeName="opacity" dur="3.6s" repeatCount="indefinite" values="0;1;1;1;0" keyTimes="0;0.06;0.8;0.93;1" />
-        </g>
-      </svg>
-      </div>
-      <div class="sp-load">
-        <div class="loadbar"><span></span><i class="sp-lball"></i></div>
-        <p class="sp-tip"><span>Swipe to roll &middot; paint every tile</span><span>Collect 3 keys to open the vault</span><span>Watch out for the saws!</span></p>
+      <div class="sp-center">
+        <h1 class="sp-name" aria-label="Color Maze">C<i class="sp-o" aria-hidden="true"></i>lor <span>Maze</span></h1>
+        <div class="loadbar" role="progressbar" aria-label="Loading"><span></span><i class="sp-lball" aria-hidden="true"></i></div>
       </div>
     </div>
 
