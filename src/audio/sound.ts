@@ -17,12 +17,30 @@ export class Sound {
   enabled = true;
   private musicOn = true;
 
-  /** Must be called from a user gesture (browsers block audio before one). */
+  private musicStarted = false;
+
+  /**
+   * Sound starts on the first touch (browsers block audio before one): only
+   * a cheap resume then, as everything was prepared at load (see prepare).
+   */
   unlock() {
-    if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
-      return;
+    this.prepare();
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+    if (!this.musicStarted) {
+      this.musicStarted = true;
+      this.startMusic();
     }
+  }
+
+  /**
+   * Build the audio graph (context, reverb, noise) ahead of time, while the
+   * game loads: creating it is slow, and doing it on the first swipe made
+   * that first move start late. The context waits, suspended, for unlock.
+   */
+  prepare() {
+    if (this.ctx) return;
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
     const ctx = new Ctx();
@@ -44,7 +62,6 @@ export class Sound {
     this.music.connect(this.master);
     this.music.connect(this.reverb);
     this.noise = this.noiseBuffer();
-    this.startMusic();
   }
 
   /** Sound effects on or off (music has its own switch). */
@@ -91,7 +108,9 @@ export class Sound {
   }
 
   private ready(): AudioContext | null {
-    return this.ctx && this.enabled ? this.ctx : null;
+    // Not before the first touch: sounds queued on a suspended context
+    // would all burst out at once when it starts.
+    return this.ctx && this.enabled && this.musicStarted ? this.ctx : null;
   }
 
   private note(freq: number, when: number, dur: number, gain: number, type: OscillatorType = 'sine', dest?: AudioNode) {
