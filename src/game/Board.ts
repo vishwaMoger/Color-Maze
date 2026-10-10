@@ -23,7 +23,7 @@ import { iconImage } from './assets.ts';
 import { dilate, fillRoundedCells, makeCanvas, softBlur, texture, tint } from './shape.ts';
 import { paintGloss, type PaintGloss } from './shaders.ts';
 import type { Theme, TileStyle } from './themes.ts';
-import { slabTexture } from './slabs.ts';
+import { slabCanvas, slabTexture } from './slabs.ts';
 
 const FILTER_VERT = `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -924,6 +924,21 @@ export class Board extends Container {
     sbctx.globalCompositeOperation = 'destination-in';
     sbctx.drawImage(floorMask, 0, 0);
     fctx.drawImage(tint(shadeBand, theme.wallShadow), 0, 0);
+    // The walls also cast a soft shadow onto the floor along its top and
+    // left sides (light from the upper left), so every board reads as a
+    // floor sunk well below its walls.
+    const wallsC = makeCanvas(W, H);
+    const wcx = wallsC.getContext('2d')!;
+    wcx.fillStyle = '#fff';
+    wcx.fillRect(0, 0, W, H);
+    wcx.globalCompositeOperation = 'destination-out';
+    wcx.drawImage(floorMask, 0, 0);
+    const drop = makeCanvas(W, H);
+    const dcx = drop.getContext('2d')!;
+    dcx.drawImage(softBlur(wallsC, c * 0.16), c * 0.07, c * 0.11);
+    dcx.globalCompositeOperation = 'destination-in';
+    dcx.drawImage(floorMask, 0, 0);
+    fctx.drawImage(tint(drop, theme.wallShadow), 0, 0);
     this.addChild(this.sprite(floorCanvas));
 
     // Live paint, clipped to the floor.
@@ -1083,6 +1098,18 @@ export class Board extends Container {
     fctx2.drawImage(floorMask, 0, 0);
     wctx.drawImage(fadeC, 0, 0);
     wctx.drawImage(tint(rise(faceH), theme.wallFace), 0, 0);
+    // The face is the wall's own material in shade (wood grain, stars,
+    // knit...), and deepens toward its foot where it meets the floor.
+    wctx.save();
+    wctx.globalCompositeOperation = 'source-atop';
+    if (theme.slab) {
+      wctx.globalAlpha = 0.3;
+      wctx.fillStyle = wctx.createPattern(slabCanvas(theme.slab, res), 'repeat')!;
+      wctx.fillRect(0, 0, W, H);
+      wctx.globalAlpha = 1;
+    }
+    wctx.drawImage(tint(rise(faceH * 0.45), 'rgba(0, 0, 0, 0.14)'), 0, 0);
+    wctx.restore();
     // Arrow tiles: a soft raised pad (here) with white chevrons that pulse
     // the way it sends the ball (drawn live in update).
     const arrowAngle: Record<number, number> = { [ARROW_R]: 0, [ARROW_D]: Math.PI / 2, [ARROW_L]: Math.PI, [ARROW_U]: -Math.PI / 2 };
@@ -1478,9 +1505,9 @@ export class Board extends Container {
       const age = time - t;
       if (k === stroke.startRound) {
         const grow = Math.min(1, age / 200);
-        // A puddle centred under the ball (which sits a little up-tile),
-        // just wider than it so it shows evenly all round.
-        g.circle((x + 0.5) * cell, (y + 0.42) * cell, cell * 0.56 * (0.4 + 0.6 * (1 - (1 - grow) ** 3)));
+        // A puddle centred exactly under the ball (which sits a little
+        // up-tile, see Ball), wider than it so an even ring shows all round.
+        g.circle((x + 0.5) * cell, (y + 0.42) * cell, cell * 0.6 * (0.4 + 0.6 * (1 - (1 - grow) ** 3)));
         continue;
       }
       if (age >= SPREAD_MS) {

@@ -435,7 +435,7 @@ export class Game {
       ...BALLS.map((x) => ({ kind: 'ball', x })),
       ...PAINTS.map((x) => ({ kind: 'paint', x })),
       ...THEMES.map((x) => ({ kind: 'board', x })),
-    ].filter(({ x }) => !x.event && x.unlock > this.save.best && !owned.has(x.id));
+    ].filter(({ x }) => !x.event && !('vault' in x && x.vault) && x.unlock > this.save.best && !owned.has(x.id));
     // Not the two just offered, while there are others to choose from.
     const last = new Set(o?.ids ?? []);
     const fresh = pool.filter((p) => !last.has(`${p.kind}:${p.x.id}`));
@@ -653,7 +653,7 @@ export class Game {
     const ball = this.ballSkin();
     // Shop order: what is owned, then video offers, then soonest unlock.
     // Event items lead while their event runs; afterwards only won ones stay.
-    const rank = (it: ShopItem) => (it.event ? 1.5 : it.ads ? 2 : it.unlock);
+    const rank = (it: ShopItem) => (it.event ? 1.5 : it.ads ? 2 : it.vault ? 9e4 : it.unlock);
     const byUnlock = (list: ShopItem[]) => list.filter((it) => it.unlock < EVENT_GONE).sort((a, b) => rank(a) - rank(b));
     return {
       ball: byUnlock(BALLS.map((b, i) => {
@@ -664,6 +664,8 @@ export class Game {
           unlock: this.save.owned.includes(b.id) ? 1 : b.unlock,
           ads: this.adsFor('ball', b),
           ...this.eventFor(b),
+          // Safe-only pieces show in the shop, won only from the Safe.
+          ...(b.vault && !this.save.owned.includes(b.id) ? { unlock: 1, vault: true } : {}),
           kind: 'ball' as const,
           bg: `--c1:${c1};--c2:${c2}`,
           preview: this.previewCss('ball', b.id, `ball:${b.id}`, this.previews.get(b.id), () => this.spherePreview(b.id)),
@@ -759,22 +761,23 @@ export class Game {
     this.chestPending = true;
     const v = this.save.vault;
     const kinds: VaultKind[] = ['hint', 'item', 'coins'];
-    const base: Record<VaultKind, number> = { coins: 0.45, hint: 0.33, item: 0.22 };
+    // The prize piece is the rare one: a Safe-only ball while any are left.
+    const prize = this.vaultPrize();
+    const base: Record<VaultKind, number> = { coins: 0.5, hint: 0.38, item: prize?.vault ? 0.1 : 0.16 };
     const local: Record<VaultKind, number> = { hint: v.hint, item: v.item, coins: v.coins };
     const sure = (v.dry ?? 0) >= 1;
     const top = Math.max(...kinds.map((k) => v[k]));
     const best = kinds.filter((k) => v[k] === top);
     const target = best[Math.floor(Math.random() * best.length)];
     let won = false;
-    const nextItem = this.nextLockedItem();
-    const ballItem = nextItem && BALLS.find((b) => b.id === nextItem.id);
-    const paintItem = nextItem && PAINTS.find((p) => p.id === nextItem.id);
+    const ballItem = prize && BALLS.find((b) => b.id === prize.id);
+    const paintItem = prize && PAINTS.find((p) => p.id === prize.id);
     this.hud.vault({
       dots: { ...local },
       keys: 3,
-      item: nextItem
+      item: prize
         ? {
-            name: nextItem.name,
+            name: prize.name,
             art: ballItem ? this.spherePreview(ballItem.id) : paintPreview(this.app.renderer as Renderer, paintItem!),
           }
         : null,
@@ -808,10 +811,9 @@ export class Game {
           this.save.coins += 40;
           label = '+40';
         } else {
-          const next = this.nextLockedItem();
-          if (next) {
-            this.save.owned.push(next.id);
-            label = `${next.name}!`;
+          if (prize && !this.save.owned.includes(prize.id)) {
+            this.save.owned.push(prize.id);
+            label = `${prize.name}!`;
             this.hud.setShopDot(true);
           } else {
             this.save.coins += 60;
@@ -841,11 +843,21 @@ export class Game {
     });
   }
 
+  /**
+   * The Safe's piece prize this visit: a Safe-only ball not yet won, at
+   * random; once all are won, the next ball or paint to unlock.
+   */
+  private vaultPrize(): { id: string; name: string; vault?: boolean } | null {
+    const left = BALLS.filter((b) => b.vault && !this.save.owned.includes(b.id));
+    if (left.length) return left[Math.floor(Math.random() * left.length)];
+    return this.nextLockedItem();
+  }
+
   /** The next ball or paint the player has not unlocked yet. */
   private nextLockedItem(): { id: string; name: string } | null {
     const owned = new Set(this.save.owned);
     const pool = [...BALLS, ...PAINTS]
-      .filter((x) => !x.event && x.unlock > this.save.best && !owned.has(x.id))
+      .filter((x) => !x.event && !('vault' in x && x.vault) && x.unlock > this.save.best && !owned.has(x.id))
       .sort((a, b) => a.unlock - b.unlock);
     return pool[0] ?? null;
   }
@@ -2174,7 +2186,7 @@ export class Game {
       }
     }
     if (best <= prevBest) return;
-    const all = [...items.ball, ...items.paint, ...items.board].filter((x) => !x.event).sort((a, b) => a.unlock - b.unlock);
+    const all = [...items.ball, ...items.paint, ...items.board].filter((x) => !x.event && !x.vault).sort((a, b) => a.unlock - b.unlock);
     const just = all.find((x) => x.unlock > prevBest && x.unlock <= best);
     if (just) {
       this.sound.complete();

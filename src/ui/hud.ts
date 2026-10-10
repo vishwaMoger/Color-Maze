@@ -81,6 +81,8 @@ export interface ShopItem {
   kind: 'ball' | 'paint' | 'board';
   /** On video offer: how many watched of how many, and when it ends (ms). */
   ads?: { have: number; need: number; until: number };
+  /** Won only from the Safe (key vault). */
+  vault?: boolean;
   /** Limited-time event item: levels finished of those needed, and the end. */
   event?: { have: number; need: number; until: number; icon: string; name: string };
 }
@@ -939,7 +941,7 @@ export class Hud {
       }
       const byAds = !!it.ads;
       const ev = it.event;
-      const locked = byAds || !!ev || this.unlockedTo < it.unlock;
+      const locked = byAds || !!ev || !!it.vault || this.unlockedTo < it.unlock;
       const b = document.createElement('button');
       b.className = `tile ${it.kind}${locked ? ' locked' : ''}${it.id === equipped ? ' on' : ''}`;
       b.dataset.id = it.id;
@@ -949,7 +951,9 @@ export class Hud {
       );
       if (it.bg) b.setAttribute('style', it.bg);
       b.innerHTML = `<span class="swatch${it.preview ? '' : ' loading'}" style="${it.preview}"></span>${
-        ev
+        it.vault
+          ? '<span class="chip">Safe</span><span class="lockb key"></span>'
+          : ev
           ? `<span class="offer-time event" data-until="${ev.until}">${countdown(ev.until)}</span><span class="chip">${ev.icon} ${Math.min(ev.have, ev.need)}/${ev.need}</span><span class="lockb"></span>`
           : byAds
           ? `<span class="offer-time" data-until="${it.ads!.until}">${countdown(it.ads!.until)}</span><span class="chip">${it.ads!.have}/${it.ads!.need} ads</span><span class="lockb video"></span>`
@@ -966,6 +970,10 @@ export class Hud {
         if (byAds) {
           // A special item: each ad watched brings it closer.
           this.actions.adUnlock(this.shopTab, it.id);
+          return;
+        }
+        if (it.vault) {
+          this.toast(`${it.name} is a rare Safe prize: collect 3 keys to open the Safe!`);
           return;
         }
         if (ev) {

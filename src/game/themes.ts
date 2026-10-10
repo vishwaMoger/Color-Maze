@@ -136,8 +136,8 @@ const BASE_THEMES: Theme[] = [
   }),
   board({
     id: 'wood', name: 'Walnut',
-    page: '#c0743c', face: '#7d4219', floor: '#6a3a1a', grid: '#552d12', glow: '#e9a061',
-    shade: 'rgba(30, 10, 0, 0.36)', slab: 'walnut', tiles: 'planks',
+    page: '#a8481c', face: '#6a2a0e', floor: '#43200e', grid: '#2e1407', glow: '#c9662e',
+    shade: 'rgba(25, 6, 0, 0.5)', slab: 'walnut', tiles: 'planks',
     ui: { ink: '#7a3e12', deep: '#4e2508', p1: '#d59a5c', p2: '#b06f34', p3: '#82491c', panelEdge: '#e8c79f', pageInk: '#fff4e6' },
     swatchPaint: '#ff2d8b', root: 196, unlock: 28,
   }),
@@ -150,8 +150,8 @@ const BASE_THEMES: Theme[] = [
   }),
   board({
     id: 'candy', name: 'Candy',
-    page: '#f78fd0', face: '#d75aa8', floor: '#ec6fbd', grid: '#d95aa9', glow: '#ffc0e6',
-    shade: 'rgba(120, 0, 70, 0.22)',
+    page: '#f78fd0', face: '#c4479a', floor: '#d6539f', grid: '#bf3f8a', glow: '#ffc0e6',
+    shade: 'rgba(110, 0, 60, 0.3)',
     ui: { ink: '#b0307a', deep: '#7a1450', p1: '#ff8ac6', p2: '#ee5aa8', p3: '#c03a84', panelEdge: '#ffc0e0' },
     swatchPaint: '#7a4ff0', root: 349.23, unlock: 55,
   }),
