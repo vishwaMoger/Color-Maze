@@ -151,15 +151,15 @@ body {
   display: inline-grid;
   place-items: center;
   color: #fff;
-  /* The same matte candy look as the HUD buttons (.pbtn): a face that dips
-     slightly inward, a lit lip, a crisp outline and a deep solid base. */
+  /* The same candy look as the HUD buttons (.pbtn): a softly domed face,
+     a lit lip, a crisp outline and a deep solid base. */
   --edge: color-mix(in srgb, var(--b3) 70%, rgba(20, 0, 60, 0.5));
-  background: linear-gradient(180deg, var(--b2) 0%, var(--b1) 100%);
+  background: linear-gradient(180deg, var(--b1) 0%, var(--b2) 100%);
   box-shadow:
     0 0 0 1.5px var(--edge),
     inset 0 1.5px 0 rgba(255, 255, 255, 0.32),
-    inset 0 5px 6px rgba(20, 0, 70, 0.22),
-    inset 0 -3px 5px rgba(255, 255, 255, 0.2),
+    inset 0 12px 10px rgba(255, 255, 255, 0.1),
+    inset 0 -3px 0 rgba(20, 0, 70, 0.12),
     0 5px 0 var(--b3),
     0 5px 0 1.5px var(--edge),
     0 10px 14px rgba(60, 20, 150, 0.28);
@@ -233,8 +233,8 @@ body {
   box-shadow:
     0 0 0 1.5px var(--edge),
     inset 0 1.5px 0 rgba(255, 255, 255, 0.25),
-    inset 0 6px 7px rgba(20, 0, 70, 0.28),
-    inset 0 -2px 4px rgba(255, 255, 255, 0.16),
+    inset 0 2px 4px rgba(20, 0, 70, 0.14),
+    inset 0 -1.5px 0 rgba(20, 0, 70, 0.1),
     0 1px 0 var(--b3),
     0 1px 0 1.5px var(--edge);
 }
@@ -296,9 +296,9 @@ body {
 
 /* Purple square button with a flat white glyph, like the original. */
 .pbtn {
-  /* Matte candy button: a flat face that dips slightly inward (shaded at
-     the top, lit at the bottom), a lit lip, a crisp outline and a deep
-     solid base it presses down into. */
+  /* Candy button: a softly domed face, lit from the top and deepening to
+     its colour below, a thin bright lip, a crisp outline and a solid base
+     it presses down into. */
   --b1: #8a5cff;
   --b2: #7445f5;
   --b3: #4b1fc0;
@@ -311,12 +311,12 @@ body {
   padding: 0;
   border: 0;
   border-radius: calc(13px * var(--k));
-  background: linear-gradient(180deg, var(--b2) 0%, var(--b1) 100%);
+  background: linear-gradient(180deg, var(--b1) 0%, var(--b2) 100%);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
     inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.32),
-    inset 0 calc(5px * var(--k)) calc(6px * var(--k)) rgba(20, 0, 70, 0.24),
-    inset 0 calc(-3px * var(--k)) calc(5px * var(--k)) rgba(255, 255, 255, 0.2),
+    inset 0 calc(12px * var(--k)) calc(10px * var(--k)) rgba(255, 255, 255, 0.1),
+    inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(4.5px * var(--k)) 0 var(--b3),
     0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge),
     0 calc(9px * var(--k)) calc(12px * var(--k)) rgba(60, 20, 150, 0.32);
@@ -347,8 +347,8 @@ body {
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
     inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.25),
-    inset 0 calc(6px * var(--k)) calc(7px * var(--k)) rgba(20, 0, 70, 0.3),
-    inset 0 calc(-2px * var(--k)) calc(4px * var(--k)) rgba(255, 255, 255, 0.16),
+    inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
+    inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 var(--b3),
     0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
 }
@@ -458,12 +458,12 @@ body {
   padding: 0 calc(8px * var(--k)) 0 calc(31px * var(--k));
   border: 0;
   border-radius: calc(12px * var(--k));
-  background: linear-gradient(180deg, #6a3ce8 0%, #845aff 100%);
+  background: linear-gradient(180deg, #845aff 0%, #6a3ce8 100%);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
     inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.32),
-    inset 0 calc(5px * var(--k)) calc(6px * var(--k)) rgba(20, 0, 70, 0.24),
-    inset 0 calc(-3px * var(--k)) calc(5px * var(--k)) rgba(255, 255, 255, 0.2),
+    inset 0 calc(12px * var(--k)) calc(10px * var(--k)) rgba(255, 255, 255, 0.1),
+    inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(4.5px * var(--k)) 0 #4520ad,
     0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
     0 calc(9px * var(--k)) calc(12px * var(--k)) rgba(60, 20, 150, 0.32);
@@ -528,8 +528,8 @@ body {
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
     inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.25),
-    inset 0 calc(6px * var(--k)) calc(7px * var(--k)) rgba(20, 0, 70, 0.3),
-    inset 0 calc(-2px * var(--k)) calc(4px * var(--k)) rgba(255, 255, 255, 0.16),
+    inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
+    inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 #4520ad,
     0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55);
 }
@@ -832,8 +832,8 @@ body {
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
     inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.32),
-    inset 0 calc(5px * var(--k)) calc(6px * var(--k)) rgba(20, 0, 70, 0.24),
-    inset 0 calc(-3px * var(--k)) calc(5px * var(--k)) rgba(255, 255, 255, 0.2),
+    inset 0 calc(12px * var(--k)) calc(10px * var(--k)) rgba(255, 255, 255, 0.1),
+    inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(5px * var(--k)) 0 var(--lip),
     0 calc(5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge),
     0 calc(10px * var(--k)) calc(12px * var(--k)) rgba(60, 20, 150, 0.3);
@@ -851,12 +851,12 @@ body {
 .tbtn.green {
   --lip: #2f8a17;
   --edge: rgba(20, 80, 10, 0.5);
-  background: linear-gradient(180deg, #55bd30 0%, #6fd245 100%);
+  background: linear-gradient(180deg, #74d64a 0%, #52b92e 100%);
 }
 .tbtn.yellow {
   --lip: #d07800;
   --edge: rgba(130, 60, 0, 0.45);
-  background: linear-gradient(180deg, #ffb30f 0%, #ffca2e 100%);
+  background: linear-gradient(180deg, #ffcf33 0%, #ffae0d 100%);
 }
 .tbtn:active,
 .tbtn.pressed {
@@ -864,8 +864,8 @@ body {
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
     inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.25),
-    inset 0 calc(6px * var(--k)) calc(7px * var(--k)) rgba(20, 0, 70, 0.3),
-    inset 0 calc(-2px * var(--k)) calc(4px * var(--k)) rgba(255, 255, 255, 0.16),
+    inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
+    inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 var(--lip),
     0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
 }
@@ -6733,4 +6733,72 @@ body.has-banner {
 /* Safe-only pieces: a gold key badge in place of the lock. */
 #shop .tile .lockb.key {
   background: #fff url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%23ffe066"/><stop offset="1" stop-color="%23f0a400"/></linearGradient></defs><circle cx="9" cy="8" r="5.2" fill="url(%23g)" stroke="%23b87300" stroke-width="1.2"/><circle cx="9" cy="8" r="2" fill="%23fff"/><path d="M11.6 11.6 19 19M15.2 15.2l2.2-2.2M17.4 17.4l1.8-1.8" stroke="%23e09a00" stroke-width="2.8" stroke-linecap="round"/></svg>') center / 78% no-repeat;
+}
+
+/* "+80 Coins": alive while it is on offer. A band of light sweeps across,
+   little stars twinkle on the face, the coin spins and the button
+   breathes. All of it rests while the offer is cooling down. */
+#btn-free-coins:not(.cooling) {
+  animation: ctabreathe 2.4s ease-in-out infinite;
+}
+.cta-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cta-fx .shine {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: -40%;
+  width: 34%;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(255, 255, 255, 0) 100%);
+  transform: skewX(-18deg);
+  animation: ctashine 2.8s ease-in-out infinite;
+}
+.cta-fx .spk {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  filter: drop-shadow(0 0 3px rgba(255, 240, 160, 0.9));
+  opacity: 0;
+  animation: ctatwinkle 1.9s ease-in-out infinite;
+}
+.cta-fx .s1 { left: 9%; top: 20%; animation-delay: 0s; }
+.cta-fx .s2 { left: 82%; top: 58%; width: 9px; height: 9px; animation-delay: 0.45s; }
+.cta-fx .s3 { left: 70%; top: 14%; width: 7px; height: 7px; animation-delay: 0.9s; }
+.cta-fx .s4 { left: 18%; top: 64%; width: 8px; height: 8px; animation-delay: 1.3s; }
+.cta-fx .s5 { left: 52%; top: 72%; width: 6px; height: 6px; animation-delay: 1.65s; }
+#btn-free-coins:not(.cooling) .cta-reward .ico-coin {
+  animation: ctacoin 2.4s ease-in-out infinite;
+}
+#btn-free-coins.cooling .cta-fx {
+  display: none;
+}
+@keyframes ctashine {
+  0% { left: -40%; }
+  55%, 100% { left: 120%; }
+}
+@keyframes ctatwinkle {
+  0%, 100% { opacity: 0; transform: scale(0.3) rotate(0deg); }
+  45% { opacity: 1; transform: scale(1) rotate(45deg); }
+  70% { opacity: 0.2; transform: scale(0.6) rotate(70deg); }
+}
+@keyframes ctacoin {
+  0%, 62%, 100% { transform: rotateY(0deg) translateY(0); }
+  72% { transform: rotateY(180deg) translateY(-3px); }
+  82% { transform: rotateY(360deg) translateY(0); }
+}
+@keyframes ctabreathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
+}
+#btn-free-coins:active,
+#btn-free-coins.pressed {
+  animation: none;
 }
