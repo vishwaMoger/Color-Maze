@@ -338,7 +338,7 @@ export class Hud {
     if (bar) bar.style.width = `${Math.round(progress * 100)}%`;
     // The little paint ball rides the front of the bar.
     document.querySelector<HTMLElement>('#splash .loadbar')?.style.setProperty('--p', String(progress));
-    if (progress >= 1) window.setTimeout(() => $('splash').classList.add('hide'), 350);
+    if (progress >= 1) $('splash').classList.add('hide');
   }
 
   /**

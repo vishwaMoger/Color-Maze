@@ -352,6 +352,21 @@ export class Game {
     };
     void getPlayer().then(usePlayer);
     onPlayerChange(usePlayer);
+    // HUD height changes once the web font arrives.
+    void document.fonts?.ready.then(() => this.invalidateLayout());
+  }
+
+  private portalMuted = false;
+
+  private shownOnce = false;
+
+  /**
+   * The level is on screen (called once by main.ts). Work that only gets
+   * later moments ready starts now, so none of it delays the first frame.
+   */
+  shown() {
+    if (this.shownOnce) return;
+    this.shownOnce = true;
     // Ready ahead of the first swipe: the sound engine (slow to create) and
     // the paint's shaders (compiled on first use otherwise), so the first
     // move starts at once and runs smooth.
@@ -368,11 +383,7 @@ export class Game {
       for (const b of BALLS) this.queuePreview(`ball-art:${b.id}`, () => this.spherePreview(b.id));
       this.queuePreview('ball-art', () => this.hud.setBallArt(BALLS.map((b) => this.spherePreview(b.id))));
     }, 800);
-    // HUD height changes once the web font arrives.
-    void document.fonts?.ready.then(() => this.invalidateLayout());
   }
-
-  private portalMuted = false;
 
   /** Compile the paint and blur shaders now, on a tiny offscreen render. */
   private warmShaders() {
