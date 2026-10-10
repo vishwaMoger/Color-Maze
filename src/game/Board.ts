@@ -966,8 +966,7 @@ export class Board extends Container {
     // Paint and its wet speckles get the glossy paint shader.
     const paintBody = new Container();
     paintBody.addChild(this.paintG);
-    this.gloss = paintGloss(this.cell * 0.07 * res);
-    this.gloss.uniforms.uMode = theme.paintMode ?? 0;
+    this.gloss = paintGloss(this.cell * 0.07 * res, theme.paintMode ?? 0);
     const alt = theme.paintAlt ?? theme.paintLight;
     this.gloss.uniforms.uAlt[0] = ((alt >> 16) & 255) / 255;
     this.gloss.uniforms.uAlt[1] = ((alt >> 8) & 255) / 255;

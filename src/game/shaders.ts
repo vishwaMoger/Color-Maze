@@ -40,6 +40,9 @@ export function make<U>(name: string, fragment: string, uniforms: Uniforms, padd
 // faint glint on the lit side.
 // Patterned paints (marble, slime, lava, water) are generated here in
 // board space, so the pattern stays put as the paint spreads.
+// Compiled once per paint pattern with PMODE fixed (see paintGloss), so the
+// board's shader holds only the pattern in use: one shader branching
+// between them all compiles very slowly on Windows (Direct3D).
 const PAINT_FRAG = `in vec2 vTextureCoord;
 out vec4 finalColor;
 uniform sampler2D uTexture;
@@ -47,7 +50,6 @@ uniform highp vec4 uInputSize;
 uniform highp vec4 uOutputFrame;
 uniform float uRadius;
 uniform float uTime;
-uniform float uMode;
 uniform vec2 uBoard;
 uniform float uCell;
 uniform vec3 uAlt;
@@ -65,12 +67,15 @@ float noise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
+#if PMODE == 1 || PMODE == 2 || PMODE == 3 || PMODE == 5
 float fbm(vec2 p) {
   float v = 0.0;
   float amp = 0.5;
   for (int i = 0; i < 4; i++) { v += amp * noise(p); p *= 2.03; amp *= 0.5; }
   return v;
 }
+#endif
+#if PMODE == 2 || PMODE == 3
 // Distance to the nearest cell edge of a jittered grid (Voronoi F2 - F1).
 float cells(vec2 p, float t) {
   vec2 i = floor(p);
@@ -87,6 +92,8 @@ float cells(vec2 p, float t) {
     }
   return f2 - f1;
 }
+#endif
+#if PMODE == 4
 float caustic(vec2 uv, float t) {
   vec2 p = mod(uv * 6.28318, 6.28318) - 250.0;
   vec2 i = p;
@@ -101,33 +108,43 @@ float caustic(vec2 uv, float t) {
   c = 1.17 - pow(c, 1.4);
   return clamp(pow(abs(c), 8.0), 0.0, 1.0);
 }
+#endif
 void main(void) {
   vec4 c = texture(uTexture, vTextureCoord);
   if (c.a < 0.004) { finalColor = c; return; }
   vec3 base = c.rgb / max(c.a, 0.001);
   vec2 px = vTextureCoord * uInputSize.xy + uOutputFrame.xy;
   vec2 q = (px - uBoard) / uCell;
-  if (uMode > 0.5 && uMode < 1.5) {
+#if PMODE == 1
+  {
     // Marble: soft swirling veins.
     float v = sin((q.x * 1.3 + q.y * 0.7) * 2.2 + fbm(q * 1.4 + uTime * 0.05) * 6.0);
     base = mix(base, uAlt, smoothstep(0.2, 1.0, v) * 0.75);
     base = mix(base, vec3(1.0), smoothstep(0.85, 1.0, v) * 0.35);
-  } else if (uMode > 1.5 && uMode < 2.5) {
+  }
+#elif PMODE == 2
+  {
     // Slime: bubbly cells with bright rims that slowly wobble.
     float e = cells(q * 1.6, uTime * 0.6);
     base = mix(uAlt, base, smoothstep(0.02, 0.16, e));
     base += vec3(0.08) * fbm(q * 3.0);
-  } else if (uMode > 2.5 && uMode < 3.5) {
+  }
+#elif PMODE == 3
+  {
     // Lava: dark crust plates with glowing, pulsing cracks.
     float e = cells(q * 1.4, uTime * 0.25);
     float crack = 1.0 - smoothstep(0.0, 0.12, e);
     float pulse = 0.8 + 0.2 * sin(uTime * 2.0 + q.x * 2.0);
     base = mix(base * (0.75 + 0.25 * fbm(q * 2.5)), uAlt, crack * pulse);
-  } else if (uMode > 3.5 && uMode < 4.5) {
+  }
+#elif PMODE == 4
+  {
     // Water: dancing caustic light.
     float l = caustic(q * 0.45, uTime * 0.7);
     base = mix(base, uAlt, l * 0.9);
-  } else if (uMode > 4.5) {
+  }
+#elif PMODE == 5
+  {
     // Potion: a slowly swirling witch's brew with glowing bubbles that
     // rise through it, swell and pop, and the odd twinkle of magic.
     vec2 w = vec2(fbm(q * 0.9 + vec2(0.0, uTime * 0.08)), fbm(q * 0.9 + vec2(5.2, -uTime * 0.07)));
@@ -156,6 +173,7 @@ void main(void) {
     brew += mix(uAlt, vec3(1.0), 0.5) * (1.0 - smoothstep(0.015, 0.06, length(sf - (sh - 0.5) * 0.6))) * tw;
     base = brew;
   }
+#endif
   if (uHit.z >= 0.0 && uHit.z < 1.8) {
     // A wall hit sends a swell of light out through the paint (only the
     // paint: this pass draws nothing else), with a soft rainbow sheen on
@@ -188,10 +206,9 @@ void main(void) {
       base += gcol * glint * tw * lit * (layer == 0 ? 1.7 : 1.1);
     }
   }
-  if (uMode < 0.5) {
-    finalColor = vec4(base * c.a, c.a);
-    return;
-  }
+#if PMODE == 0
+  finalColor = vec4(base * c.a, c.a);
+#else
   // Thin wet coat: no raised bevel, just a slightly deeper tone where the
   // paint pools at its edge and a faint wet glint on the lit side.
   float r = uRadius;
@@ -201,17 +218,21 @@ void main(void) {
   vec3 col = base * (1.0 - 0.07 * edge);
   col += vec3(1.0) * edge * lit * lit * 0.06;
   finalColor = vec4(col * c.a, c.a);
+#endif
 }`;
 
 export type PaintGloss = Filter & {
-  uniforms: { uRadius: number; uTime: number; uMode: number; uBoard: Float32Array; uCell: number; uAlt: Float32Array; uHit: Float32Array; uHitP: number; uHitK: number };
+  uniforms: { uRadius: number; uTime: number; uBoard: Float32Array; uCell: number; uAlt: Float32Array; uHit: Float32Array; uHitP: number; uHitK: number };
 };
 
-export function paintGloss(radiusPx: number): PaintGloss {
-  return make('paintGloss', PAINT_FRAG, {
+/** The board's paint shader for one paint pattern (0 plain, 1-5 patterned). */
+export const paintSource = (mode: number) => `#define PMODE ${Math.round(mode)}\n${PAINT_FRAG}`;
+
+/** The board's paint pass for one paint pattern. */
+export function paintGloss(radiusPx: number, mode = 0): PaintGloss {
+  return make('paintGloss', paintSource(mode), {
     uRadius: { value: radiusPx, type: 'f32' },
     uTime: { value: 0, type: 'f32' },
-    uMode: { value: 0, type: 'f32' },
     uBoard: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
     uCell: { value: 64, type: 'f32' },
     uAlt: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },

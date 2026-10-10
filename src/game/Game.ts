@@ -336,6 +336,9 @@ export class Game {
     // after the start, so neither the first frame nor the shop waits.
     window.setTimeout(() => {
       this.shopItems();
+      // One ball per idle slot: each pattern has its own small shader, so
+      // drawing them all in one go would compile them all at once.
+      for (const b of BALLS) this.queuePreview(`ball-art:${b.id}`, () => this.spherePreview(b.id));
       this.queuePreview('ball-art', () => this.hud.setBallArt(BALLS.map((b) => this.spherePreview(b.id))));
     }, 800);
     // HUD height changes once the web font arrives.
@@ -350,7 +353,7 @@ export class Game {
       const s = new Sprite(Texture.WHITE);
       s.width = 8;
       s.height = 8;
-      const gloss = paintGloss(1);
+      const gloss = paintGloss(1, this.look?.paintMode ?? 0);
       const blur = new BlurFilter({ strength: 2, quality: 3 });
       s.filters = [gloss, blur];
       const rt = RenderTexture.create({ width: 8, height: 8 });
@@ -2318,12 +2321,12 @@ export class Game {
     const ev = this.advanceEvent();
     this.loadLevel(this.levelNo + 1, true);
     // Between levels is the only place a midgame ad may appear.
-    // Between levels only, and gently: never in the first few levels, at
+    // Between levels only, and gently: never before level 5 is done, at
     // least 4 levels apart (and 3 minutes, which the SDK enforces), not
     // after a bonus level (its reward screens are break enough), and never
     // after the player watched an ad to keep playing that same level.
     this.levelsSinceAd++;
-    if (this.levelNo > 4 && this.levelsSinceAd >= 4 && !this.level.bonus && !this.watchedThisLevel) {
+    if (this.levelNo > 5 && this.levelsSinceAd >= 4 && !this.level.bonus && !this.watchedThisLevel) {
       this.levelsSinceAd = 0;
       void midgameAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted));
     }
