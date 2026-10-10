@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsc --noEmit && node --experimental-strip-types scripts/check-levels.ts 60",
+    "test": "tsc --noEmit && node --experimental-strip-types scripts/check-mechanics.ts && node --experimental-strip-types scripts/check-levels.ts 60",
     "preview": "vite preview",
     "check-levels": "node --experimental-strip-types scripts/check-levels.ts",
     "build:artifact": "npm run build && node scripts/make-artifact.mjs",
