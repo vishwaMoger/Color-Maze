@@ -260,7 +260,10 @@
         <div class="safe-keys" id="vault-keys"></div>
       </div>
       <p class="vault-hint" id="vault-hint">Tap a lock to open it</p>
-      <button id="btn-vault-done" class="gbtn go vault-done" hidden>Collect</button>
+      <div class="vault-actions">
+        <button id="btn-vault-done" class="gbtn go vault-done" hidden><span id="vault-done-label">Collect</span><span class="mvideo" id="vault-video" hidden aria-label="Watch an ad"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" /><path d="m4.2 8.2-.5-2a1.5 1.5 0 0 1 1.1-1.8l12.6-3a1.5 1.5 0 0 1 1.8 1.1l.4 1.6Z" /><path d="M10 11.5v6l5-3Z" class="play" /></svg></span></button>
+        <button id="btn-vault-skip" class="link-btn vault-skip" hidden>No thanks</button>
+      </div>
     </div>
 
     <div id="celebrate" hidden aria-live="polite">

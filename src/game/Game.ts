@@ -905,6 +905,9 @@ export class Game {
         this.persist();
         return label;
       },
+      extra: adsAvailable()
+        ? () => rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted))
+        : undefined,
       onDone: () => {
         this.save.vault.dry = won ? 0 : (this.save.vault.dry ?? 0) + 1;
         this.chestPending = false;

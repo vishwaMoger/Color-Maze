@@ -3691,6 +3691,30 @@ body.page-open .hud {
   color: var(--ink);
   opacity: 0.8;
 }
+/* The button under the safe, and under it a quiet "No thanks". */
+.vault-actions {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+.vault-skip {
+  font-size: 17px;
+  opacity: 0.75;
+}
+/* Keys won from the video drop into the ring with a bounce. */
+.vkey.refill {
+  animation: vkeyrefill 0.45s cubic-bezier(0.3, 1.8, 0.5, 1) both;
+}
+@keyframes vkeyrefill {
+  0% {
+    transform: translateY(-26px) scale(0.4) rotate(-30deg);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
 .vault-done {
   position: relative;
   width: min(240px, 70vw);
@@ -3747,7 +3771,7 @@ body.page-open .hud {
     margin: 0;
     justify-self: center;
   }
-  .vault-done {
+  .vault-actions {
     grid-area: done;
     justify-self: center;
   }
@@ -4676,10 +4700,13 @@ body.page-open .hud {
   text-shadow: 0 2px 0 var(--b3);
 }
 
+/* Secondary choices (Close, Later): a bright violet candy button, as
+   lively as the main one beside it, not a faded grey-lilac. */
 .gbtn.later {
-  --b1: #cfc6f2;
-  --b2: #a99ce0;
-  --b3: #7c6fb8;
+  --b1: #b39bff;
+  --b2: #7d4ff7;
+  --b3: #5228d0;
+  text-shadow: 0 2px 0 #4a20b8;
 }
 
 /* ------------------------------------------------------------ splash
