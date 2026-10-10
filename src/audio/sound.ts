@@ -253,6 +253,92 @@ export class Sound {
     this.note(this.scaleFreq(15 + i * 2), ctx.currentTime + 0.03, 0.9, 0.025, 'sine');
   }
 
+  /**
+   * A soft bell: a sine with a few gentle overtones, rounded off by a
+   * lowpass, a quick bloom and a long fade (and the shared reverb).
+   */
+  private bell(freq: number, when: number, dur: number, gain: number) {
+    const ctx = this.ctx!;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(gain, when + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = Math.min(7000, freq * 5);
+    for (const [ratio, amp] of [[1, 1], [2, 0.26], [3, 0.1], [4.2, 0.04]]) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = freq * ratio;
+      const og = ctx.createGain();
+      og.gain.value = amp;
+      o.connect(og).connect(g);
+      o.start(when);
+      o.stop(when + dur + 0.05);
+    }
+    g.connect(lp).connect(this.sfx);
+  }
+
+  /** A key picked up on the board: two bright, gentle bells. */
+  keyGet() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.bell(this.scaleFreq(12), t, 0.9, 0.06);
+    this.bell(this.scaleFreq(16), t + 0.07, 1, 0.035);
+  }
+
+  // ---- The Safe: calm, bell-like sounds throughout.
+
+  /** The Safe slides in: a quiet rising shimmer. */
+  vaultAppear() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    [7, 9, 11, 14].forEach((s, i) => this.bell(this.scaleFreq(s), t + i * 0.1, 1.8, 0.025));
+  }
+
+  /** A key slides into a lock: a small tink. */
+  vaultKey() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    this.bell(this.scaleFreq(15), ctx.currentTime, 0.35, 0.03);
+  }
+
+  /** The key turns: two soft, muted ticks. */
+  vaultTurn() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.note(196, t, 0.07, 0.05, 'sine');
+    this.note(247, t + 0.11, 0.08, 0.045, 'sine');
+  }
+
+  /** The lock springs open: a warm chime. */
+  vaultOpen() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.bell(this.scaleFreq(9), t, 1.4, 0.05);
+    this.bell(this.scaleFreq(12), t + 0.05, 1.2, 0.028);
+  }
+
+  /** A prize dot fills: one bell, a step higher for each dot. */
+  vaultDot(i: number) {
+    const ctx = this.ready();
+    if (!ctx) return;
+    this.bell(this.scaleFreq(11 + i * 2), ctx.currentTime, 1.2, 0.045);
+  }
+
+  /** A prize is won: an unhurried bell arpeggio over a warm low note. */
+  vaultWin() {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    [0, 2, 4, 7, 9].forEach((s, i) => this.bell(this.scaleFreq(s + 7), t + i * 0.12, 2.2, 0.04));
+    this.note(this.scaleFreq(0), t, 2.6, 0.03, 'sine');
+  }
+
   coin() {
     const ctx = this.ready();
     if (!ctx) return;

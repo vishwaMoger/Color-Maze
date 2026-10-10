@@ -835,10 +835,12 @@ export class Game {
       },
       sound: {
         click: () => this.sound.click(),
-        thock: (x) => this.sound.thock(x),
-        coin: () => this.sound.coin(),
-        star: (i) => this.sound.star(i),
-        complete: () => this.sound.complete(),
+        appear: () => this.sound.vaultAppear(),
+        key: () => this.sound.vaultKey(),
+        turn: () => this.sound.vaultTurn(),
+        open: () => this.sound.vaultOpen(),
+        dot: (i) => this.sound.vaultDot(i),
+        win: () => this.sound.vaultWin(),
       },
     });
   }
@@ -952,6 +954,10 @@ export class Game {
     this.hud.undoNudge(false);
     prefetchLevels(n + 1);
     this.collected = new Set();
+    // A level's key counts once: replaying it (or going back to it) finds
+    // the key already taken.
+    if (n <= (this.save.keyLevel ?? 0))
+      this.level.grid.forEach((row, y) => row.forEach((v, x) => v === KEY && this.collected.add(this.key({ x, y }))));
     this.floorTotal = 0;
     this.floorTotal = floorCount(this.level.grid);
     this.refreshPrices();
@@ -1516,9 +1522,10 @@ export class Game {
     this.vibrate(gripped ? [26, 40, 34] : Math.round(24 + speed * 16));
 
     const c = this.board.cellCenter(this.pos.x, this.pos.y);
-    const hitX = c.x + d.x * this.cell * 0.45;
-    const hitY = c.y + d.y * this.cell * 0.45;
-    if (!REDUCED_MOTION) this.wave = { x: hitX, y: hitY, t: 0, power: Math.min(1, 0.45 + speed * 0.45 + (gripped ? 0.15 : 0)) };
+    // A glittering shockwave rings out through the paint from the impact.
+    const power = Math.min(1, 0.35 + speed * 0.5 + (gripped ? 0.15 : 0));
+    if (!REDUCED_MOTION)
+      this.boardFx.glitterWave(c.x + d.x * this.cell * 0.25, c.y + d.y * this.cell * 0.25, this.cell * 1.15, this.look.paintLight, power);
     this.wallLumps(this.pos, d, speed);
     this.settle();
     // First-level lesson, one step per move.
@@ -1568,10 +1575,13 @@ export class Game {
       this.save.coins += 2;
       this.hud.flyCoins(g, 2, this.save.coins);
       this.sound.coin();
-    } else if (this.save.keys < 3) {
-      this.save.keys++;
-      this.hud.flyKey(g, this.save.keys);
-      this.sound.complete();
+    } else {
+      this.save.keyLevel = Math.max(this.save.keyLevel ?? 0, this.levelNo);
+      if (this.save.keys < 3) {
+        this.save.keys++;
+        this.hud.flyKey(g, this.save.keys);
+        this.sound.keyGet();
+      }
     }
     this.persist();
   }
