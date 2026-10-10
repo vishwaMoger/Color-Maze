@@ -30,7 +30,7 @@ import { dilate, fillRoundedCells, makeCanvas, softBlur, texture, tint } from '.
 import { paintGloss, type PaintGloss } from './shaders.ts';
 import type { Theme, TileStyle } from './themes.ts';
 import { slabCanvas, slabTexture } from './slabs.ts';
-import { chunkTexture, crackOverlay, GATE_BARS, GATE_INSET, GATE_PAD, gateHalfBar, gatePad, holeTexture, SPIKE_SPOTS, spikeCone, spikePlate, spikeRim, switchBase, switchCap } from './traps.ts';
+import { chunkTexture, CRACK_PAD, crackOverlay, GATE_BARS, GATE_INSET, GATE_PAD, gateHalfBar, gatePad, holeTexture, SPIKE_SPOTS, spikeCone, spikePlate, spikeRim, switchBase, switchCap, switchHalo } from './traps.ts';
 
 const FILTER_VERT = `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -123,19 +123,23 @@ function roundedCell(g: Graphics, x: number, y: number, cell: number, r: number,
 }
 
 /**
- * Stud positions on a stopper tile, in cell units. On a tile at the board's
- * near edge the lip hides its lower quarter (see LIP), so there the studs
- * sit in the part that shows.
+ * How far a tile's markings (stopper plates, spike plates, gate pads, the
+ * switch, cracked tiles) move up on a tile at the board's near edge, in
+ * tiles. The lip hides that tile's lower quarter, so markings sit centred
+ * in the part that shows, always at the same size.
  */
-function studPos(nearEdge: boolean): [number, number][] {
-  const [top, bottom] = nearEdge ? [0.21, 0.55] : [0.25, 0.75];
-  return [
-    [0.25, top],
-    [0.75, top],
-    [0.25, bottom],
-    [0.75, bottom],
-  ];
-}
+const NEAR_SHIFT = -0.125;
+
+/** Side of a stopper's grip plate, in tiles. */
+const STUD_PLATE = 0.72;
+
+/** Stud positions on a stopper, in tiles from the tile's centre: the same on every tile. */
+const STUD_SPOTS: [number, number][] = [
+  [-0.2, -0.19],
+  [0.2, -0.19],
+  [-0.2, 0.19],
+  [0.2, 0.19],
+];
 
 interface Grip {
   at: number;
@@ -661,7 +665,7 @@ export class Board extends Container {
   private readonly spikes: { cell: number; v: number; cones: { s: Sprite; y0: number }[]; glow: Sprite; up: number; target: number; at: number }[] = [];
   /** Cracked tiles: whole, falling away (since `at`), or a hole. */
   private readonly cracks = new Map<number, { x: number; y: number; overlay: Sprite; hole: Sprite; slab: Sprite; chunks: { s: Sprite; vx: number; vy: number }[]; state: 'whole' | 'falling' | 'hole'; at: number }>();
-  private readonly switchCaps: { cap: Sprite; y0: number; at: number; x: number; y: number }[] = [];
+  private readonly switchCaps: { cap: Sprite; halo: Sprite; y0: number; at: number; x: number; y: number }[] = [];
   /** Gates: beams and posts, how lit the beams are (0-1) and heading. */
   private readonly gates: { v: number; halves: { s: Sprite; sign: number }[]; on: number; target: number; at: number }[] = [];
 
@@ -985,13 +989,12 @@ export class Board extends Container {
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         if (this.level.grid[y][x] !== STOPPER) continue;
-        const vis = this.isFloor(x, y + 1) ? 1 : 1 - LIP;
-        const m = c * 0.09;
-        const px = off + x * c + m;
-        const py = off + y * c + m;
-        const pw = c - m * 2;
-        const ph = c * vis - m * 2;
-        const pr = c * 0.16;
+        const dy = this.isFloor(x, y + 1) ? 0 : NEAR_SHIFT;
+        const pw = c * STUD_PLATE;
+        const ph = pw;
+        const px = off + (x + 0.5) * c - pw / 2;
+        const py = off + (y + 0.5 + dy) * c - ph / 2;
+        const pr = c * 0.18;
         fctx.save();
         fctx.beginPath();
         fctx.roundRect(px, py, pw, ph, pr);
@@ -1078,13 +1081,16 @@ export class Board extends Container {
     // over the paint and clamp onto the ball when it stops here.
     const studs = makeCanvas(W, H);
     const tctx = studs.getContext('2d')!;
-    const sr = c * 0.13;
+    const sr = c * 0.125;
     const studTex = this.studTexture(sr / res, res);
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         if (this.level.grid[y][x] !== STOPPER) continue;
         const grip: Grip = { at: -1e9, studs: [] };
-        for (const [ux, uy] of studPos(!this.isFloor(x, y + 1))) {
+        const sdy = this.isFloor(x, y + 1) ? 0 : NEAR_SHIFT;
+        for (const [ox, oy] of STUD_SPOTS) {
+          const ux = 0.5 + ox;
+          const uy = 0.5 + sdy + oy;
           const sx = off + (x + ux) * c;
           const sy = off + (y + uy) * c;
           // Socket: a dark ring the stud is set into, and a soft shadow
@@ -1437,7 +1443,7 @@ export class Board extends Container {
           // Every plate is the same size. On the board's near edge the lip
           // hides the tile's lower quarter, so there the plate sits a little
           // higher, centred in the part that shows.
-          const dy = isFloor(grid, x, y + 1) ? 0 : -LIP / 2;
+          const dy = isFloor(grid, x, y + 1) ? 0 : NEAR_SHIFT;
           const base = at(new Sprite(plate), x, y + dy);
           const glow = at(new Sprite(rimTex), x, y + dy);
           this.trapLayer.addChild(base, glow);
@@ -1462,18 +1468,19 @@ export class Board extends Container {
       const sctx = slabCv.getContext('2d')!;
       sctx.fillStyle = '#ffffff';
       sctx.beginPath();
-      sctx.roundRect(c * 0.06, c * 0.06, c * 0.88, c * 0.88, c * 0.1);
+      sctx.roundRect((c * (1 - CRACK_PAD)) / 2, (c * (1 - CRACK_PAD)) / 2, c * CRACK_PAD, c * CRACK_PAD, c * 0.19);
       sctx.fill();
       const slabTex = tex(slabCv);
       for (let y = 0; y < rows; y++)
         for (let x = 0; x < cols; x++) {
           if (grid[y][x] !== CRACK) continue;
-          const hole = at(new Sprite(holeTex), x, y);
+          const dy = isFloor(grid, x, y + 1) ? 0 : NEAR_SHIFT;
+          const hole = at(new Sprite(holeTex), x, y + dy);
           hole.visible = false;
           const slab = new Sprite(slabTex);
           slab.anchor.set(0.5);
           slab.scale.set(1 / res);
-          slab.position.set((x + 0.5) * cs, (y + 0.5) * cs);
+          slab.position.set((x + 0.5) * cs, (y + 0.5 + dy) * cs);
           slab.visible = false;
           const chunks = Array.from({ length: 5 }, (_, i) => {
             const sp = new Sprite(chunk);
@@ -1483,23 +1490,27 @@ export class Board extends Container {
             const a = (i / 5) * Math.PI * 2 + 0.4;
             return { s: sp, vx: Math.cos(a), vy: Math.sin(a) };
           });
-          const overlay = at(new Sprite(tex(crackOverlay(c, y * cols + x + this.level.grid.length * 131, isFloor(grid, x, y + 1) ? 1 : 1 - LIP))), x, y);
+          const overlay = at(new Sprite(tex(crackOverlay(c, y * cols + x + this.level.grid.length * 131))), x, y + dy);
           this.trapLayer.addChild(hole, slab, ...chunks.map((k) => k.s), overlay);
-          this.cracks.set(y * cols + x, { x, y, overlay, hole, slab, chunks, state: 'whole', at: -1e9 });
+          this.cracks.set(y * cols + x, { x, y: y + dy, overlay, hole, slab, chunks, state: 'whole', at: -1e9 });
         }
     }
     if (has((v) => v === SWITCH)) {
       const base = tex(switchBase(c));
       const capTex = tex(switchCap(c));
+      const haloTex = tex(switchHalo(c));
       for (let y = 0; y < rows; y++)
         for (let x = 0; x < cols; x++) {
           if (grid[y][x] !== SWITCH) continue;
+          const dy = isFloor(grid, x, y + 1) ? 0 : NEAR_SHIFT;
           const cap = new Sprite(capTex);
           cap.anchor.set(0.5);
           cap.scale.set(1 / res);
-          cap.position.set((x + 0.5) * cs, (y + 0.48) * cs);
-          this.trapLayer.addChild(at(new Sprite(base), x, y), cap);
-          this.switchCaps.push({ cap, y0: cap.y, at: -1e9, x, y });
+          cap.position.set((x + 0.5) * cs, (y + 0.48 + dy) * cs);
+          const halo = at(new Sprite(haloTex), x, y + dy);
+          halo.blendMode = 'add';
+          this.trapLayer.addChild(halo, at(new Sprite(base), x, y + dy), cap);
+          this.switchCaps.push({ cap, halo, y0: cap.y, at: -1e9, x, y });
         }
     }
     if (has(isGate)) {
@@ -1515,7 +1526,7 @@ export class Board extends Container {
           // and right. Near the board's edge the pad sits higher, as the
           // spike plates do.
           const across = isFloor(grid, x - 1, y) && isFloor(grid, x + 1, y);
-          const dy = isFloor(grid, x, y + 1) ? 0 : -LIP / 2;
+          const dy = isFloor(grid, x, y + 1) ? 0 : NEAR_SHIFT;
           this.trapLayer.addChild(at(new Sprite(pads[across ? 1 : 0]), x, y + dy));
           const cx = (x + 0.5) * cs;
           const cy = (y + 0.5 + dy) * cs;
@@ -1677,6 +1688,8 @@ export class Board extends Container {
       const k = t < 0 || t > 1 ? 0 : t < 0.2 ? t / 0.2 : Math.cos(((t - 0.2) / 0.8) * Math.PI * 0.5);
       s.cap.y = s.y0 + this.cell * 0.05 * k;
       s.cap.scale.set(1 / this.res, (1 - 0.18 * k) / this.res);
+      // A slow breathing glow; it flares as the button goes down.
+      s.halo.alpha = 0.35 + 0.2 * Math.sin(time * 0.004 + s.x) + 0.45 * k;
     }
     const cs = this.cell;
     for (const cr of this.cracks.values()) {
