@@ -33,7 +33,6 @@ uniform vec3 uBase;
 uniform vec3 uDark;
 uniform vec3 uLight;
 uniform vec3 uAlt;
-uniform float uMode;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -42,12 +41,15 @@ float noise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
+#if PMODE == 1 || PMODE == 3 || PMODE == 5
 float fbm(vec2 p) {
   float s = 0.0;
   float a = 0.5;
   for (int i = 0; i < 5; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; }
   return s;
 }
+#endif
+#if PMODE == 2 || PMODE == 3
 float cells(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
@@ -61,6 +63,7 @@ float cells(vec2 p) {
     }
   return sqrt(md);
 }
+#endif
 float height(vec2 p) {
   float r = length(p);
   float a = atan(p.y, p.x);
@@ -80,28 +83,38 @@ void main(void) {
   float e = 0.02;
   float h = height(p);
   vec3 n = normalize(vec3(-(height(p + vec2(e, 0.0)) - h) / e, -(height(p + vec2(0.0, e)) - h) / e, 1.4));
-  int mode = int(uMode + 0.5);
 
   vec3 col = mix(uDark, uBase, smoothstep(0.0, 0.22, h + 0.06));
   col = mix(col, uLight, smoothstep(0.24, 0.36, h) * 0.35);
   float glow = 0.0;
-  if (mode == 1) {
+  // One program per pattern (PMODE): see the in-game paint shader.
+#if PMODE == 1
+  {
     float v = abs(sin(p.x * 3.2 + p.y * 1.5 + fbm(p * 2.4) * 6.0));
     col = mix(col, uAlt, (1.0 - smoothstep(0.0, 0.16, v)) * 0.85);
-  } else if (mode == 2) {
+  }
+#elif PMODE == 2
+  {
     float b = cells(p * 4.2 + 2.0);
     float bubble = 1.0 - smoothstep(0.18, 0.24, b);
     col = mix(col, uAlt, bubble * 0.7);
     col += vec3(1.0) * (smoothstep(0.12, 0.2, b) - smoothstep(0.2, 0.26, b)) * 0.25;
-  } else if (mode == 3) {
+  }
+#elif PMODE == 3
+  {
     float c = cells(p * 3.4 + 1.0);
     float crack = 1.0 - smoothstep(0.02, 0.14, abs(c - 0.5) * 0.6 + fbm(p * 5.0) * 0.08);
     glow = crack;
     col = mix(uDark * 0.6, col, 0.55);
     col = mix(col, uAlt, crack);
-  } else if (mode == 4) {
+  }
+#elif PMODE == 4
+  {
     float w = abs(sin(p.x * 7.0 + sin(p.y * 6.0) * 1.2)) * abs(sin(p.y * 7.0 + sin(p.x * 5.0) * 1.2));
-    col = mix(col, uAlt, smoothstep(0.75, 0.98, 1.0 - w) * 0.7);  } else if (mode == 5) {
+    col = mix(col, uAlt, smoothstep(0.75, 0.98, 1.0 - w) * 0.7);
+  }
+#elif PMODE == 5
+  {
     // Potion: a dark swirling brew with glowing green bubbles, as in game.
     float sw = fbm(p * 1.6 + vec2(fbm(p * 1.2), fbm(p * 1.2 + 5.2)) * 2.2);
     col = mix(uDark * 0.75, mix(uBase, vec3(0.95, 0.5, 1.0), 0.3), smoothstep(0.3, 0.75, sw)) * (0.8 + 0.4 * smoothstep(0.0, 0.3, h));
@@ -118,6 +131,7 @@ void main(void) {
     col += uAlt * rim * 0.7;
     glow = body * 0.5;
   }
+#endif
 
   vec3 L = normalize(vec3(-0.5, 0.6, 0.75));
   vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
@@ -137,13 +151,15 @@ void main(void) {
 type PaintFilter = ReturnType<typeof paintFilter>;
 const rgb = (n: number) => new Float32Array([((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]);
 
+/** The shop's paint-pour shader for one paint pattern. */
+export const pourSource = (mode: number) => `#define PMODE ${mode}\n${PAINT_FRAG}`;
+
 function paintFilter(p: PaintColor) {
-  return make<{ uBase: Float32Array; uDark: Float32Array; uLight: Float32Array; uAlt: Float32Array; uMode: number }>('paintPour', PAINT_FRAG, {
+  return make<{ uBase: Float32Array; uDark: Float32Array; uLight: Float32Array; uAlt: Float32Array }>('paintPour', pourSource(p.pattern ? PATTERN_MODE[p.pattern] : 0), {
     uBase: { value: rgb(p.paint), type: 'vec3<f32>' },
     uDark: { value: rgb(p.dark), type: 'vec3<f32>' },
     uLight: { value: rgb(p.light), type: 'vec3<f32>' },
     uAlt: { value: rgb(p.alt ?? p.light), type: 'vec3<f32>' },
-    uMode: { value: p.pattern ? PATTERN_MODE[p.pattern] : 0, type: 'f32' },
   });
 }
 

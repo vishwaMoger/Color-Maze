@@ -1367,8 +1367,16 @@ body.landscape .pbtn.undo {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 92px * var(--k));
   margin: 0;
 }
+/* Wide screens: the board can fill the whole height, so the tip sits in
+   the left column's free middle (between the keys and the streak can),
+   clear of the board. */
 body.landscape #tip {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 30px);
+  --tx: 0px;
+  --ty: -50%;
+  left: 16px;
+  top: 50%;
+  bottom: auto;
+  max-width: 150px;
 }
 @media (max-height: 560px) {
   body.landscape .lvl-reward {
@@ -1395,10 +1403,13 @@ body.landscape #tip {
 }
 
 #tip {
+  /* Its resting offset (the float and pop animations build on it). */
+  --tx: -50%;
+  --ty: 0px;
   position: fixed;
   left: 50%;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 120px);
-  transform: translateX(-50%);
+  transform: translate(var(--tx), var(--ty));
   z-index: 6;
   /* Fits between the streak can and the event button, wrapping if long. */
   width: max-content;
@@ -1421,7 +1432,7 @@ body.landscape #tip {
 
 @keyframes float {
   50% {
-    transform: translate(-50%, -6px);
+    transform: translate(var(--tx), calc(var(--ty) - 6px));
   }
 }
 
@@ -6162,11 +6173,11 @@ body.landscape #shop .sheet-panel::before {
 }
 @keyframes tippop {
   0% {
-    transform: translate(-50%, 8px) scale(0.7);
+    transform: translate(var(--tx), calc(var(--ty) + 8px)) scale(0.7);
     opacity: 0;
   }
   100% {
-    transform: translate(-50%, 0) scale(1);
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
   }
 }

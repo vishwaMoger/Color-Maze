@@ -35,19 +35,25 @@ export const SPHERE_MODE = {
 export const SHAPE_MODES = new Set<SphereMode>(['star6', 'puck', 'nut', 'pawn']);
 export type SphereMode = keyof typeof SPHERE_MODE;
 
+// One source for every skin; each skin's program is compiled from it with
+// MODE fixed (see sphereFilter), so a ball's shader holds only its own
+// pattern. Chrome on Windows compiles WebGL through Direct3D, which unrolls
+// every loop: one shader branching between all patterns at run time (the
+// 64-step ray march, the 32-face soccer and gem loops, the noise cells)
+// took up to a minute to compile there, freezing the first load.
 const SPHERE_FRAG = `in vec2 vTextureCoord;
 out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform highp vec4 uInputSize;
 uniform highp vec4 uOutputFrame;
 uniform mat3 uRot;
-uniform float uMode;
 uniform vec3 uC1;
 uniform vec3 uC2;
 uniform vec3 uC3;
 
 uniform float uAA;
 
+#if MODE == 6 || MODE == 11
 const float PHI = 1.618034;
 // Face centres of a truncated icosahedron: 12 pentagons (icosahedron
 // vertices), then 20 hexagons (dodecahedron vertices). Built in code
@@ -68,6 +74,7 @@ vec3 faceDir(float i) {
   float m = j - k * 4.0;
   return normalize(cyc(vec3(0.0, mod(m, 2.0) < 0.5 ? PHI : -PHI, m < 1.5 ? 0.618034 : -0.618034), k));
 }
+#endif
 
 // With full precision (nearly every GPU) the original pattern; on GPUs that
 // only offer 16-bit floats a smaller range (under 44,000) so it stays
@@ -97,6 +104,7 @@ float fbm3(vec3 p) {
   for (int i = 0; i < 5; i++) { s += a * noise3(p); p *= 2.03; a *= 0.5; }
   return s;
 }
+#if MODE == 5 || MODE == 7
 /** Distance to the nearest random feature point: craters, pebbles. */
 float cells(vec3 p) {
   vec3 i = floor(p);
@@ -111,6 +119,8 @@ float cells(vec3 p) {
       }
   return sqrt(md);
 }
+#endif
+#if MODE >= 14 && MODE <= 17
 // ---- Shaped pieces: signed distances in object space (unit radius).
 float smin(float a, float b, float k) {
   float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
@@ -140,26 +150,24 @@ float sdRBox2(vec2 p, vec2 b, float r) {
   vec2 q = abs(p) - b + r;
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
-float shapeSDF(vec3 p, int mode) {
-  if (mode == 14) {
-    // Six-pointed star, faceted: thickest at the middle, a ridge to each tip.
-    float d2 = sdStar(p.xy, 0.94, 6.0, 3.2);
-    return (d2 + abs(p.z) * 1.35) / 1.68;
-  }
-  if (mode == 15) {
-    // Hockey puck: a squat cylinder with softly rounded edges.
-    vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(0.74, 0.24);
-    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.09;
-  }
-  if (mode == 16) {
-    // Hex nut: a hexagonal prism with a round hole, edges eased.
-    vec3 q = abs(p);
-    const vec3 k = vec3(-0.8660254, 0.5, 0.57735);
-    q.xy -= 2.0 * min(dot(k.xy, q.xy), 0.0) * k.xy;
-    vec2 d = vec2(length(q.xy - vec2(clamp(q.x, -k.z * 0.66, k.z * 0.66), 0.66)) * sign(q.y - 0.66), q.z - 0.24);
-    float hex = min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.06;
-    return max(hex, -(length(p.xy) - 0.33));
-  }
+float shapeSDF(vec3 p) {
+#if MODE == 14
+  // Six-pointed star, faceted: thickest at the middle, a ridge to each tip.
+  float d2 = sdStar(p.xy, 0.94, 6.0, 3.2);
+  return (d2 + abs(p.z) * 1.35) / 1.68;
+#elif MODE == 15
+  // Hockey puck: a squat cylinder with softly rounded edges.
+  vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(0.74, 0.24);
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.09;
+#elif MODE == 16
+  // Hex nut: a hexagonal prism with a round hole, edges eased.
+  vec3 q = abs(p);
+  const vec3 k = vec3(-0.8660254, 0.5, 0.57735);
+  q.xy -= 2.0 * min(dot(k.xy, q.xy), 0.0) * k.xy;
+  vec2 d = vec2(length(q.xy - vec2(clamp(q.x, -k.z * 0.66, k.z * 0.66), 0.66)) * sign(q.y - 0.66), q.z - 0.24);
+  float hex = min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.06;
+  return max(hex, -(length(p.xy) - 0.33));
+#else
   // Pawn: a turned piece, profile spun round its upright axis.
   vec2 q = vec2(length(p.xz), p.y + 0.04);
   float d = sdRBox2(q - vec2(0.0, -0.8), vec2(0.6, 0.11), 0.07);
@@ -168,7 +176,9 @@ float shapeSDF(vec3 p, int mode) {
   d = smin(d, sdRBox2(q - vec2(0.0, 0.28), vec2(0.3, 0.045), 0.04), 0.05);
   d = smin(d, length(q - vec2(0.0, 0.6)) - 0.3, 0.06);
   return d;
+#endif
 }
+#endif
 
 /** Anti-aliased step: 1 inside (v < edge), about a pixel soft. */
 float aaLess(float v, float edge) {
@@ -184,8 +194,8 @@ void main(void) {
   if (alpha <= 0.0) { finalColor = vec4(0.0); return; }
   vec3 n = vec3(p.x, -p.y, sqrt(max(0.0, 1.0 - d * d)));
   vec3 o = uRot * n;
-  int mode = int(uMode + 0.5);
-  if (mode >= 14 && mode <= 17) {
+#if MODE >= 14 && MODE <= 17
+  {
     // March a ray straight into the screen; the shape turns with uRot.
     vec3 ro = vec3(p.x, -p.y, 1.2);
     float t = 0.0;
@@ -194,7 +204,7 @@ void main(void) {
     bool hit = false;
     for (int i = 0; i < 64; i++) {
       pos = ro - vec3(0.0, 0.0, t);
-      float sd = shapeSDF(uRot * pos, mode);
+      float sd = shapeSDF(uRot * pos);
       if (sd < minD) minD = sd;
       if (sd < 0.0015) { hit = true; break; }
       t += max(sd, 0.004);
@@ -204,20 +214,22 @@ void main(void) {
     if (alpha <= 0.0) { finalColor = vec4(0.0); return; }
     vec2 e = vec2(0.003, 0.0);
     n = normalize(vec3(
-      shapeSDF(uRot * (pos + e.xyy), mode) - shapeSDF(uRot * (pos - e.xyy), mode),
-      shapeSDF(uRot * (pos + e.yxy), mode) - shapeSDF(uRot * (pos - e.yxy), mode),
-      shapeSDF(uRot * (pos + e.yyx), mode) - shapeSDF(uRot * (pos - e.yyx), mode)));
+      shapeSDF(uRot * (pos + e.xyy)) - shapeSDF(uRot * (pos - e.xyy)),
+      shapeSDF(uRot * (pos + e.yxy)) - shapeSDF(uRot * (pos - e.yxy)),
+      shapeSDF(uRot * (pos + e.yyx)) - shapeSDF(uRot * (pos - e.yyx))));
     o = uRot * pos;
   }
-  if (mode == 12) {
+#endif
+#if MODE == 12
+  {
     // Toy ball, as in the original: brightest just above the middle,
     // warm yellow toward the sides, deepening to orange at the bottom.
     float t = clamp(length((p - vec2(0.0, -0.25)) * vec2(0.85, 1.0)) / 1.25, 0.0, 1.0);
     vec3 toy = mix(uC1, uC2, smoothstep(0.0, 0.55, t));
     toy = mix(toy, uC3, smoothstep(0.35, 1.0, t) * smoothstep(-0.3, 0.9, p.y));
     finalColor = vec4(toy * alpha, alpha);
-    return;
   }
+#else
 
   vec3 alb = uC2;
   float gloss = 1.0;
@@ -226,7 +238,8 @@ void main(void) {
   vec3 ln = n;
   float glow = 0.0;
 
-  if (mode == 0) {
+#if MODE == 0
+  {
     // Toy ball: a bold white star on each side and a ring round the middle.
     vec2 t = o.z > 0.0 ? o.xy : vec2(-o.x, o.y);
     float r = length(t);
@@ -239,14 +252,18 @@ void main(void) {
     float band = aaLess(abs(o.z), 0.06) * (1.0 - aaLess(abs(o.z), 0.03));
     alb = mix(uC2, uC1, max(s, band));
     alb = mix(alb, uC3, (1.0 - max(s, band)) * smoothstep(0.2, 1.0, -o.y) * 0.25);
-  } else if (mode == 1) {
+  }
+#elif MODE == 1
+  {
     // Pearl: soft nacre with thin-film colour shifting toward the rim.
     float film = 1.0 - n.z;
     vec3 irid = 0.5 + 0.5 * cos(6.2831 * (film * 1.4 + vec3(0.0, 0.33, 0.67)) + fbm3(o * 3.0) * 2.0);
     alb = mix(uC2, irid, 0.08 + film * 0.22);
     alb *= 0.94 + 0.08 * fbm3(o * 9.0);
     shine = 60.0;
-  } else if (mode == 2) {
+  }
+#elif MODE == 2
+  {
     // Earth: oceans, continents, ice caps and drifting clouds.
     float h = fbm3(o * 2.1 + vec3(3.1, 1.7, 0.4));
     float land = smoothstep(0.515, 0.535, h);
@@ -258,7 +275,9 @@ void main(void) {
     float cloud = smoothstep(0.56, 0.7, fbm3(o * 3.3 + vec3(7.0, 2.0, 5.0)));
     alb = mix(alb, vec3(1.0), cloud * 0.85);
     gloss = mix(0.9, 0.25, max(land, cloud));
-  } else if (mode == 3) {
+  }
+#elif MODE == 3
+  {
     // Softball: fuzzy felt with a curved white seam and red stitches.
     float lat = asin(clamp(o.y, -1.0, 1.0));
     float lon = atan(o.z, o.x);
@@ -271,7 +290,9 @@ void main(void) {
     alb = mix(alb, uC3, st);
     gloss = 0.3;
     shine = 30.0;
-  } else if (mode == 4) {
+  }
+#elif MODE == 4
+  {
     // Volleyball: three interlocking strips on each cube face.
     vec3 a = abs(o);
     float m = max(a.x, max(a.y, a.z));
@@ -289,7 +310,9 @@ void main(void) {
     alb = mix(alb, alb * 0.55, seam);
     gloss = 0.55;
     shine = 50.0;
-  } else if (mode == 5) {
+  }
+#elif MODE == 5
+  {
     // Basketball: pebbled orange leather with black seams.
     float peb = cells(o * 34.0);
     alb = uC2 * (0.82 + 0.25 * smoothstep(0.1, 0.6, peb));
@@ -300,7 +323,9 @@ void main(void) {
     alb = mix(alb, uC3, seam);
     gloss = 0.4;
     shine = 40.0;
-  } else if (mode == 6) {
+  }
+#elif MODE == 6
+  {
     // Soccer ball: black pentagons, white hexagons, pressed seams.
     float b1 = -2.0;
     float b2 = -2.0;
@@ -315,7 +340,9 @@ void main(void) {
     float seam = aaLess(b1 - b2, 0.018);
     alb = mix(alb, vec3(0.25), seam * 0.7);
     shine = 70.0;
-  } else if (mode == 7) {
+  }
+#elif MODE == 7
+  {
     // Moon: dusty grey with dark maria and rimmed craters.
     float maria = smoothstep(0.48, 0.62, fbm3(o * 1.8 + 4.0));
     alb = mix(uC1, uC3, maria * 0.6) * (0.9 + 0.15 * fbm3(o * 12.0));
@@ -325,7 +352,9 @@ void main(void) {
     alb *= 1.0 - 0.15 * (1.0 - smoothstep(0.12, 0.24, c2));
     gloss = 0.15;
     shine = 20.0;
-  } else if (mode == 8) {
+  }
+#elif MODE == 8
+  {
     // 8-ball: black lacquer, white disc, black 8 drawn as two rings.
     float disc = aaLess(1.0 - o.z, 0.075);
     vec2 t = o.xy;
@@ -335,13 +364,17 @@ void main(void) {
     alb = mix(uC2, uC1, disc);
     alb = mix(alb, uC2, eight * disc);
     shine = 140.0;
-  } else if (mode == 9) {
+  }
+#elif MODE == 9
+  {
     // Peppermint swirl.
     float a = atan(o.z, o.x);
     float w = sin(a * 5.0 + o.y * 5.0);
     alb = mix(uC1, uC2, smoothstep(-uAA * 4.0 - 0.04, uAA * 4.0 + 0.04, w));
     shine = 110.0;
-  } else if (mode == 13) {
+  }
+#elif MODE == 13
+  {
     // Jack-o'-lantern: ribbed orange rind, a stubby stem on top and a
     // carved face on one side that glows candle-yellow from within.
     float lon = atan(o.z, o.x);
@@ -374,11 +407,15 @@ void main(void) {
     }
     gloss = 0.45;
     shine = 45.0;
-  } else if (mode == 14) {
+  }
+#elif MODE == 14
+  {
     // Star: glossy candy-gold, each facet catching the light its own way.
     alb = mix(uC3, uC2, 0.6 + 0.4 * n.y);
     shine = 140.0;
-  } else if (mode == 15) {
+  }
+#elif MODE == 15
+  {
     // Puck: black rubber, a knurled band round its rim.
     alb = uC2;
     float rim = 1.0 - smoothstep(0.2, 0.26, abs(o.y));
@@ -386,16 +423,22 @@ void main(void) {
     alb = mix(alb, mix(uC2, uC1, 0.35), rim * knurl);
     gloss = 0.5;
     shine = 50.0;
-  } else if (mode == 16) {
+  }
+#elif MODE == 16
+  {
     // Nut: anodised metal.
     metal = 1.0;
     alb = uC2;
     shine = 120.0;
-  } else if (mode == 17) {
+  }
+#elif MODE == 17
+  {
     // Pawn: polished gold lacquer.
     alb = mix(uC3, uC2, 0.75 + 0.25 * n.y);
     shine = 120.0;
-  } else if (mode == 18) {
+  }
+#elif MODE == 18
+  {
     // Gas giant: cloud bands drawn out round the poles' axis, swirling.
     vec3 sp = vec3(o.x * 1.6, o.y * 6.5, o.z * 1.6);
     float sw = fbm3(sp + fbm3(o * 3.0 + 1.7) * 2.2);
@@ -403,13 +446,17 @@ void main(void) {
     alb = mix(alb, uC1, smoothstep(0.6, 0.78, sw) * 0.7);
     gloss = 0.6;
     shine = 70.0;
-  } else if (mode == 10) {
+  }
+#elif MODE == 10
+  {
     // Polished metal with an engraved ring.
     metal = 1.0;
     float ring = aaLess(abs(abs(o.z) - 0.5), 0.02);
     alb = mix(uC2, uC3, ring * 0.8);
     shine = 160.0;
-  } else {
+  }
+#else
+  {
     // Cut gem: flat facets that each catch the light differently.
     float b1 = -2.0;
     vec3 f = vec3(0.0, 0.0, 1.0);
@@ -422,6 +469,7 @@ void main(void) {
     alb = mix(uC3, uC2, 0.5 + 0.5 * hash3(f * 7.0));
     shine = 200.0;
   }
+#endif
 
   vec3 L = normalize(vec3(-0.5, 0.62, 0.72));
   vec3 V = vec3(0.0, 0.0, 1.0);
@@ -455,10 +503,11 @@ void main(void) {
   // Carved openings glow from inside (unlit by the studio light).
   col = mix(col, uC1 * 1.15 + vec3(0.1, 0.02, 0.0), glow);
   finalColor = vec4(clamp(col, 0.0, 1.0) * alpha, alpha);
+#endif
 }`;
 
 export type SphereFilter = Filter & {
-  uniforms: { uRot: Float32Array; uMode: number; uC1: Float32Array; uC2: Float32Array; uC3: Float32Array; uAA: number };
+  uniforms: { uRot: Float32Array; uC1: Float32Array; uC2: Float32Array; uC3: Float32Array; uAA: number };
 };
 
 const rgb = (hex: string) => {
@@ -466,10 +515,12 @@ const rgb = (hex: string) => {
   return new Float32Array([((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]);
 };
 
+/** The ball shader for one pattern (compiled once per pattern, then shared). */
+export const sphereSource = (mode: SphereMode) => `#define MODE ${SPHERE_MODE[mode]}\n${SPHERE_FRAG}`;
+
 export function sphereFilter(mode: SphereMode, colors: [string, string, string]): SphereFilter {
-  return make('sphere3d', SPHERE_FRAG, {
+  return make('sphere3d', sphereSource(mode), {
     uRot: { value: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), type: 'mat3x3<f32>' },
-    uMode: { value: SPHERE_MODE[mode], type: 'f32' },
     uC1: { value: rgb(colors[0]), type: 'vec3<f32>' },
     uC2: { value: rgb(colors[1]), type: 'vec3<f32>' },
     uC3: { value: rgb(colors[2]), type: 'vec3<f32>' },

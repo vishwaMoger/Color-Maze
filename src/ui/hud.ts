@@ -370,6 +370,7 @@ export class Hud {
     this.shz = land ? clamp(Math.min(this.uz, H / 650), 0.62, 3) : clamp(Math.min(this.uz, (H * 0.48) / 420), 1, 3);
     root.setProperty('--shz', this.shz.toFixed(3));
     this.fitLabel();
+    this.fitTip();
     this.fitPopups();
     if (!$('shop').hidden) this.reportSheet();
   }
@@ -426,6 +427,19 @@ export class Hud {
       const actions = $('btn-vault-done').hidden ? 104 : 0;
       vault.style.setProperty('--fz', fit(width, bottom - top - gaps + actions, 32, 48 + gaps).toFixed(3));
     }
+  }
+
+  /**
+   * Wide screens: the tip sits in the left column (see #tip in the CSS), as
+   * wide as that column so it never reaches over the board. Its width is in
+   * HUD pixels (the tip is zoomed with the HUD) and excludes its padding.
+   */
+  private fitTip() {
+    this.tip.style.maxWidth = '';
+    if (!this.landscape) return;
+    const right = Math.max(0, ...[...document.querySelectorAll<HTMLElement>('.col-left')].map((e) => e.getBoundingClientRect().right).filter((r) => r > 0));
+    const room = (right - 16 * this.ui) / this.ui - 36;
+    if (room > 60) this.tip.style.maxWidth = `${Math.min(150, room).toFixed(0)}px`;
   }
 
   /**
@@ -1433,6 +1447,7 @@ export class Hud {
     this.tip.hidden = !text;
     if (!text) return;
     this.tip.textContent = text;
+    this.fitTip();
     // A new message pops in so it gets noticed.
     if (changed) {
       this.tip.classList.remove('pop');
