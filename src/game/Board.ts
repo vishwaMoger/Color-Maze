@@ -769,6 +769,14 @@ export class Board extends Container {
     return s;
   }
 
+  /** A fresh copy of the floor's shape, to keep an effect inside the maze. */
+  floorMask(): Sprite {
+    const s = new Sprite(this.floorClip.texture);
+    s.scale.copyFrom(this.floorClip.scale);
+    s.position.copyFrom(this.floorClip.position);
+    return s;
+  }
+
   /** Thin band along the top (dy > 0) or bottom (dy < 0) edges of a mask. */
   private edgeBand(mask: HTMLCanvasElement, dy: number): HTMLCanvasElement {
     const out = makeCanvas(mask.width, mask.height);

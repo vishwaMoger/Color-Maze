@@ -749,14 +749,23 @@ export class Game {
     return TRAILS.some((t) => t.id === id) ? id : 'classic';
   }
 
-  /** (Re)build the trail on the current board, under the ball. */
+  private trailMask: Sprite | null = null;
+
+  /**
+   * (Re)build the trail on the current board, under the ball, clipped to
+   * the floor: however fast the ball goes, nothing spills over the walls.
+   */
   private makeTrail() {
     this.trail?.destroy();
     this.trail = null;
+    if (this.trailMask && !this.trailMask.destroyed) this.trailMask.destroy();
+    this.trailMask = null;
     const skin = TRAILS.find((t) => t.id === this.trailId()) ?? TRAILS[0];
     if (skin.style === 'none' || !this.board) return;
     this.trail = new Trail(skin.style, this.cell);
-    this.board.fxLayer.addChild(this.trail.view);
+    this.trailMask = this.board.floorMask();
+    this.board.fxLayer.addChild(this.trailMask, this.trail.view);
+    this.trail.view.mask = this.trailMask;
   }
 
   /** Same 3D render as in game, cached as an image for the shop. */
@@ -2628,7 +2637,7 @@ export class Game {
     const moving = !!this.slideState;
     const speed = this.slideState ? (this.slideState.path.length / (this.slideState.dur / 1000) / 30) * this.turnDamp : 0;
     this.ball.update(dt, time, moving, this.lastDir, speed);
-    this.trail?.update(dt, this.ball.x, this.ball.y + this.ball.restY * this.ball.scale.y, moving);
+    this.trail?.update(dt, this.ball.x, this.ball.y + this.ball.restY * this.ball.scale.y, moving, this.warping);
     for (const e of this.extras) {
       const es = e.slide;
       e.ball.update(dt, time, !!es, e.lastDir, es ? es.path.length / (es.dur / 1000) / 30 : 0);
