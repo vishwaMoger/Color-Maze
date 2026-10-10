@@ -197,152 +197,170 @@ function rand(seed: number) {
   };
 }
 
+/** Side of a cracked tile's slab and of the hole it leaves, in tiles. */
+export const CRACK_PAD = 0.8;
+const CRACK_R = 0.19;
+
+function crackPadPath(ctx: CanvasRenderingContext2D, c: number, inset = 0) {
+  const s = c * CRACK_PAD - inset * 2;
+  ctx.beginPath();
+  ctx.roundRect((c - s) / 2, (c - s) / 2, s, s, Math.max(1, c * CRACK_R - inset));
+}
+
 /**
- * A cracked tile: a loose slab (its own bevel, set apart from the floor)
- * split by jagged cracks from an impact point, with a few chips. Drawn over
- * the paint, so a painted cracked tile still shows it is about to go.
+ * A cracked tile: a loose stone slab in the arrow pads' style (soft drop
+ * shadow, pale translucent face) split by engraved cracks from an impact
+ * point, each a dark groove with a lit lower lip, with a couple of chips
+ * knocked off its edge. Drawn over the paint, centred on a tile-sized
+ * canvas, so a painted cracked tile still shows it is about to go.
  */
-export function crackOverlay(c: number, seed: number, vis = 1): HTMLCanvasElement {
+export function crackOverlay(c: number, seed: number): HTMLCanvasElement {
   const cv = makeCanvas(Math.ceil(c), Math.ceil(c));
   const ctx = cv.getContext('2d')!;
   const rnd = rand(seed * 7919 + 17);
-  const m = c * 0.06;
-  const sh = c * vis - m * 2;
-  // The slab: a touch lighter than the floor, set apart by a dark gap all
-  // round and a lit top edge, so it reads as a loose piece.
-  ctx.fillStyle = 'rgba(255,255,255,0.07)';
-  ctx.beginPath();
-  ctx.roundRect(m, m, c - m * 2, sh, c * 0.1);
+  const s = c * CRACK_PAD;
+  const o = (c - s) / 2;
+  // Shadow and face.
+  ctx.save();
+  ctx.translate(0, c * 0.035);
+  crackPadPath(ctx, c);
+  ctx.fillStyle = 'rgba(20,10,50,0.24)';
   ctx.fill();
-  ctx.lineWidth = Math.max(1.5, c * 0.04);
-  ctx.strokeStyle = 'rgba(15,6,40,0.55)';
-  ctx.beginPath();
-  ctx.roundRect(m, m, c - m * 2, sh, c * 0.1);
-  ctx.stroke();
-  ctx.lineWidth = Math.max(1, c * 0.018);
-  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-  ctx.beginPath();
-  ctx.moveTo(m + c * 0.1, m + c * 0.03);
-  ctx.lineTo(c - m - c * 0.1, m + c * 0.03);
-  ctx.stroke();
-  // Cracks: from an off-centre impact point out to the edges, each one a
-  // jagged line that thins as it goes, with a lit edge beside it.
-  const ox = c * (0.42 + rnd() * 0.16);
-  const oy = c * (0.4 + rnd() * 0.12) * vis;
-  const arms = 5 + Math.floor(rnd() * 2);
+  ctx.restore();
+  const face = ctx.createLinearGradient(0, o, 0, o + s);
+  face.addColorStop(0, 'rgba(255,255,255,0.24)');
+  face.addColorStop(1, 'rgba(255,255,255,0.09)');
+  crackPadPath(ctx, c);
+  ctx.fillStyle = face;
+  ctx.fill();
+  // Arms of the crack: out from the impact point to the slab's edge, each
+  // in three slightly bent steps; some with a short branch.
+  const ox = c * (0.45 + rnd() * 0.1);
+  const oy = c * (0.43 + rnd() * 0.1);
+  const arms = 4 + Math.floor(rnd() * 2);
   const lines: { pts: [number, number][]; w: number }[] = [];
+  const a0 = rnd() * Math.PI * 2;
   for (let i = 0; i < arms; i++) {
-    const a = (i / arms) * Math.PI * 2 + rnd() * 0.7;
-    const len = c * (0.32 + rnd() * 0.2);
+    const a = a0 + (i / arms) * Math.PI * 2 + (rnd() - 0.5) * 0.6;
+    const len = s * 0.62;
     const pts: [number, number][] = [[ox, oy]];
-    const steps = 4;
-    for (let k = 1; k <= steps; k++) {
-      const d = (len * k) / steps;
-      const j = (rnd() - 0.5) * c * 0.09;
+    for (let k = 1; k <= 3; k++) {
+      const d = (len * k) / 3;
+      const j = (rnd() - 0.5) * c * 0.07;
       pts.push([ox + Math.cos(a) * d - Math.sin(a) * j, oy + Math.sin(a) * d + Math.cos(a) * j]);
     }
-    lines.push({ pts, w: c * (0.06 + rnd() * 0.02) });
-    // A branch off some arms.
-    if (rnd() < 0.55) {
-      const [bx, by] = pts[2];
-      const b = a + (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.4);
-      const bl = c * (0.1 + rnd() * 0.1);
-      lines.push({ pts: [[bx, by], [bx + Math.cos(b) * bl * 0.5 + (rnd() - 0.5) * c * 0.03, by + Math.sin(b) * bl * 0.5], [bx + Math.cos(b) * bl, by + Math.sin(b) * bl]], w: c * 0.035 });
+    lines.push({ pts, w: c * 0.046 });
+    if (rnd() < 0.5) {
+      const [bx, by] = pts[1];
+      const b = a + (rnd() < 0.5 ? -1 : 1) * (0.7 + rnd() * 0.3);
+      const bl = c * (0.08 + rnd() * 0.06);
+      lines.push({ pts: [[bx, by], [bx + Math.cos(b) * bl, by + Math.sin(b) * bl]], w: c * 0.028 });
     }
   }
-  const stroke = (dy: number, color: string, scale: number) => {
+  const groove = (dy: number, color: string, k: number) => {
     ctx.strokeStyle = color;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    for (const l of lines) {
-      for (let k = 1; k < l.pts.length; k++) {
-        ctx.lineWidth = Math.max(1, l.w * scale * (1 - (k - 1) / l.pts.length) + c * 0.006);
+    for (const l of lines)
+      for (let i = 1; i < l.pts.length; i++) {
+        // Widest at the impact point, thinning out to the edges.
+        ctx.lineWidth = Math.max(1, l.w * k * (1 - (i - 1) / (l.pts.length + 0.5)));
         ctx.beginPath();
-        ctx.moveTo(l.pts[k - 1][0], l.pts[k - 1][1] + dy);
-        ctx.lineTo(l.pts[k][0], l.pts[k][1] + dy);
+        ctx.moveTo(l.pts[i - 1][0], l.pts[i - 1][1] + dy);
+        ctx.lineTo(l.pts[i][0], l.pts[i][1] + dy);
         ctx.stroke();
       }
-    }
   };
   ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(m, m, c - m * 2, sh, c * 0.1);
+  crackPadPath(ctx, c);
   ctx.clip();
-  stroke(c * 0.018, 'rgba(255,255,255,0.35)', 0.9);
-  stroke(0, 'rgba(14,6,34,0.92)', 1);
-  // The impact point: a small crushed spot.
-  const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, c * 0.09);
-  g.addColorStop(0, 'rgba(18,8,40,0.7)');
-  g.addColorStop(1, 'rgba(18,8,40,0)');
-  ctx.fillStyle = g;
+  groove(c * 0.016, 'rgba(255,255,255,0.5)', 0.75);
+  groove(0, 'rgba(28,12,60,0.95)', 1);
+  // The impact point: a small crushed dent.
+  const dent = ctx.createRadialGradient(ox, oy, 0, ox, oy, c * 0.075);
+  dent.addColorStop(0, 'rgba(32,16,66,0.75)');
+  dent.addColorStop(1, 'rgba(32,16,66,0)');
+  ctx.fillStyle = dent;
   ctx.beginPath();
-  ctx.arc(ox, oy, c * 0.09, 0, Math.PI * 2);
+  ctx.arc(ox, oy, c * 0.075, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
-  // Chips knocked off the slab's corners.
+  // Chips knocked off the slab's edge: small bites out of its rim.
   for (let i = 0; i < 2; i++) {
-    const cx = rnd() < 0.5 ? m + c * 0.05 : c - m - c * 0.05;
-    const cy = rnd() < 0.5 ? m + c * 0.05 : m + sh - c * 0.05;
-    ctx.fillStyle = 'rgba(18,8,40,0.55)';
+    const side = Math.floor(rnd() * 4);
+    const t = 0.3 + rnd() * 0.4;
+    const [x, y] = side === 0 ? [o + s * t, o] : side === 1 ? [o + s, o + s * t] : side === 2 ? [o + s * t, o + s] : [o, o + s * t];
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    ctx.moveTo(cx - c * 0.04, cy);
-    ctx.lineTo(cx, cy - c * 0.035);
-    ctx.lineTo(cx + c * 0.04, cy + c * 0.01);
-    ctx.lineTo(cx + c * 0.005, cy + c * 0.04);
-    ctx.closePath();
+    ctx.ellipse(x, y, c * 0.035, c * 0.025, side % 2 ? Math.PI / 2 : 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
+  // Crisp rim: lit along the top, darker along the bottom.
+  ctx.lineWidth = Math.max(1, c * 0.014);
+  ctx.strokeStyle = 'rgba(30,16,64,0.45)';
+  crackPadPath(ctx, c);
+  ctx.stroke();
+  ctx.save();
+  crackPadPath(ctx, c);
+  ctx.clip();
+  ctx.lineWidth = Math.max(1, c * 0.026);
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.beginPath();
+  ctx.roundRect(o + c * 0.01, o + c * 0.012, s - c * 0.02, s, c * CRACK_R);
+  ctx.stroke();
+  ctx.restore();
   return cv;
 }
 
 /**
- * The hole a cracked tile leaves: a dark pit seen from above and in front,
- * its far inner wall catching a little light and its near rim lit.
+ * The hole a cracked tile leaves: a rounded pit the slab's size, seen from
+ * above and in front. Its far wall catches a little light and falls away
+ * into the dark; the broken rim is lit along the near side.
  */
 export function holeTexture(c: number): HTMLCanvasElement {
   const cv = makeCanvas(Math.ceil(c), Math.ceil(c));
   const ctx = cv.getContext('2d')!;
-  const m = c * 0.04;
-  const s = c - m * 2;
-  const r = c * 0.12;
+  const s = c * CRACK_PAD;
+  const o = (c - s) / 2;
   ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(m, m, s, s, r);
+  crackPadPath(ctx, c);
   ctx.clip();
-  const depth = ctx.createLinearGradient(0, m, 0, m + s);
-  depth.addColorStop(0, '#3b2c63');
-  depth.addColorStop(0.32, '#1c1236');
-  depth.addColorStop(1, '#07030f');
+  const depth = ctx.createLinearGradient(0, o, 0, o + s);
+  depth.addColorStop(0, '#4a3880');
+  depth.addColorStop(0.3, '#251845');
+  depth.addColorStop(0.7, '#0e0820');
+  depth.addColorStop(1, '#05020b');
   ctx.fillStyle = depth;
   ctx.fillRect(0, 0, c, c);
-  // The far wall: a band at the top, its broken edge jagged.
-  ctx.fillStyle = 'rgba(120,96,180,0.35)';
-  ctx.beginPath();
-  ctx.moveTo(m, m);
-  ctx.lineTo(m + s, m);
-  ctx.lineTo(m + s, m + c * 0.2);
-  for (let i = 6; i >= 0; i--) ctx.lineTo(m + (s * i) / 6, m + c * (0.16 + ((i * 37) % 7) * 0.012));
-  ctx.closePath();
-  ctx.fill();
-  // Darkness pooling at the bottom of the pit.
-  const pool = ctx.createRadialGradient(c / 2, c * 0.72, 0, c / 2, c * 0.72, c * 0.5);
-  pool.addColorStop(0, 'rgba(0,0,0,0.55)');
-  pool.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = pool;
-  ctx.fillRect(0, 0, c, c);
+  // The far wall's lower edge: where it drops out of sight.
+  const edge = ctx.createLinearGradient(0, o + s * 0.26, 0, o + s * 0.4);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, o + s * 0.26, c, s * 0.14);
+  // Shade cast by the near rim onto the inside.
+  const rim = ctx.createLinearGradient(0, o + s * 0.82, 0, o + s);
+  rim.addColorStop(0, 'rgba(0,0,0,0)');
+  rim.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = rim;
+  ctx.fillRect(0, o + s * 0.82, c, s * 0.18);
   ctx.restore();
-  // Rim: the floor's broken edge, lit along the near side.
-  ctx.lineWidth = Math.max(1, c * 0.035);
-  ctx.strokeStyle = 'rgba(10,4,25,0.6)';
-  ctx.beginPath();
-  ctx.roundRect(m, m, s, s, r);
-  ctx.stroke();
+  // Rim: a fine dark edge, lit along the near side.
   ctx.lineWidth = Math.max(1, c * 0.02);
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.beginPath();
-  ctx.moveTo(m + r, m + s + c * 0.012);
-  ctx.lineTo(m + s - r, m + s + c * 0.012);
+  ctx.strokeStyle = 'rgba(12,5,30,0.7)';
+  crackPadPath(ctx, c);
   ctx.stroke();
+  ctx.save();
+  crackPadPath(ctx, c);
+  ctx.clip();
+  ctx.lineWidth = Math.max(1, c * 0.024);
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+  ctx.beginPath();
+  ctx.roundRect(o + c * 0.01, o - s * 0.02, s - c * 0.02, s - c * 0.01, c * CRACK_R);
+  ctx.stroke();
+  ctx.restore();
   return cv;
 }
 
@@ -368,6 +386,19 @@ export function chunkTexture(c: number): HTMLCanvasElement {
   ctx.lineTo(s * 0.5, s * 0.6);
   ctx.closePath();
   ctx.fill();
+  return cv;
+}
+
+/** A soft amber ring around the switch, so it reads as something to roll over. */
+export function switchHalo(c: number): HTMLCanvasElement {
+  const cv = makeCanvas(Math.ceil(c), Math.ceil(c));
+  const ctx = cv.getContext('2d')!;
+  const g = ctx.createRadialGradient(c / 2, c / 2, c * 0.3, c / 2, c / 2, c * 0.5);
+  g.addColorStop(0, 'rgba(255,190,60,0)');
+  g.addColorStop(0.35, 'rgba(255,190,60,0.55)');
+  g.addColorStop(1, 'rgba(255,190,60,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, c, c);
   return cv;
 }
 
