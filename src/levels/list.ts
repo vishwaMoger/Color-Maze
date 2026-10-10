@@ -219,7 +219,7 @@ function remember(n: number, level: Level) {
 
 /**
  * Coins and keys on the board, kept scarce so they feel like a find: a key
- * on every 4th level from level 6 (three keys, so a vault about every 12
+ * on every 6th level from level 10 (three keys, so a vault about every 18
  * levels), and one or two coins on two levels in three. Whatever the
  * curated or built level carried is replaced, the same for every player.
  */
@@ -233,7 +233,7 @@ function placePickups(n: number, level: Level) {
   );
   const rng = mulberry32(n * 7919 + 13);
   const take = () => (cells.length ? cells.splice(Math.floor(rng() * cells.length), 1)[0] : null);
-  if (n >= 6 && n % 4 === 2) {
+  if (n >= 10 && n % 6 === 4) {
     const p = take();
     if (p) level.grid[p.y][p.x] = KEY;
   }

@@ -55,7 +55,15 @@ export interface VaultSession {
   win: (k: VaultKind) => string;
   onDot: (k: VaultKind, dots: number) => void;
   onDone: () => void;
-  sound: { click: () => void; thock: (s: number) => void; coin: () => void; star: (i: number) => void; complete: () => void };
+  sound: {
+    click: () => void;
+    appear: () => void;
+    key: () => void;
+    turn: () => void;
+    open: () => void;
+    dot: (i: number) => void;
+    win: () => void;
+  };
   /** The new item up for grabs (shown on its card), if any is left. */
   item?: { name: string; art: string } | null;
 }
@@ -1115,6 +1123,7 @@ export class Hud {
     done.hidden = true;
     hint.textContent = 'Open 3 Locks';
     scr.hidden = false;
+    v.sound.appear();
     requestAnimationFrame(() => scr.classList.add('show'));
 
     const center = (el: Element) => {
@@ -1172,7 +1181,7 @@ export class Hud {
       const from = center(keysEl.children[keys]);
       renderKeys();
       hint.textContent = keys ? `Open ${keys} more lock${keys > 1 ? 's' : ''}` : 'Unlocking...';
-      v.sound.click();
+      v.sound.key();
       const at = center(lock);
       await fly('ico ico-key', from, at, 40, 320, 50);
       // The key slides into the lock and turns; the tile warms to gold,
@@ -1181,7 +1190,7 @@ export class Hud {
       inKey.className = 'ico ico-key vinkey';
       lock.appendChild(inKey);
       lock.classList.add('turn');
-      v.sound.thock(0.5);
+      v.sound.turn();
       await wait(260);
       lock.classList.add('gold');
       await wait(320);
@@ -1205,7 +1214,7 @@ export class Hud {
       const item = document.createElement('i');
       item.className = `ico ${icon} vitem`;
       lock.appendChild(item);
-      v.sound.coin();
+      v.sound.open();
       await wait(560);
       // The token flies up to its prize card and fills a dot.
       item.style.visibility = 'hidden';
@@ -1217,7 +1226,7 @@ export class Hud {
       void card.offsetWidth;
       card.classList.add('bump', 'catch');
       card.querySelectorAll('.dots i')[dots[kind] - 1]?.classList.add('on');
-      v.sound.star(dots[kind] - 1);
+      v.sound.dot(dots[kind] - 1);
       v.onDot(kind, dots[kind]);
       if (dots[kind] >= 3) {
         await wait(250);
@@ -1233,7 +1242,7 @@ export class Hud {
         pop.className = 'won-pop';
         pop.textContent = label;
         card.appendChild(pop);
-        v.sound.complete();
+        v.sound.win();
         window.setTimeout(() => pop.remove(), 1600);
         dots[kind] = 0;
         window.setTimeout(() => card.querySelectorAll('.dots i').forEach((d) => d.classList.remove('on')), 1400);
