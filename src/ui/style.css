@@ -5531,17 +5531,18 @@ body.has-banner {
     radial-gradient(circle at 50% 120%, rgba(0, 0, 0, 0.22), transparent 60%),
     linear-gradient(150deg, var(--c1, #b28bff) 0%, var(--c2, #6b3cf0) 100%);
 }
-/* A tool's free go for a video: red label with a play mark. */
+/* A tool's go for a video ad: red label with a video camera, "Watch". */
 .tlabel.ad {
+  padding-left: calc(7px * var(--k));
   background: linear-gradient(180deg, #ff5f73, #ee2f4a) !important;
   color: #fff !important;
 }
 .tlabel .vid {
   display: inline-block;
-  width: 0.8em;
-  height: 0.8em;
-  margin-right: 3px;
-  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M6 4v16l14-8Z"/></svg>') center / contain no-repeat;
+  width: 1.15em;
+  height: 1.15em;
+  margin-right: 2px;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2.5" fill="white"/><path d="M17 10.5 22 7.5v9l-5-3Z" fill="white"/></svg>') center / contain no-repeat;
 }
 
 /* ------------------------------------------------------------ league (after the original)

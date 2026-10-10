@@ -779,7 +779,9 @@ export class Hud {
       const label = $(`${k}-label`);
       label.hidden = v.free > 0;
       label.classList.toggle('ad', v.ad);
-      label.innerHTML = v.ad ? '<i class="vid"></i>Free' : `<i class="ico ico-coin"></i>${v.price}`;
+      // Out of free uses and coins: a video ad gives one go. Said plainly
+      // (an ad, not "free"), with the same camera mark as other ad buttons.
+      label.innerHTML = v.ad ? '<i class="vid"></i>Watch' : `<i class="ico ico-coin"></i>${v.price}`;
       const f = $(`${k}-free`);
       f.hidden = v.free <= 0;
       f.textContent = String(v.free);
