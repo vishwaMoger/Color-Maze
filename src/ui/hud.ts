@@ -771,20 +771,20 @@ export class Hud {
     window.setTimeout(() => fx.forEach((el) => el.remove()), 1400);
   }
 
-  setPrices(p: { hint: { price: number; free: number; ad: boolean }; bomb: { price: number; free: number; ad: boolean } }) {
+  setPrices(p: Record<'hint' | 'bomb', { price: number; free: number; ad: boolean; short: boolean }>) {
     // Free uses left sit in a bubble on the corner, and then no price shows.
-    // Out of free uses: the coin price, or now and then a free go for a
-    // video instead.
+    // Out of free uses: the coin price under the button, in red when the
+    // player cannot afford it; then a video ad gives one go, shown by the
+    // red video badge on the button's corner.
     for (const [k, v] of [['hint', p.hint], ['bomb', p.bomb]] as const) {
       const label = $(`${k}-label`);
       label.hidden = v.free > 0;
-      label.classList.toggle('ad', v.ad);
-      // Out of free uses and coins: a video ad gives one go. Said plainly
-      // (an ad, not "free"), with the same camera mark as other ad buttons.
-      label.innerHTML = v.ad ? '<i class="vid"></i>Watch' : `<i class="ico ico-coin"></i>${v.price}`;
+      label.classList.toggle('short', v.short);
+      label.innerHTML = `<i class="ico ico-coin"></i>${v.price}`;
       const f = $(`${k}-free`);
       f.hidden = v.free <= 0;
       f.textContent = String(v.free);
+      $(`${k}-ad`).hidden = !(v.ad && v.free <= 0);
     }
   }
 
