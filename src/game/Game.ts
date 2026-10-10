@@ -16,6 +16,7 @@ import { Confetti } from './confetti.ts';
 import { slabTexture } from './slabs.ts';
 import { THEMES, type Theme } from './themes.ts';
 import { liveEvent, type EventPrize } from './events.ts';
+import { Trail, TRAILS, trailPreview } from './trail.ts';
 
 interface Slide {
   dir: Dir;
@@ -229,7 +230,7 @@ export class Game {
       anyInput: () => this.sound.unlock(),
       adUnlock: (tab, id) => {
         this.sound.click();
-        const item = (tab === 'ball' ? BALLS : tab === 'paint' ? PAINTS : THEMES).find((x) => x.id === id);
+        const item = (tab === 'ball' ? BALLS : tab === 'paint' ? PAINTS : tab === 'trail' ? TRAILS : THEMES).find((x) => x.id === id);
         if (!item || !this.offerIds().includes(`${tab}:${id}`)) return;
         const key = `${tab}:${id}`;
         void rewardedAd(() => this.sound.setMuted(true), () => this.sound.setMuted(this.portalMuted)).then((ok) => {
@@ -467,7 +468,8 @@ export class Game {
       ...BALLS.map((x) => ({ kind: 'ball', x })),
       ...PAINTS.map((x) => ({ kind: 'paint', x })),
       ...THEMES.map((x) => ({ kind: 'board', x })),
-    ].filter(({ x }) => !x.event && !('vault' in x && x.vault) && x.unlock > this.save.best && !owned.has(x.id));
+      ...TRAILS.map((x) => ({ kind: 'trail', x })),
+    ].filter(({ x }) => !('event' in x && x.event) && !('vault' in x && x.vault) && x.unlock > this.save.best && !owned.has(x.id));
     // Not the two just offered, while there are others to choose from.
     const last = new Set(o?.ids ?? []);
     const fresh = pool.filter((p) => !last.has(`${p.kind}:${p.x.id}`));
@@ -727,10 +729,37 @@ export class Game {
           return this.previewCss('board', t.id, key, peekPreview(key), () => boardPreview(this.app.renderer as Renderer, look, ball));
         })(),
       }))),
+      // Trail pictures are plain 2D canvas (no GPU read-back): drawn at once.
+      trail: byUnlock(TRAILS.map((t) => ({
+        id: t.id,
+        name: t.name,
+        unlock: this.save.owned.includes(t.id) ? 1 : t.unlock,
+        ads: this.adsFor('trail', t),
+        kind: 'trail' as const,
+        preview: `background-image: url(${trailPreview(t, ball.colors[1])})`,
+      }))),
     };
   }
 
   private previews = new Map<string, string>();
+
+  private trail: Trail | null = null;
+
+  /** The equipped trail's id (one not owned or unknown falls back to none). */
+  private trailId(): string {
+    const id = this.save.trail ?? 'classic';
+    return TRAILS.some((t) => t.id === id) ? id : 'classic';
+  }
+
+  /** (Re)build the trail on the current board, under the ball. */
+  private makeTrail() {
+    this.trail?.destroy();
+    this.trail = null;
+    const skin = TRAILS.find((t) => t.id === this.trailId()) ?? TRAILS[0];
+    if (skin.style === 'none' || !this.board) return;
+    this.trail = new Trail(skin.style, this.cell);
+    this.board.fxLayer.addChild(this.trail.view);
+  }
 
   /** Same 3D render as in game, cached as an image for the shop. */
   private spherePreview(id: string): string {
@@ -753,6 +782,7 @@ export class Game {
     this.hud.setShop('ball', items.ball, this.save.ball, this.save.best);
     this.hud.setShop('paint', items.paint, this.save.paint, this.save.best);
     this.hud.setShop('board', items.board, this.theme.id, this.save.best);
+    this.hud.setShop('trail', items.trail, this.trailId(), this.save.best);
     this.hud.setShopDot(false);
     this.save.seenUnlock = this.save.best;
     this.persist();
@@ -761,6 +791,13 @@ export class Game {
   private equip(tab: ShopTab, id: string) {
     if (tab === 'board') {
       this.selectTheme(id);
+      return;
+    }
+    if (tab === 'trail') {
+      this.save.trail = id;
+      this.makeTrail();
+      this.persist();
+      this.refreshShop();
       return;
     }
     if (tab === 'ball') this.save.ball = id;
@@ -777,7 +814,7 @@ export class Game {
 
   /** Red dot on the shop when something new unlocked since the last visit. */
   private checkUnlocks() {
-    const all = [...BALLS, ...PAINTS, ...THEMES];
+    const all = [...BALLS, ...PAINTS, ...THEMES, ...TRAILS];
     const fresh = all.some((x) => x.unlock > (this.save.seenUnlock ?? 1) && x.unlock <= this.save.best);
     this.hud.setShopDot(fresh);
   }
@@ -1140,6 +1177,7 @@ export class Game {
     this.boardHolder.addChild(board);
     this.board = board;
     this.boardFx = new Fx(board.fxLayer);
+    this.makeTrail();
     // A soft pool of light follows the ball across the board.
     this.light = boardLight(cell * 3.2);
     board.filters = [this.light];
@@ -2224,14 +2262,14 @@ export class Game {
       }
       // While an event runs, its next prize is the goal shown after levels
       // (a level unlock reached at the same time still gets its moment).
-      if (!items.ball.concat(items.paint, items.board).some((x) => x.unlock > prevBest && x.unlock <= best && !x.event)) {
+      if (!items.ball.concat(items.paint, items.board, items.trail).some((x) => x.unlock > prevBest && x.unlock <= best && !x.event)) {
         const icon = it?.event?.icon ?? '';
         this.hud.newItemProgress(`${icon} ${it?.event?.name ?? 'Event'}: ${ev.name}`.trim(), it?.preview ?? '', ev.have - 1 - ev.prev, ev.have - ev.prev, ev.need - ev.prev);
         return;
       }
     }
     if (best <= prevBest) return;
-    const all = [...items.ball, ...items.paint, ...items.board].filter((x) => !x.event && !x.vault).sort((a, b) => a.unlock - b.unlock);
+    const all = [...items.ball, ...items.paint, ...items.board, ...items.trail].filter((x) => !x.event && !x.vault).sort((a, b) => a.unlock - b.unlock);
     const just = all.find((x) => x.unlock > prevBest && x.unlock <= best);
     if (just) {
       this.sound.complete();
@@ -2592,6 +2630,7 @@ export class Game {
     const moving = !!this.slideState;
     const speed = this.slideState ? (this.slideState.path.length / (this.slideState.dur / 1000) / 30) * this.turnDamp : 0;
     this.ball.update(dt, time, moving, this.lastDir, speed);
+    this.trail?.update(dt, this.ball.x, this.ball.y + this.ball.restY * this.ball.scale.y, moving);
     for (const e of this.extras) {
       const es = e.slide;
       e.ball.update(dt, time, !!es, e.lastDir, es ? es.path.length / (es.dur / 1000) / 30 : 0);

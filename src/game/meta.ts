@@ -10,6 +10,8 @@ export interface Save {
   theme: string;
   ball: string;
   paint: string;
+  /** Trail streaming behind the ball (see trail.ts); 'classic' is none. */
+  trail?: string;
   sound: boolean;
   music: boolean;
   vibe: boolean;
