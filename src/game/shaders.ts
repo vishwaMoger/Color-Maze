@@ -156,29 +156,37 @@ void main(void) {
     brew += mix(uAlt, vec3(1.0), 0.5) * (1.0 - smoothstep(0.015, 0.06, length(sf - (sh - 0.5) * 0.6))) * tw;
     base = brew;
   }
-  if (uHit.z >= 0.0 && uHit.z < 1.2) {
-    // A wall hit sends a soft swell of light out through the paint (only
-    // the paint: this pass draws nothing else), with fine glitter
-    // twinkling to life as it passes and fading behind it.
+  if (uHit.z >= 0.0 && uHit.z < 1.8) {
+    // A wall hit sends a swell of light out through the paint (only the
+    // paint: this pass draws nothing else), with a soft rainbow sheen on
+    // its crest and dense glitter that sparkles up as it passes and lingers
+    // a moment behind it.
     float age = uHit.z;
     vec2 qt = px / uHitK;
     float dist = length(px - uHit.xy) / uHitK;
-    float front = age * 7.0;
-    float fade = exp(-age * 2.6) * uHitP;
-    float swell = exp(-pow((dist - front) / 1.1, 2.0)) * fade;
-    base = mix(base, base + (vec3(1.0) - base) * 0.6, swell * 0.6);
-    vec2 gq = qt * 6.0;
-    vec2 gf = fract(gq) - 0.5;
-    vec2 gh = hash2(floor(gq) + 11.7);
-    float lit = exp(-pow((dist - front + 0.6) / 1.6, 2.0)) * fade;
-    float tw = 0.5 + 0.5 * sin(age * 38.0 + gh.x * 60.0);
-    // Each glint a tiny four-point twinkle: a bright core with thin rays.
-    vec2 dv = gf - (gh - 0.5) * 0.7;
-    float core = 1.0 - smoothstep(0.015, 0.08, length(dv));
-    float rays = (1.0 - smoothstep(0.0, 0.025, abs(dv.x))) * (1.0 - smoothstep(0.05, 0.22, abs(dv.y)))
-               + (1.0 - smoothstep(0.0, 0.025, abs(dv.y))) * (1.0 - smoothstep(0.05, 0.22, abs(dv.x)));
-    float glint = clamp(core + rays * 0.7, 0.0, 1.0);
-    base += vec3(1.0) * glint * tw * lit * step(0.5, gh.y) * 1.3;
+    float front = age * 5.0;
+    float fade = exp(-age * 1.7) * uHitP * (1.0 - smoothstep(1.4, 1.8, age));
+    float swell = exp(-pow((dist - front) / 1.4, 2.0)) * fade;
+    vec3 sheen = 0.5 + 0.5 * cos(6.2831 * (dist * 0.18 - age * 0.6 + vec3(0.0, 0.33, 0.67)));
+    vec3 light = mix(vec3(1.0), sheen, 0.35);
+    base = mix(base, base + (light - base) * 0.75, clamp(swell * 0.95, 0.0, 0.9));
+    // Glitter: most cells of a fine grid hold a glint, lit by the passing
+    // crest and twinkling on in its wake.
+    float lit = (exp(-pow((dist - front + 0.8) / 2.2, 2.0)) + 0.35 * smoothstep(front, front - 2.5, dist) * step(dist, front)) * fade;
+    for (int layer = 0; layer < 2; layer++) {
+      float sc = layer == 0 ? 4.0 : 7.0;
+      vec2 gq = qt * sc + float(layer) * 17.3;
+      vec2 gf = fract(gq) - 0.5;
+      vec2 gh = hash2(floor(gq) + 11.7 + float(layer) * 5.1);
+      vec2 dv = gf - (gh - 0.5) * 0.7;
+      float tw = pow(0.5 + 0.5 * sin(age * 30.0 + gh.x * 60.0), 2.0);
+      float core = 1.0 - smoothstep(0.03, 0.13, length(dv));
+      float rays = (1.0 - smoothstep(0.0, 0.03, abs(dv.x))) * (1.0 - smoothstep(0.05, 0.3, abs(dv.y)))
+                 + (1.0 - smoothstep(0.0, 0.03, abs(dv.y))) * (1.0 - smoothstep(0.05, 0.3, abs(dv.x)));
+      float glint = clamp(core + rays * 0.8, 0.0, 1.0) * step(layer == 0 ? 0.25 : 0.45, gh.y);
+      vec3 gcol = mix(vec3(1.0), mix(sheen, vec3(1.0), 0.5), gh.x);
+      base += gcol * glint * tw * lit * (layer == 0 ? 1.7 : 1.1);
+    }
   }
   if (uMode < 0.5) {
     finalColor = vec4(base * c.a, c.a);
