@@ -300,12 +300,47 @@ function requestAd(type: 'rewarded' | 'midgame', onStart?: () => void, onEnd?: (
   });
 }
 
+/**
+ * Builds without an ad platform (the web preview): a stand-in for the video,
+ * a few seconds long, so it is plain that an ad plays here and the reward
+ * is not simply free.
+ */
+function simulatedAd(onStart?: () => void, onEnd?: () => void): Promise<boolean> {
+  if (adActive) return Promise.resolve(false);
+  adActive = true;
+  onStart?.();
+  const box = document.createElement('div');
+  box.setAttribute('role', 'dialog');
+  box.style.cssText =
+    'position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:rgba(14,6,40,.88);' +
+    'color:#fff;font:700 20px var(--font, system-ui);text-align:center;';
+  box.innerHTML =
+    '<div style="display:grid;gap:14px;justify-items:center;padding:24px">' +
+    '<svg viewBox="0 0 24 24" width="64" height="64" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3" fill="#ee2f4a"/><path d="M10 9v6l5-3Z" fill="#fff"/></svg>' +
+    '<div>Video ad</div>' +
+    '<div style="font-weight:500;font-size:15px;opacity:.8;max-width:280px">On CrazyGames a short video plays here before the reward.</div>' +
+    '<div data-left style="font-size:34px">3</div></div>';
+  document.body.appendChild(box);
+  const left = box.querySelector<HTMLElement>('[data-left]')!;
+  return new Promise((resolve) => {
+    let n = 3;
+    const id = window.setInterval(() => {
+      n--;
+      left.textContent = String(n);
+      if (n > 0) return;
+      window.clearInterval(id);
+      box.remove();
+      adActive = false;
+      lastRewarded = performance.now();
+      onEnd?.();
+      resolve(true);
+    }, 1000);
+  });
+}
+
 /** Show a rewarded ad; resolves true when the player earned the reward. */
 export function rewardedAd(onStart?: () => void, onEnd?: () => void): Promise<boolean> {
-  if (!sdk) {
-    if (SIMULATED) lastRewarded = performance.now();
-    return Promise.resolve(SIMULATED);
-  }
+  if (!sdk) return SIMULATED ? simulatedAd(onStart, onEnd) : Promise.resolve(false);
   return requestAd('rewarded', onStart, onEnd).then((ok) => {
     // Ads off (Basic Launch) or none to be had: after two misses in a row
     // every rewarded offer hides itself, so no button ever does nothing.
