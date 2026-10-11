@@ -52,7 +52,7 @@
   --gold3: #d98a00;
   --go1: #8fe866;
   --go2: #49c43a;
-  --go3: #2b9024;
+  --go3: #36992a;
   --red1: #ff8e86;
   --red2: #f2544f;
   --red3: #b92f36;
@@ -188,9 +188,7 @@ body {
   --edge: color-mix(in srgb, var(--b3) 70%, rgba(20, 0, 60, 0.5));
   background: color-mix(in srgb, var(--b1) 30%, var(--b2));
   box-shadow:
-    0 0 0 1.5px var(--edge),
-    0 5px 0 var(--b3),
-    0 5px 0 1.5px var(--edge);
+    0 5px 0 var(--b3);
   -webkit-font-smoothing: antialiased;
   cursor: pointer;
   pointer-events: auto;
@@ -259,9 +257,7 @@ body {
 .gbtn.pressed {
   transform: translateY(4px) scale(0.98, 0.97);
   box-shadow:
-    0 0 0 1.5px var(--edge),
-    0 1px 0 var(--b3),
-    0 1px 0 1.5px var(--edge);
+    0 1px 0 var(--b3);
 }
 
 .gbtn:focus-visible {
@@ -326,7 +322,7 @@ body {
      presses down into. */
   --b1: #8a5cff;
   --b2: #7445f5;
-  --b3: #4b1fc0;
+  --b3: #5a36cc;
   --edge: rgba(45, 14, 130, 0.55);
   position: relative;
   display: grid;
@@ -335,12 +331,10 @@ body {
   height: calc(40px * var(--k));
   padding: 0;
   border: 0;
-  border-radius: calc(13px * var(--k));
+  border-radius: calc(11px * var(--k));
   background: color-mix(in srgb, var(--b1) 30%, var(--b2));
   box-shadow:
-    0 0 0 calc(1.5px * var(--k)) var(--edge),
-    0 calc(4.5px * var(--k)) 0 var(--b3),
-    0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
+    0 calc(4.5px * var(--k)) 0 var(--b3);
   color: #fff;
   cursor: pointer;
   transition: transform 0.07s ease-out, box-shadow 0.07s ease-out, filter 0.15s;
@@ -366,9 +360,7 @@ body {
 .pbtn.pressed {
   transform: translateY(calc(3.5px * var(--k))) scale(0.97);
   box-shadow:
-    0 0 0 calc(1.5px * var(--k)) var(--edge),
-    0 calc(1px * var(--k)) 0 var(--b3),
-    0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
+    0 calc(1px * var(--k)) 0 var(--b3);
 }
 /* Restart pulses when the ball is stuck in a dead end. */
 .pbtn.nudge {
@@ -478,9 +470,7 @@ body {
   border-radius: calc(12px * var(--k));
   background: color-mix(in srgb, #845aff 30%, #6a3ce8);
   box-shadow:
-    0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
-    0 calc(4.5px * var(--k)) 0 #4520ad,
-    0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55);
+    0 calc(4.5px * var(--k)) 0 #5a36cc;
   color: #fff;
   font-family: var(--font);
   cursor: pointer;
@@ -540,9 +530,7 @@ body {
 .trophy-card:active {
   transform: translateY(calc(3.5px * var(--k))) scale(0.97);
   box-shadow:
-    0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
-    0 calc(1px * var(--k)) 0 #4520ad,
-    0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55);
+    0 calc(1px * var(--k)) 0 #5a36cc;
 }
 
 /* Centre: the group reward above the progress chain and the level name. */
@@ -841,9 +829,7 @@ body {
   border-radius: calc(15px * var(--k));
   cursor: pointer;
   box-shadow:
-    0 0 0 calc(1.5px * var(--k)) var(--edge),
-    0 calc(5px * var(--k)) 0 var(--lip),
-    0 calc(5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
+    0 calc(5px * var(--k)) 0 var(--lip);
   transition: transform 0.07s ease-out, box-shadow 0.07s ease-out;
 }
 .tbtn::before {
@@ -856,12 +842,12 @@ body {
   pointer-events: none;
 }
 .tbtn.green {
-  --lip: #2f8a17;
+  --lip: #3f9a25;
   --edge: rgba(20, 80, 10, 0.5);
   background: color-mix(in srgb, #74d64a 30%, #52b92e);
 }
 .tbtn.yellow {
-  --lip: #d07800;
+  --lip: #e5900a;
   --edge: rgba(130, 60, 0, 0.45);
   background: color-mix(in srgb, #ffcf33 30%, #ffae0d);
 }
@@ -869,9 +855,7 @@ body {
 .tbtn.pressed {
   transform: translateY(calc(4px * var(--k))) scale(0.97);
   box-shadow:
-    0 0 0 calc(1.5px * var(--k)) var(--edge),
-    0 calc(1px * var(--k)) 0 var(--lip),
-    0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
+    0 calc(1px * var(--k)) 0 var(--lip);
 }
 .tbtn.pop {
   animation: btnpop 0.34s cubic-bezier(0.3, 1.9, 0.5, 1);
@@ -901,7 +885,7 @@ body {
   position: absolute;
   z-index: 1;
   left: 50%;
-  bottom: calc(-33px * var(--k));
+  bottom: calc(-15px * var(--k));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -931,14 +915,14 @@ body {
   height: calc(24px * var(--k));
   padding: 0 calc(5px * var(--k));
   border-radius: 999px;
-  border: calc(2.5px * var(--k)) solid var(--lip);
+  border: 0;
   background: #fff;
-  color: var(--lip);
+  color: var(--deep);
   font-weight: 700;
   font-size: calc(13px * var(--k));
-  line-height: calc(19px * var(--k));
+  line-height: calc(24px * var(--k));
   text-align: center;
-  box-shadow: 0 calc(2px * var(--k)) 0 rgba(40, 20, 90, 0.18);
+  box-shadow: 0 calc(2px * var(--k)) 0 rgba(40, 20, 90, 0.16);
 }
 
 /* Win streak: a purple can with fire inside and the count on the glass. */
