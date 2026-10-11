@@ -186,14 +186,11 @@ body {
   /* The same look as the HUD buttons (.pbtn): a flat matte face with
      only a faint sheen, a crisp outline and a deep solid base. */
   --edge: color-mix(in srgb, var(--b3) 70%, rgba(20, 0, 60, 0.5));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--b1) 18%, var(--b2)) 0%, var(--b2) 100%);
+  background: color-mix(in srgb, var(--b1) 30%, var(--b2));
   box-shadow:
     0 0 0 1.5px var(--edge),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -3px 0 rgba(20, 0, 70, 0.12),
     0 5px 0 var(--b3),
-    0 5px 0 1.5px var(--edge),
-    0 10px 14px rgba(60, 20, 150, 0.28);
+    0 5px 0 1.5px var(--edge);
   -webkit-font-smoothing: antialiased;
   cursor: pointer;
   pointer-events: auto;
@@ -215,7 +212,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 /* Juicy release: a springy pop after every press. */
@@ -263,9 +260,6 @@ body {
   transform: translateY(4px) scale(0.98, 0.97);
   box-shadow:
     0 0 0 1.5px var(--edge),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 2px 4px rgba(20, 0, 70, 0.14),
-    inset 0 -1.5px 0 rgba(20, 0, 70, 0.1),
     0 1px 0 var(--b3),
     0 1px 0 1.5px var(--edge);
 }
@@ -342,14 +336,11 @@ body {
   padding: 0;
   border: 0;
   border-radius: calc(13px * var(--k));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--b1) 18%, var(--b2)) 0%, var(--b2) 100%);
+  background: color-mix(in srgb, var(--b1) 30%, var(--b2));
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.16),
-    inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(4.5px * var(--k)) 0 var(--b3),
-    0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge),
-    0 calc(9px * var(--k)) calc(12px * var(--k)) rgba(60, 20, 150, 0.32);
+    0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
   color: #fff;
   cursor: pointer;
   transition: transform 0.07s ease-out, box-shadow 0.07s ease-out, filter 0.15s;
@@ -360,7 +351,7 @@ body {
   inset: 0;
   border-radius: inherit;
   /* Matte: only a faint, soft sheen high on the left. */
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 .pbtn svg {
@@ -376,9 +367,6 @@ body {
   transform: translateY(calc(3.5px * var(--k))) scale(0.97);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.12),
-    inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
-    inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 var(--b3),
     0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
 }
@@ -488,14 +476,11 @@ body {
   padding: 0 calc(8px * var(--k)) 0 calc(31px * var(--k));
   border: 0;
   border-radius: calc(12px * var(--k));
-  background: linear-gradient(180deg, color-mix(in srgb, #845aff 18%, #6a3ce8) 0%, #6a3ce8 100%);
+  background: color-mix(in srgb, #845aff 30%, #6a3ce8);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
-    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.16),
-    inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(4.5px * var(--k)) 0 #4520ad,
-    0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
-    0 calc(9px * var(--k)) calc(12px * var(--k)) rgba(60, 20, 150, 0.32);
+    0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55);
   color: #fff;
   font-family: var(--font);
   cursor: pointer;
@@ -507,7 +492,7 @@ body {
   inset: 0;
   border-radius: inherit;
   /* Matte: only a faint, soft sheen high on the left. */
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 .trophy-card .cup {
@@ -556,9 +541,6 @@ body {
   transform: translateY(calc(3.5px * var(--k))) scale(0.97);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
-    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.12),
-    inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
-    inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 #4520ad,
     0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55);
 }
@@ -860,11 +842,8 @@ body {
   cursor: pointer;
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.16),
-    inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(5px * var(--k)) 0 var(--lip),
-    0 calc(5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge),
-    0 calc(10px * var(--k)) calc(12px * var(--k)) rgba(60, 20, 150, 0.3);
+    0 calc(5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
   transition: transform 0.07s ease-out, box-shadow 0.07s ease-out;
 }
 .tbtn::before {
@@ -873,27 +852,24 @@ body {
   inset: 0;
   border-radius: inherit;
   /* Matte: only a faint, soft sheen high on the left. */
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 .tbtn.green {
   --lip: #2f8a17;
   --edge: rgba(20, 80, 10, 0.5);
-  background: linear-gradient(180deg, color-mix(in srgb, #74d64a 18%, #52b92e) 0%, #52b92e 100%);
+  background: color-mix(in srgb, #74d64a 30%, #52b92e);
 }
 .tbtn.yellow {
   --lip: #d07800;
   --edge: rgba(130, 60, 0, 0.45);
-  background: linear-gradient(180deg, color-mix(in srgb, #ffcf33 18%, #ffae0d) 0%, #ffae0d 100%);
+  background: color-mix(in srgb, #ffcf33 30%, #ffae0d);
 }
 .tbtn:active,
 .tbtn.pressed {
   transform: translateY(calc(4px * var(--k))) scale(0.97);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.12),
-    inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
-    inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 var(--lip),
     0 calc(1px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge);
 }
@@ -5200,12 +5176,8 @@ body.has-banner {
   /* Bright red, matte like the buttons: an even face with a faint sheen
      and a solid base. */
   background:
-    radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 72%),
-    linear-gradient(180deg, #ff3a52 0%, #f01e3a 100%);
-  box-shadow:
-    inset 0 calc(-2px * var(--k)) 0 rgba(150, 0, 25, 0.25),
-    0 calc(2px * var(--k)) 0 #c70a26,
-    0 calc(3px * var(--k)) calc(6px * var(--k)) rgba(255, 30, 60, 0.25);
+    #f5293f;
+  box-shadow: 0 calc(2px * var(--k)) 0 #c70a26;
   overflow: hidden;
   animation: tadnudge 2.4s ease-in-out infinite;
 }
@@ -6273,11 +6245,10 @@ body.landscape #shop .sheet-panel::before {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 40%, #4a2690, #2f1460 80%);
+  background: #3a1a74;
   box-shadow:
     0 0 0 calc(3px * var(--k)) #fff,
-    0 calc(4px * var(--k)) 0 calc(3px * var(--k)) #d9cff5,
-    0 calc(7px * var(--k)) calc(10px * var(--k)) rgba(60, 20, 120, 0.2);
+    0 calc(4px * var(--k)) 0 calc(3px * var(--k)) #d9cff5;
   cursor: pointer;
   animation: evbob 2.6s ease-in-out infinite;
 }
@@ -6303,7 +6274,7 @@ body.landscape #shop .sheet-panel::before {
   transform: translateX(-50%);
   padding: calc(2px * var(--k)) calc(7px * var(--k));
   border-radius: 999px;
-  background: linear-gradient(180deg, #f5821f, #f06a0a);
+  background: #f27512;
   box-shadow: 0 2px 0 #b84300;
   color: #fff;
   font: 800 calc(11px * var(--k)) / 1.2 var(--font);
