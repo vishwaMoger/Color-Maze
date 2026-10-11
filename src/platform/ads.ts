@@ -88,7 +88,8 @@ export async function initPlatform(): Promise<void> {
     }
     const found = (window as unknown as { CrazyGames?: { SDK?: CrazySdk } }).CrazyGames?.SDK;
     if (!found) return;
-    await found.init();
+    // Never let a slow SDK start keep the game from loading.
+    await Promise.race([found.init(), new Promise((_, reject) => setTimeout(() => reject(new Error('sdk init timeout')), 8000))]);
     if (found.environment === 'disabled') return;
     sdk = found;
     sdk.game.addSettingsChangeListener?.((s) => muteListener?.(!!s.muteAudio));
