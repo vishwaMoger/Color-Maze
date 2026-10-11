@@ -1,5 +1,5 @@
-"""Renders the 3D gold key: a spinning sprite sheet for keys lying on the
-board (src/assets/icons/keyspin.webp) and a still for the HUD, the Safe and
+"""Renders the 3D gold key: a spinning sprite strip for keys lying on the
+board and the keys collected in the HUD (src/assets/icons/keyspin.webp) and a still for the HUD, the Safe and
 flying keys (src/assets/icons/key.webp).
 
 The key (a round bow, a collar, the shaft and a two-tooth bit) is a signed
@@ -14,8 +14,8 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 FRAMES = 36  # one full turn
-COLS = 6
-FS = 112  # frame size (px)
+COLS = 36  # one row: also played as a CSS sprite in the HUD
+FS = 108  # frame size (px)
 SS = 3
 
 
@@ -152,8 +152,8 @@ for i in range(FRAMES):
 sheet.save('src/assets/icons/keyspin.webp', 'WEBP', quality=90, method=6)
 print('wrote src/assets/icons/keyspin.webp', sheet.size)
 
-still = render(math.radians(-38), math.radians(14), math.radians(-38), 192, 1.0)
-still = still.crop(still.getbbox())
-still.thumbnail((160, 160), Image.LANCZOS)
+# The still is the board's key as it is seen most of the time: upright,
+# a little turned, in the same light (square, like a sheet frame).
+still = render(math.radians(25), math.radians(16), 0, 160)
 still.save('src/assets/icons/key.webp', 'WEBP', quality=92, method=6)
 print('wrote src/assets/icons/key.webp', still.size)

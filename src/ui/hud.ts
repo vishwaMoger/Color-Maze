@@ -1163,8 +1163,19 @@ export class Hud {
 
   // ------------------------------------------------------------ league
 
-  renderLeague(rows: LeagueRow[]) {
+  /**
+   * Draw the weekly table. `live`: a refresh while it is open: rivals who
+   * just won a level flash their gain and slide to their new place (the
+   * list keeps its scroll position).
+   */
+  renderLeague(rows: LeagueRow[], live = false) {
     const list = $('league-list');
+    const scroll = list.scrollTop;
+    const was = new Map<string, { top: number; stars: number }>();
+    if (live)
+      list.querySelectorAll<HTMLElement>('li[data-name]').forEach((li) =>
+        was.set(li.dataset.name!, { top: li.offsetTop, stars: Number(li.dataset.stars) }),
+      );
     list.innerHTML = '';
     // The top three get a real medal, a metal-ringed avatar (a crown on the
     // leader) and their prize; first place also twinkles.
@@ -1199,9 +1210,38 @@ export class Hud {
       if (r.you) return;
       const li = document.createElement('li');
       li.className = i < 3 ? `top${i + 1}` : '';
+      li.dataset.name = r.name;
+      li.dataset.stars = String(r.stars);
       li.innerHTML = row(r, i);
       list.appendChild(li);
     });
+    if (live) {
+      list.scrollTop = scroll;
+      list.querySelectorAll<HTMLElement>('li[data-name]').forEach((li) => {
+        const old = was.get(li.dataset.name!);
+        if (!old) return;
+        const gain = Number(li.dataset.stars) - old.stars;
+        if (gain > 0) {
+          li.classList.add('gain');
+          const plus = document.createElement('i');
+          plus.className = 'plus';
+          plus.textContent = `+${gain}`;
+          li.appendChild(plus);
+        }
+        // Slide from the old place to the new one.
+        const dy = old.top - li.offsetTop;
+        if (dy) {
+          li.style.transform = `translateY(${dy}px)`;
+          li.style.zIndex = gain > 0 ? '2' : '';
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              li.style.transition = 'transform 0.6s cubic-bezier(0.3, 1.3, 0.5, 1)';
+              li.style.transform = '';
+            }),
+          );
+        }
+      });
+    }
     const me = rows.findIndex((r) => r.you);
     $('league-you').innerHTML = me >= 0 ? `<li class="you">${row(rows[me], me)}</li>` : '';
     // Your standing at a glance (shown beside the podium on wide screens).
@@ -1213,6 +1253,7 @@ export class Hud {
         `<div class="ls"><b>${rows[me].stars}<i class="ico ico-star"></i></b><span>Your stars</span></div>` +
         `<div class="ls"><b>${ahead ? `+${gap}` : 'Top!'}</b><span>${ahead ? `to pass ${ahead.name}` : 'You lead'}</span></div>`;
     }
+    if (live) return;
     $('league-tiers').innerHTML = tierLadder(0);
     list.scrollTop = 0;
   }
