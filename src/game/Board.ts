@@ -1,4 +1,4 @@
-import { BlurFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js';
+import { BlurFilter, Container, Filter, GlProgram, Graphics, Rectangle, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js';
 import {
   ARROW_D,
   ARROW_L,
@@ -632,6 +632,24 @@ const SHADE = 0.33;
 /** The darker rim paint keeps along a wall face, in tiles. */
 const PAINT_RIM = 0.14;
 
+/** Frames of the spinning 3D gold key (see scripts/render-key.py): one
+ *  full turn, in a 6 x 6 sheet. Cut once and shared by every board. */
+const KEY_FRAMES = 36;
+const KEY_COLS = 6;
+const KEY_SPIN_MS = 2200;
+let keyFrames: Texture[] | null = null;
+function keySpinFrames(): Texture[] | null {
+  if (keyFrames) return keyFrames;
+  const img = iconImage('keyspin');
+  if (!img) return null;
+  const base = Texture.from(img);
+  const fs = img.width / KEY_COLS;
+  keyFrames = [];
+  for (let i = 0; i < KEY_FRAMES; i++)
+    keyFrames.push(new Texture({ source: base.source, frame: new Rectangle((i % KEY_COLS) * fs, Math.floor(i / KEY_COLS) * fs, fs, fs) }));
+  return keyFrames;
+}
+
 export class Board extends Container {
   readonly cols: number;
   readonly rows: number;
@@ -669,7 +687,7 @@ export class Board extends Container {
   /** Gates: beams and posts, how lit the beams are (0-1) and heading. */
   private readonly gates: { v: number; halves: { s: Sprite; sign: number }[]; on: number; target: number; at: number }[] = [];
 
-  private readonly pickups = new Map<number, { s: Sprite; glow: Sprite; base: number; y0: number; at: number }>();
+  private readonly pickups = new Map<number, { s: Sprite; glow: Sprite; base: number; y0: number; at: number; spin?: Texture[] }>();
   private lastTime = 0;
 
   private hitAt = -1;
@@ -1317,14 +1335,16 @@ export class Board extends Container {
       for (let x = 0; x < cols; x++) {
         const v = this.level.grid[y][x];
         if (v !== COIN && v !== KEY && v !== MULT) continue;
+        // Keys turn round and round: a real 3D gold key.
+        const spin = v === KEY ? keySpinFrames() : null;
         const img = v === MULT ? multBadge(cs * 0.27, res) : iconImage(v === COIN ? 'coin' : 'key');
-        if (!img) continue;
-        const tex = Texture.from(img);
+        if (!img && !spin) continue;
+        const tex = spin ? spin[0] : Texture.from(img!);
         if (v === MULT) this.textures.push(tex);
         const sp = new Sprite(tex);
         sp.anchor.set(0.5);
-        const size = cs * (v === COIN ? 0.5 : v === MULT ? 0.67 : 0.6);
-        sp.scale.set(size / Math.max(img.width, img.height));
+        const size = cs * (v === COIN ? 0.5 : v === MULT ? 0.67 : spin ? 0.9 : 0.6);
+        sp.scale.set(size / (spin ? tex.frame.height : Math.max(img!.width, img!.height)));
         sp.position.set((x + 0.5) * cs, (y + 0.5) * cs);
         const glow = new Sprite(glowTex);
         glow.anchor.set(0.5);
@@ -1333,7 +1353,7 @@ export class Board extends Container {
         glow.blendMode = 'add';
         glow.position.copyFrom(sp.position);
         this.sawLayer.addChild(glow, sp);
-        this.pickups.set(y * cols + x, { s: sp, glow, base: sp.scale.x, y0: sp.y, at: -1 });
+        this.pickups.set(y * cols + x, { s: sp, glow, base: sp.scale.x, y0: sp.y, at: -1, spin: spin ?? undefined });
       }
     this.buildTraps(res);
     this.sawLayer.addChildAt(this.trapLayer, 0);
@@ -1913,6 +1933,8 @@ export class Board extends Container {
     let i = 0;
     for (const p of this.pickups.values()) {
       i++;
+      // A key keeps turning, also as it pops on pick up.
+      if (p.spin) p.s.texture = p.spin[Math.floor(((time + i * 377) / KEY_SPIN_MS) * KEY_FRAMES) % KEY_FRAMES];
       if (p.at < 0) {
         p.s.y = p.y0 + Math.sin(time * 0.004 + i) * this.cell * 0.05;
         p.glow.alpha = 0.55 + Math.sin(time * 0.006 + i) * 0.2;

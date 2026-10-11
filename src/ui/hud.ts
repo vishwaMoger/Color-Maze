@@ -1,6 +1,7 @@
 // DOM overlay: HUD, panels (shop, settings, league, key vault) and the
 // level-complete moments. The board itself is drawn by Pixi underneath.
-
+import { avatarUrl } from '../game/assets.ts';
+import type { AvatarKind } from '../game/meta.ts';
 
 /** League tiers, lowest first. */
 const TIERS = ['Bronze', 'Silver', 'Gold', 'Ruby', 'Emerald', 'Diamond'];
@@ -32,16 +33,30 @@ let PLAYER: { name: string; avatar?: string } | null = null;
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const youName = () => (PLAYER ? esc(PLAYER.name) : 'You');
 const SPHERES = ['#ffd23a', '#ff4f7a', '#4fdca0', '#5aa8ff', '#b67bff', '#ff9a3d', '#3d3d55', '#f2f0ff'];
-const avatarStyle = (r: { name: string; you?: boolean; avatar: string }) => {
+// Profile colours for players without a picture (shown by their initial).
+const LETTER_BG = ['#ef5b7a', '#f0843c', '#e2a91f', '#3fb871', '#2ea7c9', '#4f7cec', '#8a5ce6', '#c055d4', '#22a896', '#6c7a92'];
+type Who = { name: string; you?: boolean; avatar: AvatarKind; live?: boolean };
+const nameHash = (name: string) => {
   let h = 7;
-  for (const ch of r.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+};
+const avatarStyle = (r: Who) => {
+  const h = nameHash(r.name);
   const balls = BALL_ART;
   // Quotes encoded: the style ends up inside a double-quoted HTML attribute.
   if (r.you && PLAYER?.avatar)
     return `background:#fff url('${PLAYER.avatar.replace(/'/g, '%27').replace(/"/g, '%22').replace(/[\\\n]/g, '')}') center / cover no-repeat`;
-  if (!r.you && h % 3 === 0 && balls.length) return `background:url('${balls[h % balls.length]}') center / cover no-repeat`;
+  if (!r.you && r.avatar === 'face') return `background:url('${avatarUrl(r.name, false)}') center / 88% no-repeat, ${LETTER_BG[h % LETTER_BG.length]}`;
+  if (!r.you && r.avatar === 'letter') return `background:${LETTER_BG[h % LETTER_BG.length]}`;
+  if (!r.you && r.avatar === 'ball' && balls.length) return `background:url('${balls[h % balls.length]}') center / cover no-repeat`;
   const c = r.you ? '#ffc21a' : SPHERES[h % SPHERES.length];
   return `background:radial-gradient(circle at 35% 30%, #fff 0 8%, ${c} 38%, color-mix(in srgb, ${c} 60%, #000) 100%)`;
+};
+/** A player's picture: their own, an animal, their ball or their initial, with a green dot while they play. */
+const avatar = (r: Who, cls = 'avatar') => {
+  const letter = !r.you && r.avatar === 'letter' ? esc((r.name.match(/\p{L}|\d/u)?.[0] ?? '?').toUpperCase()) : '';
+  return `<span class="${cls}${letter ? ' letter' : ''}${r.live ? ' live' : ''}" style="${avatarStyle(r)}">${letter}</span>`;
 };
 
 export type VaultKind = 'hint' | 'item' | 'coins';
@@ -154,7 +169,8 @@ export interface LeagueRow {
   name: string;
   stars: number;
   you: boolean;
-  avatar: string;
+  avatar: AvatarKind;
+  live?: boolean;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -1155,8 +1171,8 @@ export class Hud {
     const row = (r: LeagueRow, i: number) =>
       `<span class="pos">${i < 3 ? `<i class="ico ico-medal${i + 1} medal" aria-label="${i + 1}"></i>` : `#${i + 1}`}</span>${
         i < 3
-          ? `<span class="avwrap">${i === 0 ? '<i class="ico ico-crown crown"></i>' : ''}<span class="avatar" style="${avatarStyle(r)}"></span></span>`
-          : `<span class="avatar" style="${avatarStyle(r)}"></span>`
+          ? `<span class="avwrap">${i === 0 ? '<i class="ico ico-crown crown"></i>' : ''}${avatar(r)}</span>`
+          : `${avatar(r)}`
       }<span class="who">${r.you ? youName() : r.name}</span>${i < 3 ? '<i class="ico ico-gift gift"></i>' : ''}<span class="score">${r.stars}<i class="ico ico-star"></i></span>${
         i === 0 ? '<i class="tw t1"></i><i class="tw t2"></i><i class="tw t3"></i>' : ''
       }`;
@@ -1170,7 +1186,7 @@ export class Hud {
         const r = rows[i];
         return `<div class="pod p${i + 1}${r.you ? ' you' : ''}">
           ${i === 0 ? '<i class="ico ico-crown crown"></i>' : ''}
-          <span class="pav ${medal[i]}" style="${avatarStyle(r)}"></span>
+          ${avatar(r, `pav ${medal[i]}`)}
           <span class="pname">${r.you ? youName() : r.name}</span>
           <span class="pstars">${r.stars}<i class="ico ico-star"></i></span>
           <span class="pblock ${medal[i]}"><b>${i + 1}</b><i class="ico ico-gift"></i></span>
@@ -1834,7 +1850,7 @@ export class Hud {
     const others = after.filter((r) => !r.you);
     const rowH = 48;
     const rowHtml = (r: LeagueRow, rank: number) =>
-      `<span class="pos">#${rank + 1}</span><span class="avatar" style="${avatarStyle(r)}"></span><span class="who">${r.you ? youName() : r.name}</span><span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
+      `<span class="pos">#${rank + 1}</span>${avatar(r)}<span class="who">${r.you ? youName() : r.name}</span><span class="score">${r.stars}<i class="ico ico-star"></i></span>`;
     inner.innerHTML = '';
     const rows = others.map((r) => {
       const el = document.createElement('div');
