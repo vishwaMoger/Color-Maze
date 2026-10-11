@@ -183,14 +183,13 @@ body {
   display: inline-grid;
   place-items: center;
   color: #fff;
-  /* The same candy look as the HUD buttons (.pbtn): a softly domed face,
-     a lit lip, a crisp outline and a deep solid base. */
+  /* The same look as the HUD buttons (.pbtn): a flat matte face with
+     only a faint sheen, a crisp outline and a deep solid base. */
   --edge: color-mix(in srgb, var(--b3) 70%, rgba(20, 0, 60, 0.5));
-  background: linear-gradient(180deg, var(--b1) 0%, var(--b2) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--b1) 18%, var(--b2)) 0%, var(--b2) 100%);
   box-shadow:
     0 0 0 1.5px var(--edge),
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.32),
-    inset 0 12px 10px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
     inset 0 -3px 0 rgba(20, 0, 70, 0.12),
     0 5px 0 var(--b3),
     0 5px 0 1.5px var(--edge),
@@ -211,12 +210,12 @@ body {
 }
 
 .gbtn::after {
-  /* Matte, like the HUD: a faint satin sheen high on the left. */
+  /* Matte, like the HUD: only a faint, soft sheen high on the left. */
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(ellipse 70% 55% at 28% 22%, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 70%);
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 /* Juicy release: a springy pop after every press. */
@@ -264,7 +263,7 @@ body {
   transform: translateY(4px) scale(0.98, 0.97);
   box-shadow:
     0 0 0 1.5px var(--edge),
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
     inset 0 2px 4px rgba(20, 0, 70, 0.14),
     inset 0 -1.5px 0 rgba(20, 0, 70, 0.1),
     0 1px 0 var(--b3),
@@ -328,9 +327,9 @@ body {
 
 /* Purple square button with a flat white glyph, like the original. */
 .pbtn {
-  /* Candy button: a softly domed face, lit from the top and deepening to
-     its colour below, a thin bright lip, a crisp outline and a solid base
-     it presses down into. */
+  /* Matte button: a flat face (just a touch lighter at the top) with a
+     faint sheen and a soft top edge, a crisp outline and a solid base it
+     presses down into. */
   --b1: #8a5cff;
   --b2: #7445f5;
   --b3: #4b1fc0;
@@ -343,11 +342,10 @@ body {
   padding: 0;
   border: 0;
   border-radius: calc(13px * var(--k));
-  background: linear-gradient(180deg, var(--b1) 0%, var(--b2) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--b1) 18%, var(--b2)) 0%, var(--b2) 100%);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.32),
-    inset 0 calc(12px * var(--k)) calc(10px * var(--k)) rgba(255, 255, 255, 0.1),
+    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.16),
     inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(4.5px * var(--k)) 0 var(--b3),
     0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge),
@@ -361,8 +359,8 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Matte: just a faint satin sheen high on the left, no glossy cap. */
-  background: radial-gradient(ellipse 70% 55% at 28% 22%, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 70%);
+  /* Matte: only a faint, soft sheen high on the left. */
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 .pbtn svg {
@@ -378,7 +376,7 @@ body {
   transform: translateY(calc(3.5px * var(--k))) scale(0.97);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.25),
+    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.12),
     inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
     inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 var(--b3),
@@ -490,11 +488,10 @@ body {
   padding: 0 calc(8px * var(--k)) 0 calc(31px * var(--k));
   border: 0;
   border-radius: calc(12px * var(--k));
-  background: linear-gradient(180deg, #845aff 0%, #6a3ce8 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, #845aff 18%, #6a3ce8) 0%, #6a3ce8 100%);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
-    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.32),
-    inset 0 calc(12px * var(--k)) calc(10px * var(--k)) rgba(255, 255, 255, 0.1),
+    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.16),
     inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(4.5px * var(--k)) 0 #4520ad,
     0 calc(4.5px * var(--k)) 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
@@ -509,8 +506,8 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Matte: just a faint satin sheen high on the left, no glossy cap. */
-  background: radial-gradient(ellipse 70% 55% at 28% 22%, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 70%);
+  /* Matte: only a faint, soft sheen high on the left. */
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 .trophy-card .cup {
@@ -559,7 +556,7 @@ body {
   transform: translateY(calc(3.5px * var(--k))) scale(0.97);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) rgba(45, 14, 130, 0.55),
-    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.25),
+    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.12),
     inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
     inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 #4520ad,
@@ -863,8 +860,7 @@ body {
   cursor: pointer;
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.32),
-    inset 0 calc(12px * var(--k)) calc(10px * var(--k)) rgba(255, 255, 255, 0.1),
+    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.16),
     inset 0 calc(-2.5px * var(--k)) 0 rgba(20, 0, 70, 0.12),
     0 calc(5px * var(--k)) 0 var(--lip),
     0 calc(5px * var(--k)) 0 calc(1.5px * var(--k)) var(--edge),
@@ -876,26 +872,26 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Matte: just a faint satin sheen high on the left, no glossy cap. */
-  background: radial-gradient(ellipse 70% 55% at 28% 22%, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 70%);
+  /* Matte: only a faint, soft sheen high on the left. */
+  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 72%);
   pointer-events: none;
 }
 .tbtn.green {
   --lip: #2f8a17;
   --edge: rgba(20, 80, 10, 0.5);
-  background: linear-gradient(180deg, #74d64a 0%, #52b92e 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, #74d64a 18%, #52b92e) 0%, #52b92e 100%);
 }
 .tbtn.yellow {
   --lip: #d07800;
   --edge: rgba(130, 60, 0, 0.45);
-  background: linear-gradient(180deg, #ffcf33 0%, #ffae0d 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, #ffcf33 18%, #ffae0d) 0%, #ffae0d 100%);
 }
 .tbtn:active,
 .tbtn.pressed {
   transform: translateY(calc(4px * var(--k))) scale(0.97);
   box-shadow:
     0 0 0 calc(1.5px * var(--k)) var(--edge),
-    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.25),
+    inset 0 calc(1px * var(--k)) 0 rgba(255, 255, 255, 0.12),
     inset 0 calc(2px * var(--k)) calc(4px * var(--k)) rgba(20, 0, 70, 0.14),
     inset 0 calc(-1.5px * var(--k)) 0 rgba(20, 0, 70, 0.1),
     0 calc(1px * var(--k)) 0 var(--lip),
@@ -2952,7 +2948,7 @@ body.page-open .hud {
   inset: 0;
   z-index: 1;
   border-radius: inherit;
-  background: linear-gradient(110deg, transparent 40%, rgba(255, 255, 255, 0.5) 50%, transparent 60%) 0 0 / 260% 100% no-repeat;
+  background: linear-gradient(110deg, transparent 40%, rgba(255, 255, 255, 0.22) 50%, transparent 60%) 0 0 / 260% 100% no-repeat;
   animation: shine 2.2s ease-in-out infinite;
   pointer-events: none;
 }
@@ -4157,7 +4153,7 @@ body.page-open .hud {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.5) 50%, transparent 65%) 0 0 / 250% 100% no-repeat;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.22) 50%, transparent 65%) 0 0 / 250% 100% no-repeat;
   animation: rvsheen 2.4s ease-in-out infinite;
   pointer-events: none;
 }
@@ -6463,7 +6459,7 @@ body.landscape #shop .sheet-panel::before {
   bottom: -20%;
   left: -40%;
   width: 34%;
-  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.24) 50%, rgba(255, 255, 255, 0) 100%);
   transform: skewX(-18deg);
   animation: ctashine 2.8s ease-in-out infinite;
 }
