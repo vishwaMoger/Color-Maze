@@ -306,6 +306,10 @@ export class Game {
     this.refreshLeague(false);
     this.checkUnlocks();
     window.setInterval(() => this.refreshLeague(false), 30000);
+    // While the table is open, rivals keep playing in front of you.
+    window.setInterval(() => {
+      if (document.getElementById('league')?.hidden === false) this.refreshLeague(true, true);
+    }, 3000);
     this.applyTheme();
     this.loadLevel(this.levelNo, false);
     this.bindInput();
@@ -497,10 +501,17 @@ export class Game {
     return true;
   }
 
-  private refreshLeague(render: boolean) {
+  /** What the open table last showed, so a live refresh redraws only on a change. */
+  private leagueShown = '';
+
+  private refreshLeague(render: boolean, live = false) {
     const { rows, rank } = league(this.save.week, this.save.weekStars);
     this.hud.setLeague(rank, timeLeft());
-    if (render) this.hud.renderLeague(rows);
+    if (!render) return;
+    const shown = rows.map((r) => `${r.name}:${r.stars}${r.live ? '*' : ''}`).join();
+    if (live && shown === this.leagueShown) return;
+    this.leagueShown = shown;
+    this.hud.renderLeague(rows, live);
   }
 
   /**

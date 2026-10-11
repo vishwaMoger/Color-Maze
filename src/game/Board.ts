@@ -633,9 +633,9 @@ const SHADE = 0.33;
 const PAINT_RIM = 0.14;
 
 /** Frames of the spinning 3D gold key (see scripts/render-key.py): one
- *  full turn, in a 6 x 6 sheet. Cut once and shared by every board. */
+ *  full turn, in one row. Cut once and shared by every board. */
 const KEY_FRAMES = 36;
-const KEY_COLS = 6;
+const KEY_COLS = 36;
 const KEY_SPIN_MS = 2200;
 let keyFrames: Texture[] | null = null;
 function keySpinFrames(): Texture[] | null {

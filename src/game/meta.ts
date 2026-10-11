@@ -257,53 +257,99 @@ export interface Standing {
   live?: boolean;
 }
 
+/** One sitting of a rival: levels won one after another, a minute or so apart. */
+interface Sitting {
+  start: number; // seconds into the week
+  end: number;
+  seed: number;
+  levels: number;
+  stars: number; // all of it, once the sitting is over
+}
+interface Rival {
+  name: string;
+  avatar: AvatarKind;
+  sittings: Sitting[];
+}
+
+/** The stars of each level a rival wins in a sitting, and when (seconds into the week). */
+function sittingWins(s: { start: number; seed: number; levels: number }, upTo = Infinity): { stars: number; at: number } {
+  const r = seeded(s.seed);
+  let at = s.start;
+  let stars = 0;
+  for (let i = 0; i < s.levels; i++) {
+    at += 40 + r() * 80; // solving a level takes a while
+    if (at > upTo) return { stars, at };
+    const q = r();
+    stars += q < 0.62 ? 3 : q < 0.88 ? 2 : 1;
+  }
+  return { stars, at };
+}
+
+const rivalsCache = new Map<number, Rival[]>();
+
 /**
- * A league of real-looking players: you and 99 rivals. Each rival plays in
- * sessions at their own times through the week (some daily, some in a big
- * weekend burst, some who stop after a day or two), winning a different
- * number of stars each time, so standings move in jumps and plateaus like
- * real people, not in step. Same week → same rivals, and a rival's stars
- * only ever grow as the week goes on.
+ * This week's 99 rivals and every sitting they will play. Each is a real
+ * looking player with a weekly appetite (most play a fair amount, a few
+ * are fanatics who play for hours every day), who plays in sittings at
+ * their own times: spread over the week, front loaded (then they drift
+ * off) or ramping up toward the end.
  */
-export function league(week: number, yourStars: number, now = new Date()): { rows: Standing[]; rank: number } {
+function rivals(week: number): Rival[] {
+  const cached = rivalsCache.get(week);
+  if (cached) return cached;
   const rng = seeded(week * 7907 + 13);
-  const elapsed = Math.min(1, Math.max(0, 1 - (weekEnd(now).getTime() - now.getTime()) / WEEK));
-  const live = 25 / (7 * 24 * 60); // "playing now": a session in the last 25 minutes
-  // Shuffle the whole pool (Fisher-Yates) and take 99 different names.
   const pool = [...NAMES];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  const rows: Standing[] = pool.slice(0, 99).map((name) => {
-    // Weekly appetite: most play a little, a few play a lot.
+  const weekS = WEEK / 1000;
+  const list = pool.slice(0, 99).map((name): Rival => {
     const kind = rng();
-    const total = kind < 0.12 ? 160 + rng() * 260 : kind < 0.45 ? 50 + rng() * 120 : 6 + rng() * 60;
-    // When in the week they play: steady, front-loaded (then stop) or late.
-    const style = rng();
+    const total =
+      kind < 0.07 ? 1800 + rng() * 1300 : kind < 0.27 ? 800 + rng() * 900 : kind < 0.67 ? 300 + rng() * 500 : 40 + rng() * 260;
+    // Fanatics play every day; the rest may also play mostly early in the
+    // week (then drift off) or mostly late.
+    const style = kind < 0.27 ? rng() * 0.6 : rng();
     const when = () => {
       const u = rng();
-      return style < 0.55 ? u : style < 0.8 ? u * (0.15 + rng() * 0.35) : 1 - (1 - u) ** 2.2;
+      return style < 0.55 ? u : style < 0.75 ? u * (0.2 + rng() * 0.3) : 1 - (1 - u) ** 2.2;
     };
-    let stars = 0;
-    let last = -1;
+    const sittings: Sitting[] = [];
     for (let got = 0; got < total; ) {
-      const win = 2 + Math.floor(rng() ** 1.6 * 16);
-      const at = when();
-      got += win;
-      if (at <= elapsed) {
-        stars += win;
-        last = Math.max(last, at);
-      }
+      const s = { start: when() * weekS, seed: Math.floor(rng() * 2 ** 32), levels: 5 + Math.floor(rng() ** 1.3 * 36) };
+      const all = sittingWins(s);
+      sittings.push({ ...s, end: all.at, stars: all.stars });
+      got += all.stars;
     }
     const pic = rng();
-    return {
-      name,
-      stars,
-      you: false,
-      avatar: AVATARS[pic < 0.34 ? 0 : pic < 0.68 ? 1 : pic < 0.9 ? 2 : 3],
-      live: last >= 0 && elapsed - last < live,
-    };
+    return { name, avatar: AVATARS[pic < 0.34 ? 0 : pic < 0.68 ? 1 : pic < 0.9 ? 2 : 3], sittings };
+  });
+  rivalsCache.clear();
+  rivalsCache.set(week, list);
+  return list;
+}
+
+/**
+ * The league right now: you and 99 rivals. Rivals keep playing as you do,
+ * winning level after level in their sittings (the ones playing right now
+ * gain stars every minute or so, with a green dot), so the table is always
+ * on the move and a high place has to be fought for and held. Same week →
+ * same rivals, and their stars only ever grow.
+ */
+export function league(week: number, yourStars: number, now = new Date()): { rows: Standing[]; rank: number } {
+  const into = Math.max(0, WEEK - (weekEnd(now).getTime() - now.getTime())) / 1000;
+  const rows: Standing[] = rivals(week).map((r) => {
+    let stars = 0;
+    let live = false;
+    for (const s of r.sittings) {
+      if (into >= s.end) stars += s.stars;
+      else if (into >= s.start) {
+        stars += sittingWins(s, into).stars;
+        live = true;
+      }
+    }
+    return { name: r.name, stars, you: false, avatar: r.avatar, live };
   });
   rows.push({ name: 'You', stars: yourStars, you: true, avatar: 'ball' });
   rows.sort((a, b) => b.stars - a.stars || (a.you ? -1 : b.you ? 1 : 0));
