@@ -2,6 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- An inline icon: no request for a /favicon.ico that is not there (a 404 in the logs). -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%237445f5%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%227%22 fill=%22%23ffd23a%22/%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <title>Color Maze</title>
     <!-- Dark from the very first frame, under the dark loading screen. -->
@@ -32,6 +34,24 @@
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
+      }
+      .sp-error {
+        display: grid;
+        justify-items: center;
+        gap: 14px;
+        color: #e9e2ff;
+        font: 600 16px/1.4 system-ui, sans-serif;
+        text-align: center;
+      }
+      .sp-error button {
+        padding: 10px 26px;
+        border: 0;
+        border-radius: 14px;
+        background: #7445f5;
+        box-shadow: 0 4px 0 #5a36cc;
+        color: #fff;
+        font: 700 17px system-ui, sans-serif;
+        cursor: pointer;
       }
       .sp-center {
         display: grid;

@@ -60,6 +60,29 @@ function styles(): Promise<void> {
   });
 }
 
+/**
+ * The game could not start at all (no graphics on this device, say): say
+ * so on the loading screen with a way to try again, instead of a loading
+ * bar that never fills.
+ */
+function showStartError() {
+  const sp = document.getElementById('splash');
+  if (!sp || sp.querySelector('.sp-error')) return;
+  sp.classList.remove('hide');
+  const box = document.createElement('div');
+  box.className = 'sp-error';
+  box.innerHTML = '<p>Color Maze could not start on this browser.</p><button type="button">Reload</button>';
+  box.querySelector('button')!.addEventListener('click', () => location.reload());
+  sp.querySelector('.sp-center')?.appendChild(box);
+}
+
+// A promise nobody waited on (an audio unlock refused, an ad call that
+// failed) is not a crash: keep it out of the error reports.
+window.addEventListener('unhandledrejection', (e) => {
+  console.warn('unhandled rejection', e.reason);
+  e.preventDefault();
+});
+
 async function start() {
   mark('start');
   // The loading screen first: a returning player's cached script runs at
@@ -102,6 +125,16 @@ async function start() {
   const hud = new Hud();
   const game = new Game(app, hud);
   mark('game');
+  // Phones can take the GPU's memory away (the tab in the background, low
+  // memory); when it comes back, draw the board again from scratch.
+  app.canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
+  app.canvas.addEventListener('webglcontextrestored', () => {
+    try {
+      game.rebuildBoard();
+    } catch (err) {
+      console.error(err);
+    }
+  });
   // Exposed for automated play-testing in the browser.
   (window as unknown as { colorMaze: Game }).colorMaze = game;
   // The web font is part of the stylesheet, so this is normally at once.
@@ -122,4 +155,7 @@ async function start() {
   setTimeout(show, 1500);
 }
 
-void start();
+start().catch((err) => {
+  console.error(err);
+  showStartError();
+});

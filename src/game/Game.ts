@@ -341,6 +341,9 @@ export class Game {
     };
     const onSizeSoon = () => {
       onSize();
+      // Phones report a turn in steps (and the HUD may still be settling):
+      // keep checking the free area every frame for a moment.
+      this.settleUntil = performance.now() + 1200;
       requestAnimationFrame(() => onSize());
       window.setTimeout(() => onSize(), 250);
     };
@@ -1325,13 +1328,23 @@ export class Game {
     const availH = Math.max(120, h - ins.top - ins.bottom - 16);
     // The outer wall ring is mostly hidden, so it needs less room.
     const cell = Math.floor(Math.max(16, Math.min(availW / (cols - 0.7), availH / (rows - 0.7), 96)));
-    return { cell, cx: ins.left + gutter + availW / 2, cy: ins.top + 8 + availH / 2 };
+    // In the middle of the screen, as far as the HUD columns allow (they
+    // can differ in width, which would push the board off to one side);
+    // on a turned phone also in the middle top to bottom.
+    const bw = cell * (cols - 0.7);
+    const bh = cell * (rows - 0.7) * 0.964;
+    const mid = (want: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.max(lo, Math.min(hi, want)));
+    const cx = mid(w / 2, ins.left + gutter + bw / 2, w - ins.right - gutter - bw / 2);
+    const cy = this.hud.landscape ? mid(h / 2, ins.top + 8 + bh / 2, h - ins.bottom - 8 - bh / 2) : ins.top + 8 + availH / 2;
+    return { cell, cx, cy };
   }
 
   private buildBoard() {
     const { cell, cx, cy } = this.layout();
     this.layoutCache = { cx, cy };
     this.cell = cell;
+    this.fit = 1;
+    window.clearTimeout(this.rebuildTimer);
     const res = Math.min(window.devicePixelRatio || 1, 2);
     this.ballRes = res;
     const board = new Board(this.level, this.look, cell, res);
@@ -1379,15 +1392,44 @@ export class Game {
     this.syncTraps(false);
   }
 
+  /** The board drawn for one cell size, shown at another until it is redrawn. */
+  private fit = 1;
+  private rebuildTimer = 0;
+
+  /**
+   * A new size for the game (fullscreen, a turned phone, a resized window).
+   * The board we have is scaled to the new size at once, so the game
+   * follows the change on the very next frame; it is redrawn crisp at the
+   * new size once the size has stopped changing (a fullscreen switch or a
+   * rotation can pass through several sizes, and redrawing the board for
+   * each would stall the change).
+   */
   private relayout() {
     if (!this.board) return;
     const { cell } = this.layout();
-    if (cell === this.cell) {
-      const { cx, cy } = this.layout();
-      this.board.position.set(cx, cy);
-      return;
-    }
+    this.fit = cell / this.cell;
+    window.clearTimeout(this.rebuildTimer);
+    if (cell === this.cell) return;
+    this.rebuildTimer = window.setTimeout(() => {
+      try {
+        if (!this.board || this.layout().cell === this.cell) {
+          this.fit = 1;
+          return;
+        }
+        const old = this.board;
+        this.buildBoard();
+        old.destroy();
+      } catch (err) {
+        console.error(err);
+      }
+    }, 280);
+  }
+
+  /** Redraw the board from scratch (e.g. after the GPU lost and restored its memory). */
+  rebuildBoard() {
+    if (!this.board) return;
     const old = this.board;
+    this.layoutCache = null;
     this.buildBoard();
     old.destroy();
   }
@@ -2825,6 +2867,14 @@ export class Game {
       n.x += n.vx * s;
       n.y += n.vy * s;
     }
+    if (this.settleUntil && performance.now() < this.settleUntil) {
+      const l = this.layout();
+      const c = this.layoutCache;
+      if (!c || Math.abs(l.cx - c.cx) > 0.5 || Math.abs(l.cy - c.cy) > 0.5 || Math.abs(l.cell / this.cell - this.fit) > 1e-3) {
+        this.layoutCache = { cx: l.cx, cy: l.cy };
+        this.relayout();
+      }
+    }
     const { cx, cy } = this.layoutCache ?? (this.layoutCache = this.layout());
     const e = this.enter;
     // View: eases toward its target (the shop slides the board up).
@@ -2833,7 +2883,7 @@ export class Game {
     v.dx += (v.tdx - v.dx) * k;
     v.dy += (v.tdy - v.dy) * k;
     v.s += (v.ts - v.s) * k;
-    const sc = e.s * v.s * (1 + this.scaleKick * 0.05);
+    const sc = e.s * v.s * this.fit * (1 + this.scaleKick * 0.05);
     this.board.scale.set(sc, sc * this.foreshorten);
     this.board.rotation = e.rot;
     this.board.position.set(cx + n.x + e.x + v.dx, cy + n.y + v.dy);
@@ -2995,6 +3045,8 @@ export class Game {
   }
 
   private layoutCache: { cx: number; cy: number } | null = null;
+  /** Until when (performance.now) the layout is re-measured every frame after a size change. */
+  private settleUntil = 0;
 
   private view = { dx: 0, dy: 0, s: 1, tdx: 0, tdy: 0, ts: 1 };
 
@@ -3013,8 +3065,8 @@ export class Game {
       return;
     }
     const { cx, cy } = this.layoutCache ?? (this.layoutCache = this.layout());
-    const h = this.board.boardHeight;
-    const w = this.board.boardWidth;
+    const h = this.board.boardHeight * this.fit;
+    const w = this.board.boardWidth * this.fit;
     const areaH = Math.max(80, free.bottom - free.top);
     const areaW = Math.max(80, free.right - free.left);
     v.ts = Math.min(1, areaH / h, areaW / w);
