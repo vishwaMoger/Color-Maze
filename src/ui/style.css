@@ -183,12 +183,12 @@ body {
   display: inline-grid;
   place-items: center;
   color: #fff;
-  /* The same look as the HUD buttons (.pbtn): a flat matte face with
-     only a faint sheen, a crisp outline and a deep solid base. */
-  --edge: color-mix(in srgb, var(--b3) 70%, rgba(20, 0, 60, 0.5));
-  background: color-mix(in srgb, var(--b1) 30%, var(--b2));
+  /* The same look as the HUD buttons (.pbtn), as in the original: a
+     matte face shading from a deeper top to a lighter bottom, on a thin
+     solid base. */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--b2) 80%, var(--b3)), color-mix(in srgb, var(--b2) 62%, var(--b1)));
   box-shadow:
-    0 5px 0 var(--b3);
+    0 4px 0 var(--b3);
   -webkit-font-smoothing: antialiased;
   cursor: pointer;
   pointer-events: auto;
@@ -209,10 +209,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Surface depth: the face rounds over, lighter towards the top
-     and a touch deeper at the bottom, with a soft lit top edge. */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.24), inset 0 -2px 0 rgba(30, 0, 80, 0.06);
+  background: none;
   pointer-events: none;
 }
 /* Juicy release: a springy pop after every press. */
@@ -257,7 +254,7 @@ body {
 
 .gbtn:active,
 .gbtn.pressed {
-  transform: translateY(4px) scale(0.98, 0.97);
+  transform: translateY(3px) scale(0.98, 0.97);
   box-shadow:
     0 1px 0 var(--b3);
 }
@@ -319,13 +316,12 @@ body {
 
 /* Purple square button with a flat white glyph, like the original. */
 .pbtn {
-  /* Matte button: a flat face (just a touch lighter at the top) with a
-     faint sheen and a soft top edge, a crisp outline and a solid base it
-     presses down into. */
-  --b1: #8a5cff;
-  --b2: #7445f5;
-  --b3: #5a36cc;
-  --edge: rgba(45, 14, 130, 0.55);
+  /* The original's matte button: the face shades from a deeper violet at
+     the top to a lighter one at the bottom, on a thin solid base it
+     presses down into. No outline, no sheen. */
+  --b1: #8446dc;
+  --b2: #6b39b4;
+  --b3: #6232a8;
   position: relative;
   display: grid;
   place-items: center;
@@ -333,10 +329,10 @@ body {
   height: calc(40px * var(--k));
   padding: 0;
   border: 0;
-  border-radius: calc(11px * var(--k));
-  background: color-mix(in srgb, var(--b1) 30%, var(--b2));
+  border-radius: calc(13px * var(--k));
+  background: linear-gradient(180deg, var(--b2), var(--b1));
   box-shadow:
-    0 calc(4.5px * var(--k)) 0 var(--b3);
+    0 calc(3px * var(--k)) 0 var(--b3);
   color: #fff;
   cursor: pointer;
   transition: transform 0.07s ease-out, box-shadow 0.07s ease-out, filter 0.15s;
@@ -346,10 +342,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Surface depth: the face rounds over, lighter towards the top
-     and a touch deeper at the bottom, with a soft lit top edge. */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
-  box-shadow: inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.24), inset 0 calc(-2px * var(--k)) 0 rgba(30, 0, 80, 0.06);
+  background: none;
   pointer-events: none;
 }
 .pbtn svg {
@@ -358,13 +351,12 @@ body {
   width: 60%;
   height: 60%;
   fill: #fff;
-  filter: drop-shadow(0 calc(1.5px * var(--k)) 0 rgba(40, 10, 120, 0.45));
 }
 .pbtn:active,
 .pbtn.pressed {
-  transform: translateY(calc(3.5px * var(--k))) scale(0.97);
+  transform: translateY(calc(2.5px * var(--k))) scale(0.97);
   box-shadow:
-    0 calc(1px * var(--k)) 0 var(--b3);
+    0 calc(0.5px * var(--k)) 0 var(--b3);
 }
 /* Restart pulses when the ball is stuck in a dead end. */
 .pbtn.nudge {
@@ -471,10 +463,10 @@ body {
   height: calc(40px * var(--k));
   padding: 0 calc(8px * var(--k)) 0 calc(31px * var(--k));
   border: 0;
-  border-radius: calc(12px * var(--k));
-  background: color-mix(in srgb, #845aff 30%, #6a3ce8);
+  border-radius: calc(13px * var(--k));
+  background: linear-gradient(180deg, #6b39b4, #8446dc);
   box-shadow:
-    0 calc(4.5px * var(--k)) 0 #5a36cc;
+    0 calc(3px * var(--k)) 0 #6232a8;
   color: #fff;
   font-family: var(--font);
   cursor: pointer;
@@ -485,10 +477,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Surface depth: the face rounds over, lighter towards the top
-     and a touch deeper at the bottom, with a soft lit top edge. */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
-  box-shadow: inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.24), inset 0 calc(-2px * var(--k)) 0 rgba(30, 0, 80, 0.06);
+  background: none;
   pointer-events: none;
 }
 .trophy-card .cup {
@@ -534,9 +523,9 @@ body {
 }
 .trophy-card.pressed,
 .trophy-card:active {
-  transform: translateY(calc(3.5px * var(--k))) scale(0.97);
+  transform: translateY(calc(2.5px * var(--k))) scale(0.97);
   box-shadow:
-    0 calc(1px * var(--k)) 0 #5a36cc;
+    0 calc(0.5px * var(--k)) 0 #6232a8;
 }
 
 /* Centre: the group reward above the progress chain and the level name. */
@@ -832,10 +821,12 @@ body {
   padding: 0;
   font-family: var(--font);
   border: 0;
-  border-radius: calc(15px * var(--k));
+  border-radius: calc(18px * var(--k));
   cursor: pointer;
+  /* As in the original: a thin lighter rim along the top of the face. */
   box-shadow:
-    0 calc(5px * var(--k)) 0 var(--lip);
+    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.28),
+    0 calc(3.5px * var(--k)) 0 var(--lip);
   transition: transform 0.07s ease-out, box-shadow 0.07s ease-out;
 }
 .tbtn::before {
@@ -843,27 +834,23 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Surface depth: the face rounds over, lighter towards the top
-     and a touch deeper at the bottom, with a soft lit top edge. */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
-  box-shadow: inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.24), inset 0 calc(-2px * var(--k)) 0 rgba(30, 0, 80, 0.06);
+  background: none;
   pointer-events: none;
 }
 .tbtn.green {
-  --lip: #3f9a25;
-  --edge: rgba(20, 80, 10, 0.5);
-  background: color-mix(in srgb, #74d64a 30%, #52b92e);
+  --lip: #17852d;
+  background: linear-gradient(180deg, #6abd2c, #8bca38);
 }
 .tbtn.yellow {
-  --lip: #e5900a;
-  --edge: rgba(130, 60, 0, 0.45);
-  background: color-mix(in srgb, #ffcf33 30%, #ffae0d);
+  --lip: #d48f2c;
+  background: linear-gradient(180deg, #ffac03, #fbcd06);
 }
 .tbtn:active,
 .tbtn.pressed {
-  transform: translateY(calc(4px * var(--k))) scale(0.97);
+  transform: translateY(calc(3px * var(--k))) scale(0.97);
   box-shadow:
-    0 calc(1px * var(--k)) 0 var(--lip);
+    inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.28),
+    0 calc(0.5px * var(--k)) 0 var(--lip);
 }
 .tbtn.pop {
   animation: btnpop 0.34s cubic-bezier(0.3, 1.9, 0.5, 1);
