@@ -206,16 +206,35 @@ export function timeLeft(now = new Date()): string {
   return `${h}h ${m}m`;
 }
 
+// Rival players' handles, each used once per league: the kinds of names
+// people really pick (first names, name + initial, nicknames, words with
+// a year or a lucky number, the odd all-lowercase or all-caps tag), from
+// all over the world, so no league reads like a list of bots.
 const NAMES = [
-  'Mila', 'Kenji', 'Sofia', 'Arjun', 'Lena', 'Omar', 'Yuki', 'Noah', 'Priya', 'Leo', 'Ava', 'Mateo', 'Zara',
-  'Finn', 'Isla', 'Ravi', 'Chloe', 'Emre', 'Nina', 'Theo', 'Aisha', 'Lucas', 'Mei', 'Hugo', 'Sana', 'Jonas',
-  'Elif', 'Diego', 'Freya', 'Kofi', 'Ines', 'Bruno', 'Hana', 'Ivan', 'Rosa', 'Tariq', 'Clara', 'Joon',
+  'Mila', 'kenji.t', 'Sofia R', 'arjun_k', 'Lena', 'OmarH', 'yuki', 'NoahB', 'priya.s', 'Leo M', 'ava_rose', 'Mateo',
+  'zara88', 'Finn', 'isla.j', 'Ravi', 'chloe :)', 'Emre', 'nina_b', 'Theo', 'Aisha', 'lucas_br', 'Mei', 'Hugo',
+  'sana.k', 'Jonas', 'Elif', 'diego07', 'Freya', 'Kofi', 'Inês', 'bruno_m', 'Hana', 'Ivan P', 'rosa', 'tariq',
+  'Clara', 'joon', 'Ananya', 'Rahul S', 'meera_23', 'Vikram', 'sneha', 'Aditya', 'kavya.r', 'rohan', 'Ishaan',
+  'Pooja', 'Tanvi', 'harsh_v', 'Deepak', 'Nikhil', 'shreya', 'Mehmet', 'Ayşe', 'burak', 'Zeynep', 'João', 'Luana',
+  'gabi.s', 'Rafael', 'Camila', 'Valentina', 'santi_r', 'Martina', 'Lukas', 'Hannah', 'felix_w', 'Emma', 'Mia S',
+  'Jakub', 'Zofia', 'łukasz', 'Søren', 'Ingrid', 'Astrid', 'Mikko', 'Aino', 'Pierre', 'Camille', 'Léa', 'Julien',
+  'Giulia', 'Marco', 'alessia', 'Lorenzo', 'Elena', 'Nikos', 'Dimitra', 'Andrei', 'Ioana', 'Olga', 'Dmitri',
+  'Anya', 'Taras', 'Sakura', 'haruto', 'Ren', 'Minji', 'Jiwoo', 'seo-yeon', 'Wei', 'Lin', 'xiao_yu', 'Linh',
+  'Minh', 'Thảo', 'Siti', 'Putri', 'Rizky', 'Angelo', 'Bea', 'Joshua', 'Chidi', 'Amara', 'Tunde', 'Zanele',
+  'Youssef', 'Layla', 'Karim', 'Noor', 'Daniel', 'Sarah K', 'jess', 'Mike', 'ashley_b', 'Tyler', 'Brianna',
+  'Kevin L', 'Megan', 'jordan', 'Chris P', 'Olivia', 'Ethan', 'Grace', 'Liam', 'Ella', 'Jack', 'Ruby', 'Oscar',
+  'Amelia', 'Harry', 'Poppy', 'Callum', 'Niamh', 'Seán', 'Ewan', 'Isabella', 'Jasmine', 'Marcus', 'Tasha',
+  'NightOwl', 'sunny_side', 'MoonPie', 'pixelpanda', 'coffee_time', 'Bubbles', 'ZeroGravity', 'luckycat7',
+  'mr_noodle', 'Kiwi', 'peachy', 'Mango', 'snowflake', 'blue_jay', 'ThunderBolt', 'cupcake22', 'Sir Rolls',
+  'Paintbrush', 'neonfox', 'Waffles', 'tinytiger', 'Starlight', 'qwerty', 'Pumpkin', 'Captain K', 'HappyFeet',
+  'nacho', 'Biscuit', 'Comet', 'Raven', 'pickle', 'DragonFly', 'Marshmallow', 'gamer_girl', 'Maverick',
+  'PuzzleQueen', 'mazerunner', 'slowpoke', 'Turbo', 'jelly_bean', 'Pepper', 'Shadow', 'ollie_oop',
+  'Mr Fox', 'Lollipop', 'xXLeoXx', 'TheRealDan', 'just_mike', 'ellie_bean', 'mom_of_3', 'grandpa joe',
+  'kate1988', 'tom_2004', 'sam1999', 'ana2011', 'Max2012', 'eva_2009', 'nick77', 'jen_42', 'rob123',
+  'ali_99', 'MARIA', 'JOSE', 'DAVID R', 'sk8erboi', 'BunnyHop', 'Lucky', 'Zen', 'Rocket', 'Sparky',
 ];
-const AVATARS = [
-  'linear-gradient(135deg,#ff9a9e,#ff5f8a)', 'linear-gradient(135deg,#a1c4fd,#5a8dee)',
-  'linear-gradient(135deg,#ffe29f,#ffa94d)', 'linear-gradient(135deg,#b9f6ca,#3ccf91)',
-  'linear-gradient(135deg,#d4b8ff,#8e5cf7)', 'linear-gradient(135deg,#8fd3f4,#32a6c4)',
-];
+const AVATARS = ['face', 'ball', 'letter', 'sphere'] as const;
+export type AvatarKind = (typeof AVATARS)[number];
 
 function seeded(seed: number) {
   let a = seed >>> 0;
@@ -232,33 +251,61 @@ export interface Standing {
   name: string;
   stars: number;
   you: boolean;
-  avatar: string;
+  /** How the player shows: a 3D animal picture, their ball, an initial or a plain ball. */
+  avatar: AvatarKind;
+  /** Played in the last few minutes. */
+  live?: boolean;
 }
 
 /**
- * A 30-player league: 29 simulated players whose stars grow through the week
- * along their own pace, plus you. Same week → same rivals.
+ * A league of real-looking players: you and 99 rivals. Each rival plays in
+ * sessions at their own times through the week (some daily, some in a big
+ * weekend burst, some who stop after a day or two), winning a different
+ * number of stars each time, so standings move in jumps and plateaus like
+ * real people, not in step. Same week → same rivals, and a rival's stars
+ * only ever grow as the week goes on.
  */
 export function league(week: number, yourStars: number, now = new Date()): { rows: Standing[]; rank: number } {
   const rng = seeded(week * 7907 + 13);
-  const elapsed = 1 - (weekEnd(now).getTime() - now.getTime()) / WEEK;
-  // 99 rivals: plain names plus gamer tags built from them.
-  const tags = ['Pro', 'X', '_7', '99', 'Star', 'Ace', '2010', 'Max', 'Fox', '_GG', 'Jet', '42'];
+  const elapsed = Math.min(1, Math.max(0, 1 - (weekEnd(now).getTime() - now.getTime()) / WEEK));
+  const live = 25 / (7 * 24 * 60); // "playing now": a session in the last 25 minutes
+  // Shuffle the whole pool (Fisher-Yates) and take 99 different names.
   const pool = [...NAMES];
-  for (const n of NAMES) pool.push(n + tags[Math.floor(rng() * tags.length)]);
-  for (const n of NAMES) pool.push(n.toLowerCase() + Math.floor(10 + rng() * 989));
-  const names = pool.sort(() => rng() - 0.5).slice(0, 99);
-  const rows: Standing[] = names.map((name, i) => {
-    const final = Math.round(20 + 300 * rng() ** 1.9);
-    const pace = 0.75 + rng() * 0.5;
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const rows: Standing[] = pool.slice(0, 99).map((name) => {
+    // Weekly appetite: most play a little, a few play a lot.
+    const kind = rng();
+    const total = kind < 0.12 ? 160 + rng() * 260 : kind < 0.45 ? 50 + rng() * 120 : 6 + rng() * 60;
+    // When in the week they play: steady, front-loaded (then stop) or late.
+    const style = rng();
+    const when = () => {
+      const u = rng();
+      return style < 0.55 ? u : style < 0.8 ? u * (0.15 + rng() * 0.35) : 1 - (1 - u) ** 2.2;
+    };
+    let stars = 0;
+    let last = -1;
+    for (let got = 0; got < total; ) {
+      const win = 2 + Math.floor(rng() ** 1.6 * 16);
+      const at = when();
+      got += win;
+      if (at <= elapsed) {
+        stars += win;
+        last = Math.max(last, at);
+      }
+    }
+    const pic = rng();
     return {
       name,
-      stars: Math.max(0, Math.round(final * Math.min(1, elapsed ** pace))),
+      stars,
       you: false,
-      avatar: AVATARS[i % AVATARS.length],
+      avatar: AVATARS[pic < 0.34 ? 0 : pic < 0.68 ? 1 : pic < 0.9 ? 2 : 3],
+      live: last >= 0 && elapsed - last < live,
     };
   });
-  rows.push({ name: 'You', stars: yourStars, you: true, avatar: 'linear-gradient(135deg,#ffe066,#ff9f1a)' });
+  rows.push({ name: 'You', stars: yourStars, you: true, avatar: 'ball' });
   rows.sort((a, b) => b.stars - a.stars || (a.you ? -1 : b.you ? 1 : 0));
   return { rows, rank: rows.findIndex((r) => r.you) + 1 };
 }

@@ -6564,3 +6564,49 @@ body.landscape #shop .sheet-panel::before {
 button:disabled > .tap-haptic {
   display: none;
 }
+
+/* League players without a picture show their initial on their colour,
+   like a real profile; a green dot marks someone playing right now. */
+.avatar.letter,
+.pav.letter {
+  display: inline-grid;
+  place-items: center;
+  color: #fff;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+#league .ranking li.top1 .avatar.letter,
+#league .ranking li.top2 .avatar.letter,
+#league .ranking li.top3 .avatar.letter {
+  font-size: 19px;
+}
+.pav.letter {
+  font-size: 20px;
+}
+.p1 .pav.letter {
+  font-size: 26px;
+}
+.crow .avatar.letter {
+  font-size: 13px;
+}
+.avatar.live,
+.pav.live {
+  position: relative;
+}
+.avatar.live::after,
+.pav.live::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 28%;
+  height: 28%;
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 50%;
+  background: #34d058;
+  box-shadow: 0 0 0 2px #fff;
+}
