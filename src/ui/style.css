@@ -205,12 +205,14 @@ body {
 }
 
 .gbtn::after {
-  /* Matte, like the HUD: only a faint, soft sheen high on the left. */
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
+  /* Surface depth: the face rounds over, lighter towards the top
+     and a touch deeper at the bottom, with a soft lit top edge. */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.24), inset 0 -2px 0 rgba(30, 0, 80, 0.06);
   pointer-events: none;
 }
 /* Juicy release: a springy pop after every press. */
@@ -344,8 +346,10 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Matte: only a faint, soft sheen high on the left. */
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
+  /* Surface depth: the face rounds over, lighter towards the top
+     and a touch deeper at the bottom, with a soft lit top edge. */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
+  box-shadow: inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.24), inset 0 calc(-2px * var(--k)) 0 rgba(30, 0, 80, 0.06);
   pointer-events: none;
 }
 .pbtn svg {
@@ -481,8 +485,10 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Matte: only a faint, soft sheen high on the left. */
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
+  /* Surface depth: the face rounds over, lighter towards the top
+     and a touch deeper at the bottom, with a soft lit top edge. */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
+  box-shadow: inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.24), inset 0 calc(-2px * var(--k)) 0 rgba(30, 0, 80, 0.06);
   pointer-events: none;
 }
 .trophy-card .cup {
@@ -837,8 +843,10 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  /* Matte: only a faint, soft sheen high on the left. */
-  background: radial-gradient(ellipse 85% 65% at 30% 18%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 72%);
+  /* Surface depth: the face rounds over, lighter towards the top
+     and a touch deeper at the bottom, with a soft lit top edge. */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 58%, rgba(30, 0, 80, 0.07) 100%);
+  box-shadow: inset 0 calc(1.5px * var(--k)) 0 rgba(255, 255, 255, 0.24), inset 0 calc(-2px * var(--k)) 0 rgba(30, 0, 80, 0.06);
   pointer-events: none;
 }
 .tbtn.green {
