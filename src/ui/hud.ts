@@ -520,22 +520,22 @@ export class Hud {
     this.chainFill = fillTo;
     let svg = `<defs>
       <linearGradient id="tube-paint" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" style="stop-color:var(--paint-light)" /><stop offset="0.45" style="stop-color:var(--paint)" /><stop offset="1" style="stop-color:var(--paint-dark)" />
+        <stop offset="0" style="stop-color:var(--paint)" /><stop offset="0.7" style="stop-color:var(--paint)" /><stop offset="1" style="stop-color:var(--paint-dark)" />
       </linearGradient>
       <pattern id="tube-flow" width="10" height="28" patternUnits="userSpaceOnUse" patternTransform="skewX(-30)">
-        <rect width="4" height="28" fill="rgba(255,255,255,0.22)" />
+        <rect width="4" height="28" fill="rgba(255,255,255,0.16)" />
         <animateTransform attributeName="patternTransform" type="translate" from="0 0" to="10 0" dur="0.9s" repeatCount="indefinite" additive="sum" />
       </pattern>
       <clipPath id="tube-clip"><rect x="2" y="7" width="104" height="14" rx="7" /></clipPath>
       <radialGradient id="tube-gold" cx="0.38" cy="0.32" r="0.75">
-        <stop offset="0" stop-color="#fff6c2" /><stop offset="0.45" stop-color="#ffcf2e" /><stop offset="1" stop-color="#e88a00" />
+        <stop offset="0" stop-color="#ffd84a" /><stop offset="0.6" stop-color="#ffc727" /><stop offset="1" stop-color="#f0a000" />
       </radialGradient>
     </defs>
     <rect class="tube" x="2" y="7" width="104" height="14" rx="7" />
     <g clip-path="url(#tube-clip)">
       <rect class="tube-fill" x="0" y="7" height="14" width="${from}" fill="url(#tube-paint)" />
       <rect class="tube-fill" x="0" y="7" height="14" width="${from}" fill="url(#tube-flow)" />
-      <rect x="4" y="8.6" width="100" height="3" rx="1.5" fill="rgba(255,255,255,0.45)" />
+      <rect x="4" y="8.6" width="100" height="3" rx="1.5" fill="rgba(255,255,255,0.14)" />
     </g>`;
     xs.forEach((x, i) => {
       if (i < at) svg += `<circle class="dot done" cx="${x}" cy="${cy}" r="2.6" />`;
