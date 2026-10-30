@@ -4,3 +4,6 @@ artifact/
 *.log
 dist-crazygames/
 crazygames/
+
+# Local editor/tool settings
+.claude/
